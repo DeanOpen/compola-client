@@ -35,6 +35,7 @@ import { showToast } from '../../../engine/toast';
 import { loadStickerSuggestIfNeeded, sendSticker, stickerSuggestDelay, typingStickerSuggestions, useStickerSuggest, type StickerEntry } from '../../../engine/stickers';
 import { Popover } from '../../../ui/Overlays';
 import { StickerPicker, stickerNotReady, TypingStickerStrip } from '../../stickers/StickerPicker';
+import { EmojiPicker } from '../../stickers/EmojiPicker';
 import { insertMention, mentionQueryAt, rebaseMentions, tokenAt, type MentionQuery } from './mentions';
 
 const lineHeight = 19;
@@ -79,6 +80,16 @@ export function Composer({
   // Sticker picker popover, and the stickers suggested for the draft (Swift `TypingStickerState`): they show only while
   // the draft still is the text they were found for; a send with no answer holds that text away from the strip.
   const [showStickers, setShowStickers] = useState(false);
+  const [showEmoji, setShowEmoji] = useState(false);
+  const emojiButton = useRef<HTMLButtonElement>(null);
+  /** Inserts at the caret (replacing a selection) and keeps it after the insertion. */
+  const insertText = (t: string) => {
+    const el = field.current;
+    const start = el ? el.selectionStart : draft.text.length;
+    const end = el ? el.selectionEnd : draft.text.length;
+    pendingCaret.current = start + t.length;
+    update(draft.text.slice(0, start) + t + draft.text.slice(end), start + t.length);
+  };
   const [showMyCard, setShowMyCard] = useState(false);
   const [reminderInfo, setReminderInfo] = useState<ReminderComposeInfo | null>(null);
   /** OA conversations have no "Nhắc hẹn" (learned from the gate's answer). */
@@ -327,7 +338,7 @@ export function Composer({
           onClick={(el) =>
             openMenuBelow(el, [
               ...(isGroup ? [{ label: 'Tạo bình chọn', icon: BarChart3, onSelect: () => openCreatePoll(conversationId) }] : []),
-              { label: 'Emoji', icon: Smile, shortcut: '⌃⌘Space', disabled: true, onSelect: () => {} },
+              { label: 'Biểu tượng cảm xúc', icon: Smile, onSelect: () => setShowEmoji(true) },
             ])
           }
         />
@@ -389,9 +400,21 @@ export function Composer({
             }}
           />
         </div>
-        <button className="icon-button composer-icon" disabled title="Biểu cảm" aria-label="Biểu cảm">
+        <button
+          ref={emojiButton}
+          className={`icon-button composer-icon ${showEmoji ? 'is-active' : ''}`}
+          title="Biểu tượng cảm xúc"
+          aria-label="Biểu tượng cảm xúc"
+          aria-expanded={showEmoji}
+          onClick={() => setShowEmoji((v) => !v)}
+        >
           <Smile size={20} strokeWidth={1.8} />
         </button>
+        {showEmoji && (
+          <Popover anchor={emojiButton} onClose={() => setShowEmoji(false)} placement="top">
+            <EmojiPicker onPick={insertText} />
+          </Popover>
+        )}
         {isEmpty ? (
           <button className="icon-button composer-icon composer-like" onClick={onSendLike} title="Gửi nhanh biểu tượng cảm xúc" aria-label="Gửi biểu tượng thích">
             👍

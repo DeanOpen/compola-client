@@ -2271,3 +2271,8 @@
   justify-content: center;
   color: var(--accent);
 }
+
+.composer-icon.is-active {
+  color: var(--accent);
+  background: var(--selected);
+}
