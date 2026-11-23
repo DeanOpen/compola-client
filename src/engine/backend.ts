@@ -61,6 +61,9 @@ export const commands = {
   switchToSqlite: async () => (await backend()).invoke('engine_switch_to_sqlite'),
   /** Saves a media URL to `destPath` (absolute, folder must exist); see docs/media.md. */
   mediaSave: async (url: string, destPath: string) => (await backend()).invoke<string>('media_save', { url, destPath }),
+  /** Stages + quarantines a media file and opens it (or reveals it in Finder when it could run code). */
+  mediaOpenFile: async (url: string, name: string) =>
+    (await backend()).invoke<{ path: string; revealed: boolean }>('media_open_file', { url, name }),
   setShowsPreview: async (shows: boolean) => (await backend()).invoke('ui_set_shows_preview', { shows }),
   setOpenConversation: async (id: string | null) => (await backend()).invoke('ui_set_open_conversation', { id }),
 };

@@ -29,3 +29,22 @@ export const saveMediaAs = async (url: string, suggestedName: string, conversati
     return null;
   }
 };
+
+/**
+ * "Mở bằng ứng dụng khác": Rust `media_open_file` stages the file under its real name, quarantines it and opens it in
+ * its default app, or reveals it in Finder when it could run code (`revealed`). `url` is a `file://` or CDN URL.
+ */
+export const openMediaExternally = async (url: string, name: string, conversationId: string | null = null): Promise<boolean> => {
+  if (usesMock) {
+    window.open(url, '_blank', 'noopener');
+    return true;
+  }
+  try {
+    const r = await commands.mediaOpenFile(url, name);
+    if (r.revealed) showToast('Tệp này có thể chạy mã nên được hiện trong Finder thay vì mở.', conversationId);
+    return true;
+  } catch (e) {
+    showToast(`Không mở được tệp: ${String(e)}`, conversationId);
+    return false;
+  }
+};

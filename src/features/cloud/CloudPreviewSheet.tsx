@@ -5,7 +5,7 @@
 import { CheckCircle2, CloudAlert, Clock, Minus, Plus, Save, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { cloudFetch, cloudFileSrc, cloudFileUrl, type CloudFile, type CloudItem } from '../../engine/cloud';
-import { saveMediaAs } from '../../engine/save';
+import { openMediaExternally, saveMediaAs } from '../../engine/save';
 import { ContentUnavailable } from '../../ui/ContentUnavailable';
 import { Sheet } from '../../ui/Overlays';
 import { Spinner } from '../../ui/Spinner';
@@ -75,6 +75,11 @@ export function CloudPreviewSheet({ item, onClose }: { item: CloudItem; onClose:
         <button className="cz-btn" onClick={onClose}>
           Đóng
         </button>
+        {phase.kind === 'ready' && (
+          <button className="cz-btn" onClick={() => void openMediaExternally(cloudFileUrl(phase.file.path), outputName(item, phase.file.ext))}>
+            Mở bằng ứng dụng khác
+          </button>
+        )}
         {phase.kind === 'ready' && (
           <button className="cz-btn cz-btn-primary" onClick={() => void save()}>
             <Save size={14} /> Lưu về máy…
