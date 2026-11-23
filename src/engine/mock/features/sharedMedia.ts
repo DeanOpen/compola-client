@@ -1,5 +1,5 @@
 // Mock of `window.__zaloMediaStore` (media-store-adapter.js): months of photos / videos, files and links per
-// conversation, newest first, paged by cursor. Dev aids: `&sharedMedia=images|files|links` opens "Kho lưu trữ" in the
+// conversation, newest first, paged by cursor. Dev aids: `&sharedMedia=all|images|files|links` opens "Kho lưu trữ" in the
 // inspector of the open chat (with `&open=<id>&inspector=1`), `&viewer=1` opens the media viewer on its newest photo.
 
 import type { Json } from '../../models/json';
@@ -77,7 +77,7 @@ onMockBoot((ctx) => {
   const open = ctx.params.get('open');
   if (kind && open) {
     void import('../../sharedMedia').then(({ browseSharedMedia }) =>
-      setTimeout(() => browseSharedMedia(open, (['images', 'files', 'links'].includes(kind) ? kind : 'images') as 'images'), 300),
+      setTimeout(() => browseSharedMedia(open, (['all', 'images', 'files', 'links'].includes(kind) ? kind : 'all') as 'all'), 300),
     );
   }
   if (ctx.params.has('viewer') && open) {

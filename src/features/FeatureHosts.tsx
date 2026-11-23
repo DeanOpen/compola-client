@@ -5,6 +5,7 @@ import { CallHosts } from './calls/hosts';
 import { CardHosts } from './cardSheets/hosts';
 import { CloudHosts } from './cloud/hosts';
 import { ContactsHosts } from './contacts/hosts';
+import { GroupMembersDemoHost } from './groupMembers/DemoHost';
 import { MediaHosts } from './media/hosts';
 import { SettingsHosts } from './settings/hosts';
 import { TransferHosts } from './transfer/hosts';
@@ -19,6 +20,7 @@ export function FeatureHosts() {
       <SettingsHosts />
       <MediaHosts />
       <CallHosts />
+      <GroupMembersDemoHost />
       <AttachDemoHost />
     </>
   );

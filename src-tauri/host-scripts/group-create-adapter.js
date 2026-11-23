@@ -26,6 +26,13 @@
 //              answer, so a refused group can be fixed and sent again.
 //   time       one budget from the start of `create()` (CREATE_WAIT) for readiness and the server answer, plus at most OPEN_WAIT for the official
 //              open and STORE_WAIT for the store — below Swift's 45 s. An answer after the budget is 'pending' and only gets summary + avatar.
+//   members    the group info's member list (`topMember`, what the official members panel lists), roles from `creatorId` /
+//              `adminIds` ("Trưởng nhóm" / "Phó nhóm"), names from the friend manager or the member entry, last activity from the
+//              last-action cache (`_cacheLastActionTime`, online within `online_configs.user_active_time`, 3 min by default).
+//   remove     the members panel's `_removeMember` (STR_CONFIRM_REMOVE_MEMBER, option STR_BLOCK_REJOIN_GROUP): the owner removing a
+//              deputy first drops the deputy right (fetcher `removeGroupAdmin(gid, [id])`), then fetcher `removeMemberFromGroup(gid,
+//              [{id}])`; with "block" ticked, fetcher `blockMember(gid, [id])` instead. Allowed when I am the owner (anyone but me), or a
+//              deputy removing a plain member — the panel's own rule.
 //   Not offered: E2EE groups (footer checkbox, onboarding — `e2ee.enable_group` is off in the live config), communities, adding people by
 //   phone number.
 //
@@ -33,6 +40,9 @@
 //              create({name, members:[id], avatar:{data (base64 JPEG), width, height}|null})
 //                → {status:'created'|'exists', convId, text?, failed:[id]} | {status:'invalid', text, dropped?:[id]}
 //                | {status:'failed', text, title?, close?} | {status:'pending'|'busy'|'not-ready', text}
+//              members(groupId) → {status:'ok', groupId, total, me, myRole, members:[{id, name, avatar, role:'owner'|'admin'|'member',
+//                isMe, lastActive (ms, 0 unknown), online, canRemove}]} | {status:'not-found'|'not-ready'}
+//              removeMember(groupId, memberId, block) → {ok, text}
 (() => {
   'use strict';
   const NAME = window.__zaloGroupCreateTestName || '__zaloGroupCreate';
@@ -103,8 +113,10 @@
     }
     if (io && !S.friends && !loadingFriends) {
       loadingFriends = true;
-      Promise.resolve().then(() => io.getFriendManagerModule()).then((f) => { S.friends = (f && f.default) || f; })
-        .catch((e) => diag('friend module: ' + scrub(e))).finally(() => { loadingFriends = false; });
+      Promise.all([io.getFriendManagerModule(), io.getGroupManagerModule()]).then(([f, g]) => {
+        S.friends = (f && f.default) || f;
+        S.groups = (g && g.default) || g;
+      }).catch((e) => diag('friend/group modules: ' + scrub(e))).finally(() => { loadingFriends = false; });
     }
     window.__zaloEachExport(req, (ex) => {
       if (!ex || (typeof ex !== 'object' && typeof ex !== 'function') || !real(ex)) return;
@@ -113,6 +125,8 @@
         if (!S.consts && ex.MEMBERS_TRACKING_SOURCE && ex.GROUPID_PREFIX !== undefined && ex.MSG_INFO !== undefined) S.consts = ex;
         if (!S.partition && ex.a && real(ex.a) && ex.a.MUTUAL_MESSAGES_BLOCKED === 'mutual-messages-blocked' && typeof ex.f === 'function') S.partition = ex.f;
         if (!S.fetch && ex.FetchActions && ex.FetchActions.ADD_MESSAGES) S.fetch = ex.FetchActions;
+        if (!S.lastActive && typeof ex._cacheLastActionTime === 'object' && typeof ex.getLastActionTime === 'function') S.lastActive = ex;
+        if (!S.online && ex.online_configs && typeof ex.online_configs === 'object' && 'sendToMeId' in ex) S.online = ex;
         for (const o of [ex, ex.default]) {
           if (!real(o) || (typeof o !== 'object' && typeof o !== 'function')) continue;
           if (!S.lang && has(o, 'str', 'trans', 'currentLanguage')) S.lang = o;
@@ -223,8 +237,93 @@
     return res.isExistGroup ? { status: 'exists', convId, text: TEXT.exists, failed } : { status: 'created', convId, failed };
   };
 
+  // ---- group members (the members panel) ----
+  const MEMBER_TEXT = {
+    notFound: 'Nhóm không tồn tại',                                          // STR_GROUP_NO_EXIST
+    noPermission: 'Chỉ có trưởng/phó nhóm thực hiện được tính năng này.',    // STR_GROUP_NO_PERMISION
+    removeFailed: 'Xóa khỏi nhóm không thành công',                          // STR_REMOVED_GROUP_FAILED
+    adminFailed: 'Xóa quyền trưởng nhóm không thành công',                   // STR_REMOVE_ADMIN_TOAST_UNSUCCESS
+    blockFailed: 'Không thể chặn người này khỏi nhóm',                       // STR_BLOCK_REJOIN_GROUP_TOAST_UNSUCCESS
+    removed: 'Đã xóa khỏi nhóm',
+    blocked: 'Đã xóa và chặn tham gia lại nhóm',
+  };
+  const groupInfo = (gid) => {
+    const byId = safe(() => S.groups.getGroupByIdSync(gid), null);
+    if (byId && byId.userId) return byId;
+    const list = safe(() => S.groups.getGroupsListSync(), null);
+    const entries = Array.isArray(list) ? list : list && typeof list === 'object' ? Object.values(list) : [];
+    return entries.find((g) => g && String(g.userId) === gid) || null;
+  };
+  const memberId = (m) => (m && typeof m === 'object' ? String(m.id || m.userId || m.uid || '') : m ? String(m) : '');
+  const roleOf = (info, id) => (String(info.creatorId || '') === id ? 'owner' : (Array.isArray(info.adminIds) ? info.adminIds.map(String) : []).includes(id) ? 'admin' : 'member');
+  const activeWindow = () => { const v = safe(() => S.online.online_configs.user_active_time, 0); return typeof v === 'number' && v > 0 ? v : 180000; };
+  const lastActiveOf = (id, m) => {
+    const cached = safe(() => S.lastActive._cacheLastActionTime[id], null) || {};
+    const n = (v) => (typeof v === 'number' && isFinite(v) ? v : 0);
+    return Math.max(n(m && m.lastOnlineTime), n(cached.lastOnlineTime), n(m && m.lastActionTime), n(cached.lastActionTime));
+  };
+  // The panel's rule: the owner may remove anyone but themselves; a deputy only plain members.
+  const mayRemove = (info, me, id) => {
+    if (!id || id === me) return false;
+    const mine = roleOf(info, me);
+    return mine === 'owner' || (mine === 'admin' && roleOf(info, id) === 'member');
+  };
+  const memberErrorText = (e, fallback) => {
+    if (e && e.code === NO_NETWORK) return TEXT.noNetwork;
+    if (e && e.error_code === 161) return MEMBER_TEXT.notFound;
+    if (e && e.error_code === 166) return MEMBER_TEXT.noPermission;
+    return str(e && e.error_message) || fallback;
+  };
+
   let busy = false;
   window[NAME] = {
+    async members(groupId) {
+      if (!(await ready()) || !S.groups) return { status: 'not-ready' };
+      const gid = String(groupId || '');
+      const info = groupInfo(gid);
+      if (!info) return { status: 'not-found' };
+      const me = myId();
+      const now = Date.now(), win = activeWindow();
+      const seen = new Set(), members = [];
+      for (const m of Array.isArray(info.topMember) ? info.topMember : []) {
+        const id = memberId(m);
+        if (!id || seen.has(id)) continue;
+        seen.add(id);
+        const last = lastActiveOf(id, m);
+        members.push({
+          id,
+          name: safe(() => S.friends.getDName(id), '') || str(m.dName) || str(m.displayName) || str(m.zaloName),
+          avatar: str(m.avatar) || safe(() => S.friends.getAvatar(id), '') || '',
+          role: roleOf(info, id),
+          isMe: id === me,
+          lastActive: last ? Math.floor(last / 60000) * 60000 : 0,
+          online: id === me || (!!last && now - last <= win),
+          canRemove: mayRemove(info, me, id),
+        });
+      }
+      const total = typeof info.totalMember === 'number' && info.totalMember > 0 ? info.totalMember : members.length;
+      return { status: 'ok', groupId: gid, total, me, myRole: roleOf(info, me), members };
+    },
+
+    async removeMember(groupId, id, block) {
+      if (!(await ready()) || !S.groups) return { ok: false, text: TEXT.notReady };
+      const gid = String(groupId || ''), uid = String(id || '');
+      const info = groupInfo(gid);
+      if (!info) return { ok: false, text: MEMBER_TEXT.notFound };
+      const me = myId();
+      if (!mayRemove(info, me, uid)) return { ok: false, text: MEMBER_TEXT.noPermission };
+      if (block === true) {
+        try { await S.fetcher.blockMember(gid, [uid]); return { ok: true, text: MEMBER_TEXT.blocked }; }
+        catch (e) { diag('block member: ' + scrub(e)); return { ok: false, text: memberErrorText(e, MEMBER_TEXT.blockFailed) }; }
+      }
+      if (roleOf(info, me) === 'owner' && roleOf(info, uid) === 'admin') {
+        try { await S.fetcher.removeGroupAdmin(gid, [uid]); }
+        catch (e) { diag('remove admin: ' + scrub(e)); return { ok: false, text: memberErrorText(e, MEMBER_TEXT.adminFailed) }; }
+      }
+      try { await S.fetcher.removeMemberFromGroup(gid, [{ id: uid }]); return { ok: true, text: MEMBER_TEXT.removed }; }
+      catch (e) { diag('remove member: ' + scrub(e)); return { ok: false, text: memberErrorText(e, MEMBER_TEXT.removeFailed) }; }
+    },
+
     async info() {
       if (!(await ready())) return { status: 'not-ready' };
       const blocked = [], officialAccounts = [];
