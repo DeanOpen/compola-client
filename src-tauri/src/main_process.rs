@@ -699,7 +699,7 @@ fn safe_storage_execute(p: &Platform, method: &str, args: &[Value]) -> Result<Va
 pub mod keychain_cipher {
     use super::*;
 
-    const SERVICE: &str = "app.compola.tauri.secure";
+    const SERVICE: &str = "app.compola.secure";
     const INFO: &[u8] = b"ZprotocolSecureKDF";
     const TYPE_RAW: u8 = 0x49;
 
