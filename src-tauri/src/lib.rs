@@ -1,6 +1,7 @@
 //! Compola (Rust + Tauri) — a port of zalo-swift-re: the official Zalo PC renderer runs headless in a hidden webview
 //! and Rust plays Electron's preload + main process; the UI window is a web frontend driven by its state.
 
+mod account;
 mod ai_clients;
 mod asar;
 mod automation;
@@ -89,6 +90,10 @@ pub fn run() {
         .manage(Arc::new(shared_worker::SharedWorkerRouter::default()))
         .manage(Arc::new(net::cookies::CookieJar::load(platform::app_support().join("cookies.json"))))
         .setup(|app| {
+            // Multi-account registry (docs/multi-account.md): an install from before it becomes the `default` account,
+            // nothing moves.
+            let registry = account::Registry::load(&platform::app_support());
+            log::info!("accounts: {} registered, active {}", registry.accounts.len(), registry.active);
             // Compola Server first: `emit_ui` forwards to it, and a joined app does not run its own engine.
             let remote = remote::Remote::new(app.handle().clone());
             app.manage(remote.clone());

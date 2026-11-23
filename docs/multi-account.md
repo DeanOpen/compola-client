@@ -11,7 +11,7 @@ Status: contract. Implemented in milestones on `feature/multi-account-core`; see
 
 ### Identity
 
-- **`accountId`**: matches `default` or `a` followed by 8 lowercase hex characters (`a1b2c3d4`). It is assigned when
+- **`accountId`**: matches `default` or `a` followed by 8 lowercase hex characters (`a1b2c3d4e`). It is assigned when
   the account is added and **never changes**. It names the account's data folder, cookie jar, webview labels and
   WebKit origin (§2). WebKit storage is bound to the origin, so the id cannot be renamed after sign-in without losing
   the renderer's IndexedDB and localStorage: the official client keeps its device identity, session keys and message
@@ -34,7 +34,7 @@ Status: contract. Implemented in milestones on `feature/multi-account-core`; see
   "accounts": [
     { "id": "default", "uid": "123…", "name": "Sales 1", "avatar": "https://…", "order": 0,
       "enabled": true, "addedAt": 1763900000000 },
-    { "id": "a1b2c3d4", "uid": null, "name": null, "avatar": null, "order": 1, "enabled": true,
+    { "id": "a1b2c3d4e", "uid": null, "name": null, "avatar": null, "order": 1, "enabled": true,
       "addedAt": 1763900100000 }
   ]
 }
