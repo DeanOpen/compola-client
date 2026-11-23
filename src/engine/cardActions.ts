@@ -4,7 +4,7 @@
 
 import { callAdapter, raceTimeout } from './call';
 import { noAnswerText, parseCardActionOutcome, type CardActionOutcome } from './models/outcomes';
-import { setEngine } from './store';
+import { getEngine, setEngine } from './store';
 import { showToast } from './toast';
 import { openExternal } from './system';
 import { presentCardEffect } from './cardSheets';
@@ -17,7 +17,9 @@ export const performCardAction = async (conversationId: string, messageId: strin
   running.add(key);
   try {
     const answer = await raceTimeout(45, callAdapter('__zaloChat', 'performAction', conversationId, messageId, ref).catch(() => null));
-    const outcome: CardActionOutcome = answer ? parseCardActionOutcome(answer.value) : { kind: 'pending', text: noAnswerText };
+    let outcome: CardActionOutcome = answer ? parseCardActionOutcome(answer.value) : { kind: 'pending', text: noAnswerText };
+    // The answer can arrive after the user moved to another conversation: effects then belong to a screen that is gone.
+    if (getEngine().openConversationId !== conversationId && ['openChat', 'openURL', 'copy', 'present'].includes(outcome.kind)) outcome = { kind: 'done' };
     applyCardOutcome(outcome, conversationId);
     return outcome;
   } finally {
