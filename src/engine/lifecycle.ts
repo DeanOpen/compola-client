@@ -74,6 +74,17 @@ export const startEngine = (): Promise<void> => {
     } catch {
       /* the phase event follows */
     }
+    // A UI that (re)loaded after the main page catches up: the host scripts post changes, not full state, so replay
+    // what the page posted since it loaded (Rust keeps it compacted). Merges are idempotent, so overlap with live
+    // events is harmless.
+    if (!b.isMock) {
+      try {
+        const events = await b.invoke<unknown[]>('engine_replay');
+        for (const event of events) dispatchState(event);
+      } catch {
+        /* older engine */
+      }
+    }
   })();
   return started;
 };

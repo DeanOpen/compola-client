@@ -93,6 +93,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             engine::engine_phase,
+            engine::engine_replay,
             engine::engine_info,
             engine::engine_call,
             engine::engine_eval,

@@ -77,7 +77,13 @@ struct Inner {
     login_timeout: Option<tauri::async_runtime::JoinHandle<()>>,
     runtime_version: Option<String>,
     recent_log: std::collections::VecDeque<String>,
+    /// Every `zstate` the main page posted since it loaded, so a reloaded UI can catch up (`engine_replay`): the host
+    /// scripts post changes, not full state.
+    replay: std::collections::VecDeque<Value>,
 }
+
+/// Bound of the replay log (events); the oldest non-conversation events go first.
+const REPLAY_CAP: usize = 4000;
 
 pub struct Engine {
     app: AppHandle,
@@ -334,6 +340,36 @@ impl Engine {
     }
 }
 
+impl Engine {
+    fn record_replay(&self, state: &Value) {
+        let mut st = self.inner.lock();
+        // A full conversation list (`reset`, which the adapter implies when nothing was `removed`) replaces every
+        // earlier conversation snapshot.
+        if let Some(conv) = state.get("conversations").filter(|_| state.get("chat").is_none()) {
+            let _ = conv;
+            let reset = state.get("reset").and_then(Value::as_bool).unwrap_or(state.get("removed").is_none());
+            if reset {
+                st.replay.retain(|e| e.get("conversations").is_none() || e.get("chat").is_some());
+            }
+        }
+        st.replay.push_back(state.clone());
+        while st.replay.len() > REPLAY_CAP {
+            match st.replay.iter().position(|e| e.get("conversations").is_none()) {
+                Some(i) => {
+                    st.replay.remove(i);
+                }
+                None => {
+                    st.replay.pop_front();
+                }
+            }
+        }
+    }
+
+    fn clear_replay(&self) {
+        self.inner.lock().replay.clear();
+    }
+}
+
 impl MainProcess {
     fn jar_clear(&self) {
         self.app.state::<Arc<crate::net::cookies::CookieJar>>().clear_zalo();
@@ -371,10 +407,14 @@ impl HostObserver for Engine {
             }
             return;
         }
+        self.record_replay(&state);
         emit_ui(&self.app, "compola://state", state);
     }
 
     fn page_started(&self, host: &Arc<Host>) {
+        if host.kind == HostKind::Main {
+            self.clear_replay();
+        }
         if let Some(m) = self.main_process() {
             m.page_did_start_loading(host);
         }
@@ -603,4 +643,10 @@ pub fn clipboard_paste_files() -> Result<Vec<String>, String> {
     writer.write_image_data(&image.bytes).map_err(|e| e.to_string())?;
     writer.finish().map_err(|e| e.to_string())?;
     Ok(vec![path.to_string_lossy().into_owned()])
+}
+
+/// Everything the main page posted since it loaded (compacted), for a UI that (re)loaded after it: dispatch in order.
+#[tauri::command]
+pub fn engine_replay(engine: EngineState<'_>) -> Vec<Value> {
+    engine.inner.lock().replay.iter().cloned().collect()
 }
