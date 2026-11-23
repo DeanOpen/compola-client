@@ -1,0 +1,184 @@
+/* Phone → PC sync window (Swift TransferView.swift) in Zalo PC style; tokens in calls/dialog.css. */
+@import '../calls/dialog.css';
+
+.transfer-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 20px 24px 24px;
+  text-align: center;
+}
+
+.transfer-title {
+  margin-top: 6px;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.transfer-text {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--cx-text-secondary);
+}
+
+.transfer-detail {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.transfer-small {
+  font-size: 13px;
+  color: var(--cx-text-secondary);
+}
+
+.transfer-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--cx-subtle);
+  font-size: 13px;
+  color: var(--cx-text-secondary);
+}
+
+/* Phone ⟶ laptop */
+.transfer-route {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 84px;
+  color: var(--cx-primary);
+}
+
+.transfer-device {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 84px;
+  height: 84px;
+}
+
+.transfer-device-tile {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 68px;
+  height: 68px;
+  border-radius: 16px;
+  background: var(--cx-selected);
+}
+
+@keyframes transfer-pulse {
+  from {
+    opacity: 0.6;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.38);
+  }
+}
+
+.transfer-pulse {
+  position: absolute;
+  width: 68px;
+  height: 68px;
+  border-radius: 18px;
+  border: 2px solid var(--cx-primary);
+  animation: transfer-pulse 1.4s ease-out infinite;
+}
+
+@keyframes transfer-chevron {
+  0%,
+  100% {
+    opacity: 0.2;
+    transform: translateX(0);
+  }
+  50% {
+    opacity: 1;
+    transform: translateX(3px);
+  }
+}
+
+.transfer-chevrons {
+  display: flex;
+}
+
+.transfer-chevrons svg {
+  margin: 0 -3px;
+  animation: transfer-chevron 0.72s ease-in-out infinite;
+}
+
+.transfer-arrow {
+  opacity: 0.8;
+}
+
+/* Progress ring */
+.progress-ring {
+  position: relative;
+  border-radius: 50%;
+}
+
+.progress-ring svg {
+  display: block;
+}
+
+.progress-ring-track {
+  stroke: var(--cx-subtle);
+}
+
+.progress-ring-bar {
+  stroke: var(--cx-primary);
+  transition: stroke-dashoffset 0.6s ease;
+}
+
+.progress-ring-spin {
+  animation: compola-spin 1.1s linear infinite;
+}
+
+.progress-ring-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--cx-text);
+}
+
+.progress-ring-pulse {
+  color: var(--cx-primary);
+  animation: compola-pulse 1.6s ease-in-out infinite;
+}
+
+/* Result marks */
+.transfer-finished-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  background: var(--cx-selected);
+  color: var(--cx-primary);
+  animation: compola-pop-in 0.3s ease both;
+}
+
+.transfer-failed-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  background: rgba(245, 166, 35, 0.16);
+  color: var(--cx-warning);
+}

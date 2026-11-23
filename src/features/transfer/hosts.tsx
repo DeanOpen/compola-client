@@ -1,8 +1,14 @@
-// Placeholder: overlays of this feature (sheets, banners), filled in by the feature port.
+// Phone → PC sync over the main window (Swift `.overlay { TransferOverlay() }`).
+
+import { startTransfer } from '../../engine/transfer';
+import { TransferOverlay } from './TransferView';
 
 export function TransferHosts() {
-  return null;
+  return <TransferOverlay />;
 }
 
-/** Opens the phone → PC sync window (account menu "Đồng bộ tin nhắn từ điện thoại…"). */
-export const openTransfer = () => {};
+/**
+ * Opens the phone → PC sync (account menu "Đồng bộ tin nhắn từ điện thoại…"): starts a manual sync like the official
+ * Settings card; the official state machine then drives the overlay (waiting for the phone → transferring → result).
+ */
+export const openTransfer = () => startTransfer();
