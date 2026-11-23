@@ -263,6 +263,7 @@ impl Engine {
             return;
         }
         if let Some(qr) = state.get("qr").and_then(Value::as_str).filter(|q| q.starts_with("data:")) {
+            log::info!("login: QR received ({} bytes, event {:?})", qr.len(), state.get("event").and_then(Value::as_str));
             login.qr = Some(qr.to_owned());
             match state.get("event").and_then(Value::as_str) {
                 Some("qr") => {
