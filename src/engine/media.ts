@@ -22,21 +22,19 @@ export const mediaUrl = (url: string | null | undefined, flavour: MediaFlavour =
 };
 
 /**
- * A local file the official loader produced (`resolveMedia` → `{state:'ok', path}`, inside Compola's ZaloData / MediaCache):
- * served by the same scheme as a `file://` URL.
+ * A local file the official loader produced (`resolveMedia` → `{state:'ok', path}`, inside Compola's ZaloData /
+ * MediaCache): `?file=<absolute path>`. Views that show it fall back to their failure state on `onerror`.
  */
 export const mediaFileUrl = (path: string, flavour: MediaFlavour = 'image', retry = false): string | null => {
   if (!path.startsWith('/') || usesMock) return null;
-  return mediaUrl('file://' + encodeURI(path), flavour, retry);
+  return `${origin}/load?file=${encodeURIComponent(path)}&flavour=${flavour}${retry ? '&retry=1' : ''}`;
 };
 
 /**
- * An official reaction icon PNG (`pc-dist/<path>` inside the runtime's asar). Not served yet: views fall back to the
- * emoji text. Flip `assetSchemeAvailable` once Rust serves `asset=`.
+ * An official reaction icon PNG (`pc-dist/<path>` inside the runtime's asar): `?asset=pc-dist/<path>`. The view falls
+ * back to the emoji text when it does not load.
  */
 export const reactionImageUrl = (path: string): string | null => {
-  if (!path || usesMock || !assetSchemeAvailable) return null;
+  if (!path || usesMock) return null;
   return `${origin}/load?asset=${encodeURIComponent('pc-dist/' + path)}`;
 };
-
-const assetSchemeAvailable = false;
