@@ -471,3 +471,30 @@
 .shake {
   animation: compola-shake 0.4s linear;
 }
+
+/* Hover ⋯ (wave 3 #3): replaces the time at the row's right edge and opens the row menu */
+.conv-row-more {
+  display: none;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 20px;
+  margin: -2px -4px -2px 0;
+  border-radius: 4px;
+  color: var(--text-secondary);
+}
+
+.conv-row-more:hover {
+  background: var(--subtle);
+  color: var(--text);
+}
+
+.conv-row:hover .conv-row-more,
+.conv-row-more:focus-visible {
+  display: inline-flex;
+}
+
+.conv-row:hover .conv-row-time {
+  display: none;
+}

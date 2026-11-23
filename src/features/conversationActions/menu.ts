@@ -18,7 +18,9 @@ import { setConversationLabel } from '../../engine/conversations';
 import { cssColor } from '../../engine/models/conversations';
 import { getEngine } from '../../engine/store';
 import type { MenuItem } from '../../ui/Menu';
-import { conversationMuteMenu } from '../settings/muteMenu';
+import { Bell, BellOff } from 'lucide-react';
+import { isConversationMuted, muteConversation, muteDurations, unmuteConversation } from '../../engine/notifications';
+import { showUndoToast } from '../../engine/toast';
 import { openLabelManager } from './LabelManager';
 
 /** "Phân loại ▸": the labels (one per conversation; the checked one clears it) and the label manager. */
@@ -48,7 +50,7 @@ export const conversationActionsMenu = (id: string, preset: MenuPreset = 'thread
   const s = getEngine();
   if (!s.conversationActions.loaded) {
     // The adapter has not published yet: only what does not depend on it.
-    return [labelMenu(id), conversationMuteMenu(id)];
+    return [labelMenu(id), muteMenuWithUndo(id)];
   }
   const plan = menuPlan(id, preset, s);
   const items: MenuItem[] = [];
@@ -61,7 +63,7 @@ export const conversationActionsMenu = (id: string, preset: MenuPreset = 'thread
   if (plan.read === 'markRead') items.push({ label: 'Đánh dấu đã đọc', icon: MailCheck, onSelect: () => void markConversationRead(id) });
   if (plan.read === 'markUnread') items.push({ label: 'Đánh dấu chưa đọc', icon: MailOpen, onSelect: () => void markConversationUnread(id) });
   items.push({ kind: 'separator' });
-  if (plan.mute) items.push(conversationMuteMenu(id));
+  if (plan.mute) items.push(muteMenuWithUndo(id));
   if (plan.hide === 'hide') items.push({ label: 'Ẩn trò chuyện', icon: EyeOff, onSelect: () => setConversationPrompt({ kind: 'hide', id }) });
   if (plan.hide === 'unhide') items.push({ label: 'Bỏ ẩn trò chuyện', icon: Eye, onSelect: () => setConversationPrompt({ kind: 'unhide', id }) });
   if (plan.canDelete) {
@@ -70,3 +72,28 @@ export const conversationActionsMenu = (id: string, preset: MenuPreset = 'thread
   }
   return items;
 };
+
+/** "Tắt thông báo ▸" / "Bật thông báo" (as settings/muteMenu.ts) with the wave-3 undo toast. */
+export const muteMenuWithUndo = (id: string): MenuItem =>
+  isConversationMuted(id)
+    ? {
+        label: 'Bật thông báo',
+        icon: Bell,
+        onSelect: () => {
+          const before = muteDurations[muteDurations.length - 1].value;
+          unmuteConversation(id);
+          showUndoToast('Đã bật thông báo', () => muteConversation(id, before));
+        },
+      }
+    : {
+        kind: 'submenu',
+        label: 'Tắt thông báo',
+        icon: BellOff,
+        items: muteDurations.map((d) => ({
+          label: d.title,
+          onSelect: () => {
+            muteConversation(id, d.value);
+            showUndoToast('Đã tắt thông báo', () => unmuteConversation(id));
+          },
+        })),
+      };

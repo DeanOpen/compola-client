@@ -8,6 +8,16 @@ export function ToastView({ conversationId, bottom = 90 }: { conversationId: str
   return (
     <div key={toast.seq} className="toast glass-strong slide-up" style={{ bottom }} role="status">
       {toast.text}
+      {toast.action && (
+        <>
+          <span className="toast-sep" aria-hidden>
+            ·
+          </span>
+          <button className="toast-action" onClick={toast.action.run}>
+            {toast.action.label}
+          </button>
+        </>
+      )}
     </div>
   );
 }

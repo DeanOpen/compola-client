@@ -56,6 +56,8 @@ export interface Toast {
   seq: number;
   text: string;
   conversationId: string | null;
+  /** "Hoàn tác" and the like: one button after the text. */
+  action?: { label: string; run: () => void } | null;
 }
 
 /**
