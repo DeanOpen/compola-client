@@ -14,6 +14,13 @@ import { onAccountReset } from './store';
 
 export type SharedMediaKind = 'images' | 'files' | 'links';
 export const sharedMediaKinds: SharedMediaKind[] = ['images', 'files', 'links'];
+/** The "Kho lưu trữ" filter: one list, or everything ("Tất cả"). */
+export type SharedMediaFilter = SharedMediaKind | 'all';
+export const sharedMediaFilters: SharedMediaFilter[] = ['all', 'images', 'files', 'links'];
+export const filterKinds = (f: SharedMediaFilter): SharedMediaKind[] => (f === 'all' ? sharedMediaKinds : [f]);
+
+/** The list a message belongs to, null when it is not shared content. */
+export const kindOf = (k: MessageKind): SharedMediaKind | null => sharedMediaKinds.find((kind) => accepts(kind, k)) ?? null;
 
 /** Whether a message kind belongs in this list (the official panel's split by message type). */
 export const accepts = (kind: SharedMediaKind, k: MessageKind): boolean => {
@@ -97,6 +104,27 @@ export const previewList = (kind: SharedMediaKind, stored: ChatMessage[], loaded
   return newestFirst(pool).slice(0, previewLimit(kind));
 };
 
+export interface Day {
+  /** `yyyy-m-d` (local time). */
+  id: string;
+  /** Epoch ms of the day's newest item. */
+  date: number;
+  items: ChatMessage[];
+}
+
+/** Groups newest-first items into consecutive calendar days. */
+export const days = (items: ChatMessage[]): Day[] => {
+  const out: Day[] = [];
+  for (const m of items) {
+    const d = new Date(m.date);
+    const id = `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+    const last = out[out.length - 1];
+    if (last?.id === id) last.items.push(m);
+    else out.push({ id, date: m.date, items: [m] });
+  }
+  return out;
+};
+
 export interface Month {
   id: string;
   title: string;
@@ -163,12 +191,37 @@ export const mergeFirstPage = (f: SharedMediaFeed, page: SharedMediaPage): Share
   return { ...f, items: union(items, page.items) ?? items, phase: 'idle' };
 };
 
+/**
+ * "Tất cả": the three lists merged, newest first. Each list is paged on its own, so the merge stops at the deepest
+ * point every list that has more has reached (older items of one list would otherwise show up without the others').
+ */
+export const mergedAll = (feeds: Record<SharedMediaKind, SharedMediaFeed>, loaded: ChatMessage[]): ChatMessage[] => {
+  let horizon = -Infinity;
+  for (const kind of sharedMediaKinds) {
+    const f = feeds[kind];
+    if (f.loaded && f.more && f.items.length) horizon = Math.max(horizon, f.items[f.items.length - 1].date);
+  }
+  const all = sharedMediaKinds.flatMap((kind) => mergedList(feeds[kind].items, loaded, kind, loadedSince(feeds[kind])));
+  return newestFirst(all.filter((m) => m.date >= horizon));
+};
+
+/** Combined state of the lists behind a filter (for "Tất cả": loading while any loads, failed only when all failed). */
+export const filterFeedState = (feeds: SharedMediaFeed[]) => ({
+  pending: feeds.some(isPending) && !feeds.some((f) => f.loaded && f.items.length),
+  loading: feeds.some((f) => f.phase === 'loading'),
+  failed: feeds.every((f) => f.phase === 'failed'),
+  someFailed: feeds.some((f) => f.phase === 'failed'),
+  canLoadMore: feeds.some((f) => f.phase === 'idle' && f.loaded && f.more),
+  hasMore: feeds.some((f) => f.loaded && f.more),
+  everLoaded: feeds.some((f) => f.loaded),
+});
+
 // MARK: - Store: feeds per conversation, and the "Kho lưu trữ" page of the inspector
 
 interface SharedMediaState {
   feeds: Record<string, Partial<Record<SharedMediaKind, SharedMediaFeed>>>;
-  /** The inspector shows the full "Kho lưu trữ" page of this list instead of its overview. */
-  browsing: { conversationId: string; kind: SharedMediaKind } | null;
+  /** The inspector shows the full "Kho lưu trữ" page of this filter instead of its overview. */
+  browsing: { conversationId: string; kind: SharedMediaFilter } | null;
 }
 
 export const useSharedMedia = create<SharedMediaState>()(() => ({ feeds: {}, browsing: null }));
@@ -219,7 +272,16 @@ export const loadMoreSharedMedia = async (conversationId: string, kind: SharedMe
 export const retrySharedMedia = (conversationId: string, kind: SharedMediaKind) =>
   feedOf(get(), conversationId, kind).loaded ? loadMoreSharedMedia(conversationId, kind, true) : reload(conversationId, kind);
 
-export const browseSharedMedia = (conversationId: string, kind: SharedMediaKind) => set({ browsing: { conversationId, kind } });
+/** Opens "Kho lưu trữ" for a filter ("Tất cả" by default). */
+export const browseSharedMedia = (conversationId: string, kind: SharedMediaFilter = 'all') => set({ browsing: { conversationId, kind } });
+
+/** A filter's lists: first reads, next pages (each list that has more), retries. */
+export const loadFilterIfNeeded = (conversationId: string, filter: SharedMediaFilter) =>
+  Promise.all(filterKinds(filter).map((k) => loadSharedMediaIfNeeded(conversationId, k)));
+export const loadMoreFilter = (conversationId: string, filter: SharedMediaFilter) =>
+  Promise.all(filterKinds(filter).map((k) => loadMoreSharedMedia(conversationId, k)));
+export const retryFilter = (conversationId: string, filter: SharedMediaFilter) =>
+  Promise.all(filterKinds(filter).filter((k) => feedOf(get(), conversationId, k).phase === 'failed' || !feedOf(get(), conversationId, k).loaded).map((k) => retrySharedMedia(conversationId, k)));
 export const closeSharedMediaBrowser = () => set({ browsing: null });
 
 /** Shared photos / videos of a conversation, oldest first (the media viewer's gallery). */
