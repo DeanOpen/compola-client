@@ -205,3 +205,16 @@
 .inspector-danger-row:hover:not(:disabled) {
   background: var(--hover);
 }
+
+/* Shared-media sections (features/sharedMedia) as Zalo panel blocks */
+.inspector .sm-section {
+  margin: 0;
+  padding: 0 16px 12px;
+  border-top: 0;
+  background: var(--content);
+}
+
+.inspector .sm-section-head {
+  height: 48px;
+  font-size: 15px;
+}

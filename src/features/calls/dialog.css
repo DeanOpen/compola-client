@@ -2,36 +2,23 @@
    surface, 8px radius, a title bar with ×, Hủy + a primary button bottom-right. Tokens are private (--cx-*) so they do
    not fight the shared ones; the primary colour follows the shared `--primary` when it exists. */
 
+/* Local names kept for the dialog styles; they all point at the shared Zalo tokens (styles/tokens.css, light + dark). */
 :root {
-  --cx-primary: var(--primary, #0068ff);
-  --cx-primary-pressed: var(--primary-pressed, #005ae0);
-  --cx-surface: #ffffff;
-  --cx-subtle: #ebecf0;
-  --cx-hover: #f1f2f4;
-  --cx-selected: #e5f1ff;
-  --cx-text: #081b3a;
-  --cx-text-secondary: #7589a3;
-  --cx-border: rgba(0, 0, 0, 0.15);
-  --cx-border-subtle: rgba(0, 0, 0, 0.1);
-  --cx-curtain: rgba(0, 0, 0, 0.55);
-  --cx-danger: #c31818;
-  --cx-success: #37b361;
-  --cx-warning: #f5a623;
-  --cx-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --cx-surface: #22262b;
-    --cx-subtle: #1d2025;
-    --cx-hover: rgba(255, 255, 255, 0.05);
-    --cx-selected: rgba(0, 104, 255, 0.22);
-    --cx-text: #dfe2e7;
-    --cx-text-secondary: #9facbc;
-    --cx-border: rgba(255, 255, 255, 0.2);
-    --cx-border-subtle: rgba(255, 255, 255, 0.1);
-    --cx-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
-  }
+  --cx-primary: var(--primary);
+  --cx-primary-pressed: var(--primary-pressed);
+  --cx-surface: var(--content);
+  --cx-subtle: var(--subtle);
+  --cx-hover: var(--hover);
+  --cx-selected: var(--selected);
+  --cx-text: var(--text);
+  --cx-text-secondary: var(--text-secondary);
+  --cx-border: var(--border);
+  --cx-border-subtle: var(--separator);
+  --cx-curtain: var(--dim);
+  --cx-danger: var(--danger);
+  --cx-success: var(--success);
+  --cx-warning: var(--warning);
+  --cx-shadow: var(--glass-shadow);
 }
 
 .cx-curtain {
