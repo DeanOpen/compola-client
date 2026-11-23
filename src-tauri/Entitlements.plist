@@ -3,7 +3,7 @@
 <!-- Hardened-runtime entitlements of Compola.app (bundle.macOS.entitlements in tauri.conf.json). -->
 <plist version="1.0">
 <dict>
-    <!-- Kept from the Swift app (scripts/Compola.entitlements): JavaScriptCore only JITs with it under the hardened
+    <!-- Kept from the Swift app: JavaScriptCore only JITs with it under the hardened
          runtime. The renderer runs in WebKit's own processes, but in-process JSC use must not silently fall back to
          the interpreter. -->
     <key>com.apple.security.cs.allow-jit</key>

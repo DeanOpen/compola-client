@@ -45,8 +45,7 @@ pub fn verify_signature(_executable: &Path, _requirement: &str) -> Result<(), St
 /// Helpers left behind by an Compola that crashed or was force-quit: identified by their argv, which points into one of
 /// our `compola-call-<pid>-…` / `szc-<pid>-…` socket directories whose owner pid is dead. Other ZaloCall processes (for
 /// example the official Zalo's, which uses `/tmp/socketzalorecv2021`) never match.
-/// `compola-call-` is the name builds before the rename used: their orphans are ours too.
-pub const DIRECTORY_PREFIXES: &[&str] = &["compola-call-", "compola-call-", "swiftzalo-call-", "szc-"];
+pub const DIRECTORY_PREFIXES: &[&str] = &["compola-call-", "swiftzalo-call-", "szc-"];
 
 /// The pid encoded in a socket directory name (`compola-call-<pid>-XXXXXX`, legacy `…-<pid>`).
 pub fn owner_pid(directory_name: &str) -> Option<i32> {
@@ -471,7 +470,7 @@ mod tests {
         assert!(is_our_helper(&configured, &configured));
         assert!(!is_our_helper(&configured, &runtime_helper)); // the official app's own helper
         assert!(!is_our_helper(&crate::runtime::root().join("x/ZaloCap"), &runtime_helper));
-        assert_eq!(owner_pid("compola-call-123-AbC"), Some(123)); // pre-rename directories
+        assert_eq!(owner_pid("compola-call-123-AbC"), Some(123));
     }
 
     #[cfg(target_os = "macos")]

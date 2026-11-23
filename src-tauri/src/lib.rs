@@ -63,20 +63,8 @@ fn init_logging() {
     log::set_max_level(log::LevelFilter::Debug);
 }
 
-/// Before the rename to Compola the data folder was `~/Library/Application Support/CompolaTauri`: move it over once, so the
-/// session (cookies, client databases, runtime, caches) survives.
-fn migrate_legacy_data() {
-    let new = platform::app_support();
-    let Some(old) = new.parent().map(|p| p.join("CompolaTauri")) else { return };
-    if old.is_dir() && !new.join("cookies.json").exists() {
-        let _ = std::fs::remove_dir_all(&new);
-        let _ = std::fs::rename(&old, &new);
-    }
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    migrate_legacy_data();
     init_logging();
     let _ = rustls::crypto::ring::default_provider().install_default();
     tauri::Builder::default()
