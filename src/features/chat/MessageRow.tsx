@@ -6,37 +6,29 @@ import {
   Copy,
   Forward,
   ImageIcon,
-  Lock,
+  MoreHorizontal,
   Pin,
   PinOff,
   Quote,
   Reply,
-  Smile,
+  SmilePlus,
   Star,
   StarOff,
   Trash2,
   Undo2,
 } from 'lucide-react';
-import { memo, useRef, useState, type ReactNode } from 'react';
+import { memo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { copyPhoto, copyText, deleteForMe, pinMessage, recall, requestForward, requestUnpinMessage, setStarred } from '../../engine/messageActions';
 import { captionOf, copyableText, type ChatMessage } from '../../engine/models/chat';
 import { Avatar } from '../../ui/Avatar';
-import { openContextMenu, type MenuItem } from '../../ui/Menu';
+import { openContextMenu, openMenuBelow, type MenuItem } from '../../ui/Menu';
 import { Popover } from '../../ui/Overlays';
-import { time } from './format';
 import { BubbleContent } from './MessageContent';
 import { ECardView, NoticeRow } from './cards/Cards';
 import { ReactionChips } from './ReactionChips';
 
 export const reactionEmojis = ['❤️', '👍', '😆', '😮', '😢', '😡'];
 
-const statusText: Record<ChatMessage['status'], string> = {
-  sending: 'Đang gửi',
-  sent: 'Đã gửi',
-  delivered: 'Đã nhận',
-  seen: 'Đã xem',
-  failed: 'Gửi thất bại',
-};
 
 interface Props {
   message: ChatMessage;
@@ -76,24 +68,30 @@ export const MessageRow = memo(function MessageRow(props: Props) {
   }
 });
 
-function BubbleRow({ message, isGroup, firstInGroup, lastInGroup, showStatus, onReply, onReact }: Props) {
+/** Quick reactions of the hover toolbar (the full six are in the picker and the context menu). */
+const quickReactions = ['❤️', '👍', '😆', '😮'];
+
+function BubbleRow({ message, isGroup, firstInGroup, lastInGroup, onReply, onReact }: Props) {
   const mine = message.isMine;
   const [pickerOpen, setPickerOpen] = useState(false);
   const reactButton = useRef<HTMLButtonElement>(null);
   const recalled = message.kind.type === 'recalled';
   const showsName = isGroup && !mine && firstInGroup;
+  const myReactions = new Set(message.reactions.filter((r) => r.includesMe).map((r) => r.icon.emoji));
+  const menu = () => messageMenu(message, onReply, onReact);
 
   return (
     <div
       className={`bubble-row ${mine ? 'is-mine' : ''} ${firstInGroup ? 'is-first' : ''} ${message.reactions.length ? 'has-reactions' : ''} ${pickerOpen ? 'is-hovered' : ''}`}
       data-message-id={message.id}
+      onContextMenu={(e) => openContextMenu(e, menu())}
     >
       {!mine && isGroup && (
         <div className="bubble-avatar">{lastInGroup && <Avatar url={message.senderAvatar} name={message.senderName} size={28} />}</div>
       )}
       <div className="bubble-column">
         {showsName && <div className="bubble-sender">{message.senderName}</div>}
-        <div className="bubble-stack" onContextMenu={(e) => openContextMenu(e, messageMenu(message, onReply, onReact))}>
+        <div className="bubble-stack" title={fullTime(message.date)}>
           <BubbleContent message={message} firstInGroup={firstInGroup} lastInGroup={lastInGroup} />
           {message.reactions.length > 0 && (
             <ReactionChips reactions={message.reactions} conversationId={message.conversationId} messageId={message.id} mine={mine} />
@@ -103,41 +101,45 @@ function BubbleRow({ message, isGroup, firstInGroup, lastInGroup, showStatus, on
               <Star size={9} fill="currentColor" strokeWidth={3} />
             </span>
           )}
-          <div className="hover-bar glass" role="toolbar">
-            <span className="hover-time nums">{time(message.date)}</span>
-            {message.isE2EE && (
-              <span title="Mã hóa đầu cuối" className="tertiary" style={{ display: 'inline-flex', paddingRight: 4 }}>
-                <Lock size={9} />
-              </span>
-            )}
+          <div className="hover-bar glass" role="toolbar" aria-label="Thao tác tin nhắn">
+            {!recalled &&
+              quickReactions.map((emoji) => (
+                <button
+                  key={emoji}
+                  className={`hover-reaction ${myReactions.has(emoji) ? 'is-selected' : ''}`}
+                  title={`Thả ${emoji}`}
+                  aria-label={`Thả ${emoji}`}
+                  onClick={() => onReact(emoji, message)}
+                >
+                  {emoji}
+                </button>
+              ))}
             {!recalled && (
               <>
-                <BarButton title="Thả cảm xúc" refEl={reactButton} onClick={() => setPickerOpen((v) => !v)}>
-                  <Smile size={14} />
+                <BarButton title="Thêm cảm xúc" refEl={reactButton} onClick={() => setPickerOpen((v) => !v)}>
+                  <SmilePlus size={15} />
                 </BarButton>
+                <span className="hover-divider" />
                 <BarButton title="Trả lời" onClick={() => onReply(message)}>
-                  <Reply size={14} />
+                  <Reply size={15} />
                 </BarButton>
                 {message.menu.forward === 'available' && (
                   <BarButton title="Chia sẻ" onClick={() => requestForward(message)}>
-                    <Forward size={14} />
+                    <Forward size={15} />
                   </BarButton>
                 )}
               </>
             )}
+            <BarButton title="Thêm" onClick={(el) => openMenuBelow(el, menu(), mine ? 'start' : 'end')}>
+              <MoreHorizontal size={15} />
+            </BarButton>
           </div>
         </div>
-        {mine && showStatus && (
-          <div className="bubble-status">
-            {message.isE2EE && <Lock size={8.5} aria-label="Mã hóa đầu cuối" />}
-            <span className={message.status === 'failed' ? 'is-failed' : ''}>{statusText[message.status]}</span>
-          </div>
-        )}
       </div>
       {pickerOpen && (
         <Popover anchor={reactButton} onClose={() => setPickerOpen(false)} placement="top">
           <ReactionPicker
-            mine={new Set(message.reactions.filter((r) => r.includesMe).map((r) => r.icon.emoji))}
+            mine={myReactions}
             pick={(emoji) => {
               setPickerOpen(false);
               onReact(emoji, message);
@@ -149,9 +151,12 @@ function BubbleRow({ message, isGroup, firstInGroup, lastInGroup, showStatus, on
   );
 }
 
-function BarButton({ title, onClick, children, refEl }: { title: string; onClick: () => void; children: ReactNode; refEl?: React.RefObject<HTMLButtonElement | null> }) {
+const fullTimeFormat = new Intl.DateTimeFormat('vi-VN', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+const fullTime = (ms: number) => fullTimeFormat.format(ms);
+
+function BarButton({ title, onClick, children, refEl }: { title: string; onClick: (el: HTMLButtonElement) => void; children: ReactNode; refEl?: RefObject<HTMLButtonElement | null> }) {
   return (
-    <button ref={refEl} className="hover-button" title={title} aria-label={title} onClick={onClick}>
+    <button ref={refEl} className="hover-button" title={title} aria-label={title} onClick={(e) => onClick(e.currentTarget)}>
       {children}
     </button>
   );
@@ -179,21 +184,23 @@ const messageMenu = (message: ChatMessage, onReply: (m: ChatMessage) => void, on
   const items: MenuItem[] = [];
   const recalled = message.kind.type === 'recalled';
   if (!recalled) {
+    items.push({
+      kind: 'reactions',
+      emojis: reactionEmojis,
+      selected: new Set(message.reactions.filter((r) => r.includesMe).map((r) => r.icon.emoji)),
+      onPick: (emoji) => onReact(emoji, message),
+    });
     items.push({ label: 'Trả lời', icon: Reply, onSelect: () => onReply(message) });
     if (a.forward !== 'hidden') items.push({ label: 'Chia sẻ', icon: ArrowUpRight, disabled: a.forward === 'blocked', onSelect: () => requestForward(message) });
     if (!a.isProtected) {
+      const copies: MenuItem[] = [];
       const text = copyableText(message);
-      if (text) items.push({ label: 'Copy tin nhắn', icon: Copy, onSelect: () => void copyText(text, message.conversationId) });
-      if (message.kind.type === 'photo') items.push({ label: 'Copy hình ảnh', icon: ImageIcon, onSelect: () => void copyPhoto(message) });
+      if (text) copies.push({ label: 'Copy tin nhắn', icon: Copy, onSelect: () => void copyText(text, message.conversationId) });
+      if (message.kind.type === 'photo') copies.push({ label: 'Copy hình ảnh', icon: ImageIcon, onSelect: () => void copyPhoto(message) });
       const caption = captionOf(message);
-      if (caption) items.push({ label: 'Copy chú thích', icon: Quote, onSelect: () => void copyText(caption, message.conversationId) });
+      if (caption) copies.push({ label: 'Copy chú thích', icon: Quote, onSelect: () => void copyText(caption, message.conversationId) });
+      if (copies.length) items.push({ kind: 'separator' }, ...copies);
     }
-    items.push({
-      kind: 'submenu',
-      label: 'Biểu cảm',
-      icon: Smile,
-      items: reactionEmojis.map((emoji) => ({ label: emoji, onSelect: () => onReact(emoji, message) })),
-    });
     if (a.pin || a.star) {
       items.push({ kind: 'separator' });
       if (a.pinned) items.push({ label: 'Bỏ ghim tin nhắn', icon: PinOff, onSelect: () => requestUnpinMessage(message) });
@@ -204,6 +211,7 @@ const messageMenu = (message: ChatMessage, onReply: (m: ChatMessage) => void, on
     }
     if (a.isProtected) items.push({ kind: 'label', label: 'Trò chuyện này đã bật Chặn chia sẻ' });
   }
+  // Destructive actions last, in red.
   if (a.recall || a.delete) {
     items.push({ kind: 'separator' });
     if (a.recall && !recalled) items.push({ label: 'Thu hồi', icon: Undo2, destructive: true, onSelect: () => recall(message) });

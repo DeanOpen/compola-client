@@ -3,7 +3,20 @@
 
 import type { Phase } from './models/phase';
 
-export type EngineEvent = 'compola://phase' | 'compola://state' | 'compola://log' | 'compola://badge' | 'compola://page';
+export type EngineEvent =
+  | 'compola://phase'
+  | 'compola://state'
+  | 'compola://log'
+  | 'compola://badge'
+  | 'compola://page'
+  /** `{id, convId}`: a notification was clicked — open that conversation. */
+  | 'compola://notification-click'
+  /** `{id, convId, text}`: an inline reply typed in a notification — send it. */
+  | 'compola://notification-reply'
+  /** Call helper lifecycle (call UI, later wave). */
+  | 'compola://call-event'
+  /** ZaloCap outcome: `{kind: send|sendToMe|share|shareText|noPermission|failed, …}`. */
+  | 'compola://screen-capture';
 
 export interface Backend {
   readonly isMock: boolean;
@@ -50,4 +63,13 @@ export const commands = {
   retryRuntime: async () => (await backend()).invoke('engine_retry_runtime'),
   showRenderer: async () => (await backend()).invoke('engine_show_renderer'),
   switchToSqlite: async () => (await backend()).invoke('engine_switch_to_sqlite'),
+  /** Tells Rust which chat is on screen (notifications for it are suppressed); null when none. */
+  setOpenConversation: async (id: string | null) => (await backend()).invoke('ui_set_open_conversation', { id }),
+  /** Whether notifications may show the message text. */
+  setShowsPreview: async (shows: boolean) => (await backend()).invoke('ui_set_shows_preview', { shows }),
+  /** Starts the official screenshot tool; the result arrives as `compola://screen-capture`. */
+  screenCaptureStart: async (conversationId: string, withCompola: boolean) =>
+    (await backend()).invoke('screen_capture_start', { conversationId, withCompola }),
+  /** Saves a media URL to an absolute path (its folder must exist) → the path. */
+  mediaSave: async (url: string, destPath: string) => (await backend()).invoke<string>('media_save', { url, destPath }),
 };

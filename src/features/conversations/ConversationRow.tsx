@@ -93,10 +93,9 @@ export const ConversationRow = memo(function ConversationRow({
       onMouseDown={() => onSelect(conversation.id)}
       onContextMenu={(e) => onContextMenu(e, conversation.id)}
     >
-      <ConversationAvatar conversation={conversation} size={44} isSelf={isSelf} />
+      <ConversationAvatar conversation={conversation} size={48} isSelf={isSelf} />
       <div className="conv-row-body">
         <div className="conv-row-top">
-          {showsPin && <Pin size={10} className="conv-row-pin" fill="currentColor" aria-label="Đã ghim" />}
           <span className="conv-row-name truncate">{isSelf ? selfConversationTitle : displayName(conversation)}</span>
           {label && <LabelTag label={label} />}
           {isStranger && !isSelf && <span className="stranger-badge">Người lạ</span>}
@@ -106,11 +105,17 @@ export const ConversationRow = memo(function ConversationRow({
         </div>
         <div className="conv-row-bottom">
           {typing ? (
-            <span className="conv-row-preview is-typing clamp-2">{typing} đang soạn tin…</span>
+            <span className="conv-row-preview is-typing truncate">{typing} đang soạn tin…</span>
           ) : (
-            <span className="conv-row-preview clamp-2">{subtitle}</span>
+            <span className="conv-row-preview truncate">{subtitle}</span>
           )}
-          {unread ? <UnreadBadge count={conversation.unread} muted={muted} /> : unreadMark ? <span className="unread-dot" title="Đánh dấu chưa đọc" /> : null}
+          {unread ? (
+            <UnreadBadge count={conversation.unread} muted={muted} />
+          ) : unreadMark ? (
+            <span className="unread-dot" title="Đánh dấu chưa đọc" />
+          ) : showsPin ? (
+            <Pin size={12} className="conv-row-pin" aria-label="Đã ghim" />
+          ) : null}
         </div>
       </div>
     </div>
@@ -167,7 +172,7 @@ export function PinTile({
 export function StrangerBoxRow({ box, newest, onOpen }: { box: StrangerBox; newest: ConversationSummary | null; onOpen: () => void }) {
   return (
     <div className="conv-row" role="option" aria-selected={false} onMouseDown={onOpen}>
-      <span className="conv-avatar stranger-box-avatar" style={{ width: 44, height: 44 }}>
+      <span className="conv-avatar stranger-box-avatar" style={{ width: 48, height: 48 }}>
         <Users size={20} />
       </span>
       <div className="conv-row-body">
@@ -177,7 +182,7 @@ export function StrangerBoxRow({ box, newest, onOpen }: { box: StrangerBox; newe
           {newest?.preview?.date && <span className="conv-row-time nums">{listTime(newest.preview.date)}</span>}
         </div>
         <div className="conv-row-bottom">
-          <span className="conv-row-preview clamp-2">
+          <span className="conv-row-preview truncate">
             {newest ? `${displayName(newest)}: ${newest.preview?.text ?? ''}` : `${box.chats} cuộc trò chuyện`}
           </span>
           {box.unreadChats > 0 && <UnreadBadge count={box.unreadChats} muted={false} />}

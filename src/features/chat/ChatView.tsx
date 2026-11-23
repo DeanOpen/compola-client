@@ -1,7 +1,7 @@
 // Native chat pane for one conversation (Swift `ChatView`): header in the toolbar, pinned bar, message list, composer.
 
 import { BellOff, Info, MessageSquareDashed, MoreHorizontal, Phone, Tag, Video } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { markRead, sendText, stashFailedDraft, takeFailedDraft } from '../../engine/chat';
 import { setConversationLabel } from '../../engine/conversations';
@@ -45,6 +45,24 @@ export function ChatView({ conversation }: { conversation: ConversationSummary }
   const lastMarkedId = useRef<string | null>(null);
 
   const last = loaded?.[loaded.length - 1];
+
+  // The header and composer float over the messages: the list pads itself by their measured heights.
+  const root = useRef<HTMLDivElement>(null);
+  const top = useRef<HTMLDivElement>(null);
+  const bottom = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = root.current;
+    if (!el || !top.current || !bottom.current) return;
+    const update = () => {
+      el.style.setProperty('--top-h', `${top.current?.offsetHeight ?? 0}px`);
+      el.style.setProperty('--bottom-h', `${bottom.current?.offsetHeight ?? 0}px`);
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(top.current);
+    ro.observe(bottom.current);
+    return () => ro.disconnect();
+  }, []);
 
   /** Marks read only when there is something unread (no redundant server round trips). */
   const markReadIfNeeded = useCallback(
@@ -147,9 +165,11 @@ export function ChatView({ conversation }: { conversation: ConversationSummary }
         : '';
 
   return (
-    <div className="chat column">
-      <ChatHeader conversation={conversation} subtitle={subtitle} typing={!!typingName} muted={muted} />
-      <PinnedBar conversationId={id} open={openPin} />
+    <div className="chat column" ref={root}>
+      <div className="chat-top" ref={top}>
+        <ChatHeader conversation={conversation} subtitle={subtitle} typing={!!typingName} muted={muted} />
+        <PinnedBar conversationId={id} open={openPin} />
+      </div>
       <div className="chat-body">
         {loaded === undefined ? (
           <div className="chat-loading">
@@ -166,9 +186,10 @@ export function ChatView({ conversation }: { conversation: ConversationSummary }
         ) : (
           <MessageList conversation={conversation} scrollToBottomTick={sendTick} jumpTarget={jumpTarget} onJumped={() => setJumpTarget(null)} onReply={reply} />
         )}
-        <ToastView conversationId={id} bottom={16} />
       </div>
-      <Composer
+      <div className="chat-bottom" ref={bottom}>
+        <ToastView conversationId={id} bottom={0} />
+        <Composer
         name={conversation.name}
         conversationId={id}
         isGroup={conversation.isGroup}
@@ -178,7 +199,8 @@ export function ChatView({ conversation }: { conversation: ConversationSummary }
         focusTick={focusTick}
         onSend={send}
         onSendLike={sendLike}
-      />
+        />
+      </div>
       <MessageActionPresenter conversationId={id} />
       {notice && (
         <Alert
@@ -197,7 +219,8 @@ function ChatHeader({ conversation, subtitle, typing, muted }: { conversation: C
   const labels = useEngine(useShallow((s) => s.extras.labels));
   const current = useEngine((s) => s.extras.labelByConversation[conversation.id] ?? null);
   return (
-    <div className="toolbar chat-toolbar" data-tauri-drag-region>
+    <div className="chat-toolbar" data-tauri-drag-region>
+      <div className="chat-bar glass" data-tauri-drag-region>
       <div className="chat-header" data-tauri-drag-region>
         <Avatar url={conversation.avatar} name={conversation.name} size={30} />
         <div className="chat-header-text" data-tauri-drag-region>
@@ -208,7 +231,7 @@ function ChatHeader({ conversation, subtitle, typing, muted }: { conversation: C
           {subtitle && <div className={`chat-header-sub truncate ${typing ? 'tint' : ''}`}>{subtitle}</div>}
         </div>
       </div>
-      <div className="toolbar-group glass">
+      <div className="toolbar-group">
         <button className="toolbar-button" disabled title="Gọi thoại — chưa hỗ trợ trên phiên bản này" aria-label="Gọi thoại">
           <Phone size={15} />
         </button>
@@ -216,7 +239,8 @@ function ChatHeader({ conversation, subtitle, typing, muted }: { conversation: C
           <Video size={16} />
         </button>
       </div>
-      <div className="toolbar-group glass">
+      <span className="toolbar-divider" />
+      <div className="toolbar-group">
         <button className={`toolbar-button ${showInspector ? 'is-on' : ''}`} onClick={() => shell.toggleInspector()} title="Thông tin (⌥⌘I)" aria-label="Thông tin">
           <Info size={16} />
         </button>
@@ -248,6 +272,7 @@ function ChatHeader({ conversation, subtitle, typing, muted }: { conversation: C
         >
           <MoreHorizontal size={16} />
         </button>
+      </div>
       </div>
     </div>
   );

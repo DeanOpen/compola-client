@@ -2,10 +2,9 @@
 // content column lists it and the detail column shows the chat; the inspector slides in on the right.
 
 import { BookUser, HardDrive, MessagesSquare } from 'lucide-react';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { closeConversation, openConversation } from '../engine/chat';
-import { answerComposerConfirm } from '../engine/composer';
 import { setConversationFilter } from '../engine/conversations';
 import { getEngine, setEngine, useEngine } from '../engine/store';
 import { ChatDetail } from '../features/chat/ChatDetail';
@@ -14,7 +13,7 @@ import { ConversationListColumn } from '../features/conversations/ConversationLi
 import { QuickSwitcher } from '../features/quickSwitcher/QuickSwitcher';
 import { MediaViewerHost } from '../features/chat/MediaViewer';
 import { ContentUnavailable } from '../ui/ContentUnavailable';
-import { Alert } from '../ui/Overlays';
+import { ComposerPrompts } from '../features/chat/ComposerPrompts';
 import { ToastView } from '../ui/Toast';
 import { useShellShortcuts } from './keyboard';
 import { Sidebar } from './Sidebar';
@@ -28,7 +27,10 @@ export function MainShell() {
   const extrasLoaded = useEngine((s) => s.extras.loaded);
   const labelIds = useEngine(useShallow((s) => s.extras.labels.map((l) => l.id)));
   const navigationRequest = useEngine((s) => s.navigationRequest);
-  const composerConfirm = useEngine((s) => s.composerConfirm);
+  const width = useWindowWidth();
+  // The sidebar collapses to its icon rail on narrow windows, and when the inspector needs the room.
+  const rail = !sidebarVisible || width < railBelow || (showInspector && width < railBelowWithInspector);
+  const [listWidth, setListWidth] = useListWidth();
 
   useShellShortcuts();
 
@@ -65,34 +67,95 @@ export function MainShell() {
   }, [navigationRequest]);
 
   return (
-    <div className={`shell ${sidebarVisible ? '' : 'is-sidebar-hidden'} ${showInspector ? 'has-inspector' : ''}`}>
+    <div className={`shell ${rail ? 'is-rail' : ''} ${showInspector ? 'has-inspector' : ''}`}>
       <div className="shell-backdrop" aria-hidden />
-      {sidebarVisible && <Sidebar />}
-      <section className="shell-content">
+      <Sidebar rail={rail} />
+      <section className="panel shell-content" style={{ width: listWidth }}>
         <ContentColumn destination={destination} />
       </section>
-      <section className="shell-detail">
+      <ResizeHandle width={listWidth} onChange={setListWidth} />
+      <section className="panel shell-detail">
         <DetailColumn destination={destination} selection={selection} />
         <ToastView conversationId={null} bottom={24} />
       </section>
       {showInspector && isConversationList(destination) && (
-        <aside className="shell-inspector slide-in-right">
+        <aside className="panel shell-inspector slide-in-right">
           <ChatInspectorColumn conversationId={selection} />
         </aside>
       )}
       <QuickSwitcher />
       <MediaViewerHost />
-      {composerConfirm && (
-        <Alert
-          title={composerConfirm.title}
-          message={composerConfirm.message}
-          buttons={[
-            { label: composerConfirm.ok, onClick: () => answerComposerConfirm(composerConfirm, true) },
-            { label: composerConfirm.cancel, role: 'cancel', onClick: () => answerComposerConfirm(composerConfirm, false) },
-          ]}
-        />
-      )}
+      <ComposerPrompts />
     </div>
+  );
+}
+
+/** Below these window widths the sidebar collapses to its 64px icon rail. */
+const railBelow = 1080;
+const railBelowWithInspector = 1340;
+
+const useWindowWidth = () => {
+  const [width, setWidth] = useState(() => window.innerWidth);
+  useEffect(() => {
+    const onResize = () => setWidth(window.innerWidth);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+  return width;
+};
+
+const listWidthKey = 'compola.listWidth';
+const minList = 280;
+const maxList = 420;
+
+/** The conversation list's width (resizable, remembered). */
+const useListWidth = (): [number, (w: number) => void] => {
+  const [width, setWidth] = useState(() => {
+    try {
+      const v = Number(localStorage.getItem(listWidthKey));
+      return v >= minList && v <= maxList ? v : 320;
+    } catch {
+      return 320;
+    }
+  });
+  const set = (w: number) => {
+    const clamped = Math.round(Math.min(maxList, Math.max(minList, w)));
+    setWidth(clamped);
+    try {
+      localStorage.setItem(listWidthKey, String(clamped));
+    } catch {
+      /* private mode */
+    }
+  };
+  return [width, set];
+};
+
+/** The 8px gap between the list and the chat doubles as the list's resize handle. */
+function ResizeHandle({ width, onChange }: { width: number; onChange: (w: number) => void }) {
+  const start = (e: React.PointerEvent) => {
+    e.preventDefault();
+    const x0 = e.clientX;
+    const w0 = width;
+    const move = (ev: PointerEvent) => onChange(w0 + ev.clientX - x0);
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      document.body.classList.remove('is-resizing');
+    };
+    document.body.classList.add('is-resizing');
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+  return (
+    <div
+      className="resize-handle"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Đổi độ rộng danh sách"
+      aria-valuenow={width}
+      onPointerDown={start}
+      onDoubleClick={() => onChange(320)}
+    />
   );
 }
 

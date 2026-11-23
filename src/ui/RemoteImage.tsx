@@ -2,7 +2,7 @@
 // official loader (`resolveMedia`) when the link is dead, with an "expired / unavailable · retry" state.
 
 import { ImageOff, RefreshCw } from 'lucide-react';
-import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { mediaFileUrl, mediaUrl } from '../engine/media';
 import type { MediaResolution } from '../engine/mediaResolver';
 import { Spinner } from './Spinner';
@@ -35,28 +35,33 @@ export function RemoteImage({
 }) {
   const direct = resolveFirst ? null : mediaUrl(url);
   const [phase, setPhase] = useState<Phase>({ kind: 'loading', src: direct });
-  const [attempt, setAttempt] = useState(0);
+  /** Which source failed last: the CDN link first, then the official loader's file. */
+  const stage = useRef<'direct' | 'resolved'>('direct');
+  const forced = useRef(false);
+
+  const fallback = async (force: boolean) => {
+    stage.current = 'resolved';
+    if (!resolve) return setPhase({ kind: 'failed', reason: 'unavailable' });
+    setPhase({ kind: 'loading', src: null });
+    const r = await resolve(force);
+    const src = r.state === 'file' ? mediaFileUrl(r.path, 'image', force) : null;
+    if (src) return setPhase({ kind: 'loading', src });
+    setPhase({ kind: 'failed', reason: r.state === 'expired' ? 'expired' : 'unavailable' });
+  };
 
   useEffect(() => {
+    stage.current = 'direct';
     setPhase({ kind: 'loading', src: direct });
     if (!direct) void fallback(false);
   }, [url, resolveFirst]);
 
-  const fallback = async (force: boolean) => {
-    if (!resolve) return setPhase({ kind: 'failed', reason: 'unavailable' });
-    setPhase({ kind: 'loading', src: null });
-    const r = await resolve(force);
-    if (r.state === 'file') {
-      const src = mediaFileUrl(r.path);
-      if (src) return setPhase({ kind: 'loading', src: src + (force ? `&r=${attempt}` : '') });
-    }
-    setPhase({ kind: 'failed', reason: r.state === 'expired' ? 'expired' : 'unavailable' });
-  };
-
+  /** The user's retry click: the CDN link again with `retry=1` (skips the scheme's failure cache), then the loader. */
   const retry = () => {
-    setAttempt((a) => a + 1);
-    if (direct && attempt === 0) setPhase({ kind: 'loading', src: `${direct}${direct.includes('?') ? '&' : '?'}retry=1` });
-    else void fallback(true);
+    forced.current = true;
+    const again = resolveFirst ? null : mediaUrl(url, 'image', true);
+    if (!again) return void fallback(true);
+    stage.current = 'direct';
+    setPhase({ kind: 'loading', src: again });
   };
 
   if (phase.kind === 'failed') {
@@ -65,7 +70,15 @@ export function RemoteImage({
         <ImageOff size={compact ? 16 : 22} />
         {!compact && <span>{phase.reason === 'expired' ? 'Ảnh đã hết hạn' : 'Không tải được ảnh'}</span>}
         {phase.reason !== 'expired' && (
-          <button className="btn btn-glass btn-small" onClick={(e) => { e.stopPropagation(); retry(); }} title="Thử lại">
+          <button
+            className="btn btn-glass btn-small"
+            onClick={(e) => {
+              e.stopPropagation();
+              retry();
+            }}
+            title="Thử lại"
+            aria-label="Thử lại"
+          >
             <RefreshCw size={12} /> {compact ? '' : 'Thử lại'}
           </button>
         )}
@@ -83,7 +96,7 @@ export function RemoteImage({
           draggable={false}
           style={{ objectFit: fit, opacity: phase.kind === 'ok' ? 1 : 0 }}
           onLoad={() => setPhase({ kind: 'ok', src })}
-          onError={() => (direct && src.startsWith(direct) ? void fallback(false) : setPhase({ kind: 'failed', reason: 'unavailable' }))}
+          onError={() => (stage.current === 'direct' ? void fallback(forced.current) : setPhase({ kind: 'failed', reason: 'unavailable' }))}
         />
       )}
     </div>

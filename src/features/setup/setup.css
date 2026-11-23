@@ -364,42 +364,113 @@
   border: 2px solid var(--content);
 }
 
-/* Login */
-.login {
+/* Login: one centred card — text + numbered steps beside the QR (stacked on narrow windows) */
+.login-card {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 14px;
-  width: 100%;
+  gap: 18px;
+  width: min(760px, calc(100vw - 48px));
+  padding: 28px 32px 20px;
+  border-radius: 24px;
+  background: var(--content);
+  box-shadow: 0 20px 60px rgba(0, 40, 120, 0.14), 0 0 0 0.5px var(--separator);
 }
 
-.login-notice {
+.login-main {
+  display: flex;
+  align-items: center;
+  gap: 36px;
+}
+
+.login-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.login-logo {
+  border-radius: 11px;
+  margin-bottom: 4px;
+}
+
+.login-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.login-subtitle {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.login-steps {
+  counter-reset: step;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 10px 0 4px;
+  padding: 0;
+}
+
+.login-steps li {
+  counter-increment: step;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.login-steps li::before {
+  content: counter(step);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent-selected);
+  color: var(--accent);
+  font-family: var(--font-rounded);
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.callout {
   display: flex;
   align-items: flex-start;
   gap: 8px;
   width: 100%;
-  padding: 12px;
+  padding: 10px 12px;
   border-radius: 12px;
-  background: rgba(255, 149, 0, 0.12);
-  color: var(--warning);
-  font-size: 12px;
+  font-size: 12.5px;
 }
 
-.login-notice svg {
+.callout svg {
   flex: none;
   margin-top: 1px;
 }
 
-.login-head {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
+.callout.is-info {
+  background: var(--accent-hover);
+  color: var(--accent);
+}
+
+.callout.is-warning {
+  background: rgba(255, 149, 0, 0.12);
+  color: var(--warning);
 }
 
 .login-qr-area {
-  position: relative;
   flex: none;
+  width: 240px;
+  height: 240px;
 }
 
 .login-qr {
@@ -409,23 +480,32 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 24px;
+  border-radius: 20px;
   background: #fff;
-  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.12);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.06), 0 6px 18px rgba(0, 0, 0, 0.08);
 }
 
-.login-qr img {
-  width: calc(100% - 32px);
-  height: calc(100% - 32px);
+.login-qr-code {
+  width: calc(100% - 28px);
+  height: calc(100% - 28px);
   image-rendering: pixelated;
   transition:
     filter 0.3s ease,
     opacity 0.3s ease;
 }
 
-.login-qr img.is-expired {
+.login-qr-code.is-expired {
   filter: blur(6px);
   opacity: 0.4;
+}
+
+.login-qr-logo {
+  position: absolute;
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
+  box-shadow: 0 0 0 4px #fff;
+  background: #fff;
 }
 
 .login-qr .spin {
@@ -443,65 +523,73 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 12px;
+  gap: 10px;
   padding: 16px;
-  border-radius: 24px;
-  background: var(--fill-quaternary);
+  border-radius: 20px;
+  background: var(--accent-hover);
   text-align: center;
 }
 
+.login-confirm-avatar {
+  position: relative;
+  display: inline-flex;
+}
+
+.login-confirm-check {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  display: inline-flex;
+  border-radius: 50%;
+  background: #fff;
+}
+
 .login-confirm-name {
-  font-size: 17px;
+  font-size: 16px;
   font-weight: 600;
-}
-
-.login-confirm-scanned {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 12.5px;
-  font-weight: 500;
-}
-
-.login-footer {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
 }
 
 .login-waiting {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 12.5px;
-  color: var(--text-secondary);
-}
-
-.login-steps {
-  display: flex;
-  flex-direction: column;
   gap: 7px;
-}
-
-.login-step {
-  display: flex;
-  align-items: center;
-  gap: 10px;
   font-size: 12.5px;
   color: var(--text-secondary);
 }
 
-.login-step-n {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: var(--accent);
-  color: #fff;
-  font-family: var(--font-rounded);
+.login-footnote {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  padding-top: 14px;
+  border-top: 1px solid var(--separator);
   font-size: 11px;
-  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.login-footnote svg {
+  flex: none;
+  margin-top: 1px;
+}
+
+/* Narrow windows: the Telegram stack — QR on top, text and steps below. */
+@media (max-width: 899px) {
+  .login-card {
+    width: min(400px, calc(100vw - 32px));
+    padding: 24px 24px 16px;
+  }
+
+  .login-main {
+    flex-direction: column-reverse;
+    gap: 18px;
+  }
+
+  .login-text {
+    align-items: center;
+    text-align: center;
+  }
+
+  .login-logo {
+    display: none;
+  }
 }

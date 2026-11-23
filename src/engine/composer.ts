@@ -1,45 +1,105 @@
-// Composer "+" actions bridged to `host-scripts/composer-adapter.js` (`window.__zaloCompose`). Port of the parts of
-// ZaloEngine+Composer.swift the adapters allow without native pickers: photo/video and file sends (through the Rust
-// file-input answer, see `callAdapterWithFiles`), official confirms and toasts. Screenshot, my card and reminders are
-// later waves.
+// Composer "+" actions bridged to `host-scripts/composer-adapter.js` (`window.__zaloCompose`). Port of
+// ZaloEngine+Composer.swift: photo / video and file sends and screenshots (files reach the page through the Rust
+// file-input answer, see `callAdapterWithFiles`), the official screenshot tool (`screen_capture_start` →
+// `compola://screen-capture`), official confirms and toasts. My card and reminders are later waves.
 
+import { commands } from './backend';
 import { callAdapter, callAdapterWithFiles, log, raceTimeout } from './call';
+import { sendText } from './chat';
 import { obj, str, type Json } from './models/json';
 import { noAnswerText, parseComposerOutcome, type ComposerOutcome } from './models/outcomes';
 import { getEngine, setEngine, type ComposerConfirm } from './store';
 import { showToast } from './toast';
 
-const composeWithFiles = async (method: string, args: unknown[], kind: 'media' | 'files'): Promise<ComposerOutcome> => {
-  let call: Promise<unknown>;
-  try {
-    call = callAdapterWithFiles('__zaloCompose', method, args, { paths: null, kind });
-  } catch (e) {
-    call = Promise.reject(e);
-  }
+const missingCommand = /engine_call_with_files|not found|unknown command|not allowed/i;
+
+/** `files` = paths to hand over, or null to let Rust show the open panel filtered by `pick`. */
+const composeWithFiles = async (method: string, args: unknown[], files: string[] | null, pick: 'media' | 'files' = 'files'): Promise<ComposerOutcome> => {
+  if (files && files.length === 0) return { kind: 'cancelled' };
   // Photos are processed before the call returns; the uploads themselves continue in the page.
   const answer = await raceTimeout(
     180,
-    call.catch((e: unknown) => {
+    callAdapterWithFiles('__zaloCompose', method, args, files, pick).catch((e: unknown) => {
       const text = String(e);
       log(`compose ${method} → ${text}`);
-      return { status: 'error', text: /engine_call_with_files|not found|unknown command/i.test(text) ? 'Chưa hỗ trợ gửi tệp trên phiên bản này.' : undefined };
+      return { status: 'error', text: missingCommand.test(text) ? 'Chưa hỗ trợ gửi tệp trên phiên bản này.' : undefined };
     }),
   );
   if (!answer) return { kind: 'pending', text: noAnswerText };
-  const outcome = parseComposerOutcome(answer.value);
+  let outcome = parseComposerOutcome(answer.value);
+  // Files were handed over but the page's file input received none: say so instead of nothing.
+  if (files && outcome.kind === 'cancelled' && obj(answer.value)?.status === 'cancelled') {
+    outcome = { kind: 'failed', text: 'Không đọc được tệp đã chọn. Hãy thử lại.' };
+  }
   log(`compose ${method} → ${outcome.kind}`);
   return outcome;
 };
 
 /** "Ảnh hoặc Video": photos through the official photo button's path, videos and other files as files. */
-export const sendMedia = (conversationId: string) => composeWithFiles('sendMedia', [conversationId], 'media');
+export const sendMedia = (conversationId: string) => composeWithFiles('sendMedia', [conversationId], null, 'media');
 
 /** "Tệp": the official file button's path. */
-export const sendFiles = (conversationId: string) => composeWithFiles('sendFiles', [conversationId], 'files');
+export const sendFiles = (conversationId: string) => composeWithFiles('sendFiles', [conversationId], null, 'files');
 
 /** Shows a failure or pending text for a composer action as the conversation's toast. */
 export const reportComposer = (outcome: ComposerOutcome, conversationId: string) => {
   if (outcome.kind === 'failed' || outcome.kind === 'pending') showToast(outcome.text, conversationId || null);
+};
+
+// MARK: Screenshot (official ZaloCap tool, Rust screen_capture.rs)
+
+/** "Chia sẻ" from the screenshot tool: the shot (or its recognised text) waiting for the conversations to send it to. */
+export interface ScreenshotShare {
+  id: number;
+  image: string | null;
+  text: string | null;
+  conversationId: string;
+}
+
+let shareSeq = 0;
+
+export const startScreenCapture = (conversationId: string, withCompola: boolean) =>
+  void commands.screenCaptureStart(conversationId, withCompola).catch((e) => {
+    log(`screen_capture_start → ${String(e)}`);
+    showToast('Không mở được công cụ chụp màn hình.', conversationId);
+  });
+
+export const handleScreenCapture = (payload: unknown) => {
+  const event = obj(payload);
+  if (!event) return;
+  const id = str(event.conversationId);
+  switch (event.kind) {
+    case 'send':
+    case 'sendToMe': {
+      const toMe = event.kind === 'sendToMe';
+      void composeWithFiles('sendShot', [id, toMe], [str(event.path)]).then((o) => reportComposer(o, id));
+      return;
+    }
+    case 'share':
+      shareSeq += 1;
+      setEngine({ screenshotShare: { id: shareSeq, image: str(event.path) || null, text: null, conversationId: id } });
+      return;
+    case 'shareText':
+      shareSeq += 1;
+      setEngine({ screenshotShare: { id: shareSeq, image: null, text: str(event.text) || null, conversationId: id } });
+      return;
+    case 'noPermission':
+      setEngine({ screenCaptureNeedsPermission: true });
+      return;
+    case 'failed':
+      showToast(str(event.message) || 'Không chụp được màn hình.', id || null);
+  }
+};
+
+/** Sends the shared shot (or its text) to every conversation picked. */
+export const shareScreenshot = async (share: ScreenshotShare, ids: string[]): Promise<ComposerOutcome> => {
+  if (share.text) {
+    let sent = 0;
+    for (const id of ids) if (await sendText(share.text, id)) sent += 1;
+    return sent > 0 ? { kind: 'done' } : { kind: 'failed', text: 'Không gửi được. Hãy thử lại.' };
+  }
+  if (!share.image) return { kind: 'cancelled' };
+  return composeWithFiles('shareShot', [ids], [share.image]);
 };
 
 // MARK: Official confirms / toasts

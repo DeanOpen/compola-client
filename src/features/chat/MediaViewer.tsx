@@ -19,7 +19,7 @@ export function MediaViewerHost() {
   const item = useViewer((s) => s.item);
   useEscape(!!item, close);
   if (!item) return null;
-  const flavour = item.kind === 'video' ? 'video' : 'image';
+  const flavour = item.kind === 'video' ? 'cors' : 'image';
   const src = item.file ? mediaFileUrl(item.file, flavour) : mediaUrl(item.url, flavour);
   const who = item.message.isMine ? 'Bạn' : item.message.senderName;
   return (

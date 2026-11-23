@@ -47,6 +47,21 @@
   --radius-l: 16px;
   --radius-xl: 22px;
 
+  /* Selected rows: accent tinted 12%; hover 6% (docs/design-refs). */
+  --accent-selected: rgba(0, 104, 255, 0.12);
+  --accent-hover: rgba(0, 104, 255, 0.06);
+  /* My bubbles: Zalo tonal with dark text in light mode, solid blue in dark mode. */
+  --bubble-mine: #e5f1ff;
+  --bubble-mine-text: #081b3a;
+  --bubble-mine-meta: rgba(8, 27, 58, 0.5);
+  --bubble-theirs: #ffffff;
+  --chat-bg: #e9eef5;
+  --chat-bar-bg: rgba(255, 255, 255, 0.9);
+  --panel-shadow: 0 1px 2px rgba(0, 0, 0, 0.05), 0 0 0 0.5px rgba(0, 0, 0, 0.06);
+  --sidebar-solid: #f4f6f9;
+  --motion-fast: 150ms ease-out;
+  --motion-sheet: 220ms cubic-bezier(0.2, 0.9, 0.3, 1.15);
+
   --font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', 'Segoe UI', Roboto, sans-serif;
   --font-rounded: ui-rounded, 'SF Pro Rounded', -apple-system, BlinkMacSystemFont, sans-serif;
   --toolbar-h: 52px;
@@ -78,6 +93,27 @@
     --glass-shadow: 0 10px 30px rgba(0, 0, 0, 0.45), 0 1px 2px rgba(0, 0, 0, 0.3);
 
     --sidebar-bg: rgba(42, 47, 53, 0.66);
+    --accent-selected: rgba(64, 140, 255, 0.2);
+    --accent-hover: rgba(64, 140, 255, 0.09);
+    --bubble-mine: #0068ff;
+    --bubble-mine-text: #ffffff;
+    --bubble-mine-meta: rgba(255, 255, 255, 0.72);
+    --bubble-theirs: #2c3137;
+    --chat-bg: #181b1f;
+    --chat-bar-bg: rgba(44, 49, 55, 0.92);
+    --panel-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 0 0 0.5px rgba(255, 255, 255, 0.06);
+    --sidebar-solid: #2a2f35;
     --dim: rgba(0, 0, 0, 0.32);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

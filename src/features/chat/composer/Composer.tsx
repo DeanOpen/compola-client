@@ -19,14 +19,14 @@ import {
 } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { mentionCandidates } from '../../../engine/chat';
-import { reportComposer, sendFiles, sendMedia } from '../../../engine/composer';
+import { reportComposer, sendFiles, sendMedia, startScreenCapture } from '../../../engine/composer';
 import type { ComposerDraft, MentionCandidate } from '../../../engine/models/chat';
 import { Avatar } from '../../../ui/Avatar';
 import { openMenuBelow } from '../../../ui/Menu';
 import { insertMention, mentionQueryAt, rebaseMentions, tokenAt, type MentionQuery } from './mentions';
 
 const lineHeight = 19;
-const maxLines = 6;
+const maxLines = 8;
 
 export function Composer({
   name,
@@ -187,7 +187,15 @@ export function Composer({
         icon: Paperclip,
         onSelect: () => void sendFiles(conversationId).then((o) => reportComposer(o, conversationId)),
       },
-      { label: 'Chụp màn hình', icon: Camera, disabled: true, onSelect: () => {} },
+      {
+        kind: 'submenu',
+        label: 'Chụp màn hình',
+        icon: Camera,
+        items: [
+          { label: 'Chụp kèm cửa sổ Compola', onSelect: () => startScreenCapture(conversationId, true) },
+          { label: 'Chụp không kèm cửa sổ Compola', onSelect: () => startScreenCapture(conversationId, false) },
+        ],
+      },
       { label: 'Danh thiếp của tôi', icon: ContactRound, disabled: true, onSelect: () => {} },
       { kind: 'separator' },
       { label: 'Nhắc hẹn', icon: AlarmClock, disabled: true, onSelect: () => {} },
@@ -218,10 +226,10 @@ export function Composer({
       )}
       {suggestionsOpen && <MentionSuggestions candidates={candidates} selected={selected} setSelected={setSelected} pick={pick} />}
       <div className="composer-row">
-        <button className="circle-glass composer-plus" onClick={(e) => plusMenu(e.currentTarget)} title="Thêm" aria-label="Thêm">
-          <Plus size={17} strokeWidth={2.4} />
-        </button>
         <div className="composer-field glass">
+          <button className="icon-button composer-icon composer-plus" onClick={(e) => plusMenu(e.currentTarget)} title="Thêm" aria-label="Thêm">
+            <Plus size={19} strokeWidth={2.3} />
+          </button>
           <div className="composer-input" style={{ height }}>
             <div className="composer-mirror" ref={mirror} aria-hidden>
               {renderMirror(draft)}
@@ -251,19 +259,18 @@ export function Composer({
               }}
             />
           </div>
-          <button className="icon-button composer-sticker" disabled title="Gửi Sticker" aria-label="Gửi Sticker">
-            <Smile size={17} />
+          {isEmpty && (
+            <button className="icon-button composer-icon composer-like" onClick={onSendLike} title="Gửi biểu tượng thích" aria-label="Gửi biểu tượng thích">
+              👍
+            </button>
+          )}
+          <button className="icon-button composer-icon" disabled title="Gửi Sticker" aria-label="Gửi Sticker">
+            <Smile size={18} />
           </button>
         </div>
-        {isEmpty ? (
-          <button className="circle-glass composer-send is-like" onClick={onSendLike} title="Gửi biểu tượng thích" aria-label="Gửi biểu tượng thích">
-            👍
-          </button>
-        ) : (
-          <button className="composer-send is-send pop-in" onClick={onSend} title="Gửi" aria-label="Gửi tin nhắn">
-            <ArrowUp size={17} strokeWidth={2.8} />
-          </button>
-        )}
+        <button className="composer-send" onClick={onSend} disabled={isEmpty} title="Gửi" aria-label="Gửi tin nhắn">
+          <ArrowUp size={17} strokeWidth={2.8} />
+        </button>
       </div>
     </div>
   );

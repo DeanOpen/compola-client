@@ -1,35 +1,57 @@
+/* Signed-in window: floating rounded panels (12px radius, 8px gaps) over a translucent, accent-tinted window
+   background (docs/design-refs). The sidebar is the glassiest surface; list, chat and inspector are solid panels. */
+
 .shell {
   position: relative;
   display: flex;
   height: 100%;
-  background: var(--content);
+  padding: 8px;
   isolation: isolate;
+  overflow: hidden;
+  background: var(--window);
+}
+
+.shell-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background:
+    radial-gradient(520px 420px at 0% 0%, var(--accent-soft), transparent 70%),
+    radial-gradient(640px 520px at 100% 100%, var(--accent-faint), transparent 70%),
+    radial-gradient(420px 360px at 55% 0%, var(--accent-faint), transparent 70%);
+  backdrop-filter: blur(30px) saturate(180%);
+  -webkit-backdrop-filter: blur(30px) saturate(180%);
+}
+
+.panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-radius: 12px;
+  background: var(--content);
+  box-shadow: var(--panel-shadow);
   overflow: hidden;
 }
 
-/* What the floating sidebar refracts. */
-.shell-backdrop {
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 280px;
-  z-index: -1;
-  background:
-    radial-gradient(420px 360px at 0% 0%, var(--accent-soft), transparent 70%),
-    radial-gradient(300px 300px at 100% 100%, var(--accent-faint), transparent 70%),
-    var(--window);
-}
-
-/* Sidebar (floating glass) */
+/* Sidebar: labelled source list, or the 64px icon rail */
 .sidebar {
   display: flex;
   flex-direction: column;
   flex: none;
-  width: 236px;
-  margin: 8px 0 8px 8px;
-  border-radius: 18px;
+  width: 224px;
+  margin-right: 8px;
+  border-radius: 12px;
   background: var(--sidebar-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: inset 0 0 0 0.5px var(--glass-border), var(--panel-shadow);
   overflow: hidden;
-  z-index: 2;
+  transition: width var(--motion-sheet);
+}
+
+.sidebar.is-rail {
+  width: 64px;
 }
 
 .sidebar-titlebar {
@@ -40,11 +62,22 @@
 .sidebar-scroll {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0 8px 8px;
+}
+
+.is-rail .sidebar-scroll {
   padding: 0 8px 8px;
 }
 
 .sidebar-section + .sidebar-section {
   margin-top: 12px;
+}
+
+.is-rail .sidebar-section + .sidebar-section {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--separator);
 }
 
 .sidebar-heading {
@@ -61,20 +94,34 @@
   width: 100%;
   height: 30px;
   padding: 0 10px;
-  border-radius: 9px;
+  border-radius: 8px;
   font-size: 13px;
   text-align: left;
+  transition: background var(--motion-fast);
+}
+
+.is-rail .sidebar-row {
+  justify-content: center;
+  height: 44px;
+  padding: 0;
+  border-radius: 12px;
 }
 
 .sidebar-row:hover {
-  background: var(--hover);
+  background: var(--accent-hover);
 }
 
 .sidebar-row.is-selected {
-  background: var(--fill);
+  background: var(--accent-selected);
+}
+
+.sidebar-row.is-selected .sidebar-row-label {
+  font-weight: 600;
 }
 
 .sidebar-row-icon {
+  position: relative;
+  display: inline-flex;
   flex: none;
   color: var(--accent);
 }
@@ -88,18 +135,41 @@
   color: var(--text-secondary);
 }
 
+.sidebar-rail-badge {
+  position: absolute;
+  top: -7px;
+  right: -11px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+  box-shadow: 0 0 0 2px var(--sidebar-solid);
+}
+
 .account-footer {
   display: flex;
   align-items: center;
   gap: 9px;
   margin: 6px 8px 8px;
   padding: 8px;
-  border-radius: 12px;
+  border-radius: 10px;
   text-align: left;
+  transition: background var(--motion-fast);
+}
+
+.is-rail .account-footer {
+  justify-content: center;
+  padding: 7px 0;
 }
 
 .account-footer:hover {
-  background: var(--fill-quaternary);
+  background: var(--accent-hover);
 }
 
 .account-text {
@@ -132,29 +202,51 @@
 
 /* Columns */
 .shell-content {
-  display: flex;
-  flex-direction: column;
   flex: none;
-  width: 340px;
   min-width: 0;
-  border-right: 0.5px solid var(--separator);
+}
+
+.resize-handle {
+  flex: none;
+  width: 8px;
+  cursor: col-resize;
+  position: relative;
+}
+
+.resize-handle::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 3px;
+  width: 2px;
+  height: 36px;
+  margin-top: -18px;
+  border-radius: 1px;
+  background: var(--accent);
+  opacity: 0;
+  transition: opacity var(--motion-fast);
+}
+
+.resize-handle:hover::after,
+.is-resizing .resize-handle::after {
+  opacity: 0.6;
+}
+
+.is-resizing,
+.is-resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
 }
 
 .shell-detail {
-  position: relative;
-  display: flex;
-  flex-direction: column;
   flex: 1;
   min-width: 300px;
 }
 
 .shell-inspector {
-  display: flex;
-  flex-direction: column;
   flex: none;
   width: 300px;
-  border-left: 0.5px solid var(--separator);
-  background: var(--content);
+  margin-left: 8px;
 }
 
 @keyframes compola-slide-in-right {
@@ -165,13 +257,14 @@
 }
 
 .slide-in-right {
-  animation: compola-slide-in-right 0.22s ease-out both;
+  animation: compola-slide-in-right var(--motion-sheet) both;
 }
 
 .column {
   position: relative;
   display: flex;
   flex-direction: column;
+  flex: 1;
   height: 100%;
   min-height: 0;
 }
@@ -183,10 +276,6 @@
   flex: none;
   height: var(--toolbar-h);
   padding: 0 14px;
-}
-
-.is-sidebar-hidden .shell-content .toolbar {
-  padding-left: 84px;
 }
 
 .column-title {

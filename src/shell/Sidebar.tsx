@@ -30,7 +30,8 @@ import { openMenuBelow } from '../ui/Menu';
 import { isLabel, shell, sidebarRow, useShell, type Destination } from './shellStore';
 import './shell.css';
 
-export function Sidebar() {
+/** `rail`: the collapsed 64px icon rail (narrow windows, or ⌃⌘S). */
+export function Sidebar({ rail }: { rail: boolean }) {
   const { destination, selection, search, unlocked } = useShell(
     useShallow((s) => ({ destination: s.destination, selection: s.selection, search: s.search, unlocked: s.unlockedHiddenIds })),
   );
@@ -72,6 +73,7 @@ export function Sidebar() {
   const row = (d: Destination, label: string, icon: LucideIcon, badge?: number, trailing?: ReactNode) => (
     <SidebarRow
       key={d}
+      rail={rail}
       label={label}
       icon={icon}
       badge={badge}
@@ -83,7 +85,7 @@ export function Sidebar() {
   );
 
   return (
-    <nav className="sidebar glass" aria-label="Thanh bên">
+    <nav className={`sidebar ${rail ? 'is-rail' : ''}`} aria-label="Thanh bên">
       <div className="sidebar-titlebar" data-tauri-drag-region />
       <div className="sidebar-scroll">
         <div className="sidebar-section">
@@ -95,23 +97,24 @@ export function Sidebar() {
             row('hidden', 'Trò chuyện ẩn', EyeOff, undefined, unlocked === null ? <Lock size={10} className="tertiary" aria-label="Đang khoá" /> : undefined)}
         </div>
         <div className="sidebar-section">
-          <div className="sidebar-heading">Lưu trữ</div>
+          {!rail && <div className="sidebar-heading">Lưu trữ</div>}
           {selfId && row('myCloud', 'Cloud của tôi', Cloud)}
           {row('zcloud', 'zCloud', HardDrive)}
         </div>
         <div className="sidebar-section">
-          <div className="sidebar-heading">Danh bạ</div>
+          {!rail && <div className="sidebar-heading">Danh bạ</div>}
           {row('friends', 'Bạn bè', User)}
           {row('groups', 'Nhóm và cộng đồng', Users)}
           {row('requests', 'Lời mời kết bạn', UserPlus)}
         </div>
       </div>
-      <AccountFooter />
+      <AccountFooter rail={rail} />
     </nav>
   );
 }
 
 function SidebarRow({
+  rail,
   label,
   icon: Icon,
   badge,
@@ -120,6 +123,7 @@ function SidebarRow({
   trailing,
   hint,
 }: {
+  rail: boolean;
   label: string;
   icon: LucideIcon;
   badge?: number;
@@ -129,17 +133,30 @@ function SidebarRow({
   hint?: string;
 }) {
   return (
-    <button className={`sidebar-row ${selected ? 'is-selected' : ''}`} onClick={onClick} aria-current={selected} title={hint}>
-      <Icon size={16} className="sidebar-row-icon" />
-      <span className="sidebar-row-label truncate">{label}</span>
-      {trailing}
-      {!!badge && badge > 0 && <span className="sidebar-row-badge nums">{badge}</span>}
+    <button
+      className={`sidebar-row ${selected ? 'is-selected' : ''}`}
+      onClick={onClick}
+      aria-current={selected}
+      aria-label={label}
+      title={hint ?? (rail ? label : undefined)}
+    >
+      <span className="sidebar-row-icon">
+        <Icon size={rail ? 19 : 16} />
+        {rail && !!badge && badge > 0 && <span className="sidebar-rail-badge nums">{badge > 99 ? '99+' : badge}</span>}
+      </span>
+      {!rail && (
+        <>
+          <span className="sidebar-row-label truncate">{label}</span>
+          {trailing}
+          {!!badge && badge > 0 && <span className="sidebar-row-badge nums">{badge}</span>}
+        </>
+      )}
     </button>
   );
 }
 
 /** Account row pinned to the bottom of the sidebar: avatar, name and the phone-sync state; opens the account menu. */
-function AccountFooter() {
+function AccountFooter({ rail }: { rail: boolean }) {
   const profile = useEngine((s) => s.profile);
   const name = profile?.displayName || 'Tài khoản của tôi';
   const canStartTransfer = useEngine((s) => s.canStartTransfer);
@@ -159,13 +176,15 @@ function AccountFooter() {
       }
     >
       <Avatar url={profile?.avatar} name={name} size={30} />
+      {!rail && (
       <span className="account-text">
         <span className="account-name truncate">{name}</span>
         <span className="account-status">
           <span className="account-dot" /> Đã kết nối
         </span>
       </span>
-      <ChevronsUpDown size={12} className="secondary" />
+      )}
+      {!rail && <ChevronsUpDown size={12} className="secondary" />}
     </button>
   );
 }

@@ -1,6 +1,7 @@
 // Chat, bridged to `host-scripts/chat-adapter.js` (`window.__zaloChat`). Port of ZaloEngine+Chat.swift.
 // Contract: models/chat.ts. All actions run through the official client's own services.
 
+import { commands } from './backend';
 import { callAdapter, fireAdapter, log, tryAdapter } from './call';
 import { appendDraft, parseChatMessage, parseReactionDetail, type ChatMessage, type ComposerDraft, type Mention, type MentionCandidate, type ReactionDetail } from './models/chat';
 import { arr, bool, obj, str, strings, url, type Json } from './models/json';
@@ -10,6 +11,7 @@ import { getEngine, setEngine } from './store';
 export const openConversation = (id: string) => {
   if (getEngine().openConversationId !== id) dropMessagePrompts();
   setEngine({ openConversationId: id });
+  reportOpen(id);
   fireAdapter('__zaloChat', 'open', id);
   fireAdapter('__zaloMsgActions', 'watchPins', id);
 };
@@ -18,10 +20,14 @@ export const closeConversation = () => {
   const id = getEngine().openConversationId;
   if (!id) return;
   setEngine({ openConversationId: null });
+  reportOpen(null);
   dropMessagePrompts();
   fireAdapter('__zaloChat', 'close', id);
   fireAdapter('__zaloMsgActions', 'watchPins', null);
 };
+
+/** Rust suppresses notifications of the chat on screen. */
+const reportOpen = (id: string | null) => void commands.setOpenConversation(id).catch(() => {});
 
 export const loadOlderMessages = (id: string) => fireAdapter('__zaloChat', 'loadMore', id);
 export const markRead = (id: string) => fireAdapter('__zaloChat', 'markRead', id);

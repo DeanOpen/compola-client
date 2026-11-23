@@ -95,7 +95,7 @@ export function VoiceView({ url, duration, mine }: { url: string | null; duratio
   const [state, setState] = useState<'idle' | 'loading' | 'playing' | 'paused'>('idle');
   useEffect(() => () => audio.current?.pause(), []);
   const toggle = () => {
-    const src = mediaUrl(url, 'audio');
+    const src = mediaUrl(url, 'cors');
     if (!src) return;
     if (!audio.current) {
       const a = new Audio(src);

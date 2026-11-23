@@ -2,6 +2,7 @@
 
 import { Check, ChevronRight, type LucideIcon } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { create } from 'zustand';
 import { useEscape } from './escape';
 import './ui.css';
@@ -22,7 +23,9 @@ export type MenuItem =
     }
   | { kind: 'separator' }
   | { kind: 'submenu'; label: string; icon?: LucideIcon; items: MenuItem[]; disabled?: boolean }
-  | { kind: 'label'; label: string };
+  | { kind: 'label'; label: string }
+  /** A row of quick reactions on top of a message menu (emoji buttons). */
+  | { kind: 'reactions'; emojis: string[]; selected: ReadonlySet<string>; onPick: (emoji: string) => void };
 
 interface MenuState {
   open: { x: number; y: number; items: MenuItem[]; minWidth?: number } | null;
@@ -128,13 +131,31 @@ function MenuPanel({ items, x, y, alignEnd = false, submenu = false }: { items: 
       {items.map((item, i) => {
         if (item.kind === 'separator') return <div key={i} className="menu-separator" />;
         if (item.kind === 'label') return <div key={i} className="menu-label">{item.label}</div>;
+        if (item.kind === 'reactions')
+          return (
+            <div key={i} className="menu-reactions" role="group" aria-label="Thả cảm xúc">
+              {item.emojis.map((emoji) => (
+                <button
+                  key={emoji}
+                  className={`menu-reaction ${item.selected.has(emoji) ? 'is-selected' : ''}`}
+                  aria-label={emoji}
+                  onClick={() => {
+                    closeMenu();
+                    item.onPick(emoji);
+                  }}
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
+          );
         if (item.kind === 'submenu') {
           const Icon = item.icon;
           return (
             <div key={i} className={`menu-item ${openSub === i ? 'is-active' : ''}`} aria-disabled={item.disabled} onMouseEnter={() => { setOpenSub(i); setActive(i); }}>
               <span className="menu-check" />
-              {Icon && <Icon size={15} className="menu-icon" />}
               <span className="menu-text">{item.label}</span>
+              {Icon && <Icon size={15} className="menu-icon" />}
               <ChevronRight size={13} className="menu-chevron" />
               {openSub === i && !item.disabled && <SubmenuAnchor items={item.items} />}
             </div>
@@ -155,10 +176,10 @@ function MenuPanel({ items, x, y, alignEnd = false, submenu = false }: { items: 
           >
             <span className="menu-check">{item.checked && <Check size={13} strokeWidth={2.5} />}</span>
             {item.dot && <span className="menu-dot" style={{ background: item.dot }} />}
-            {Icon && <Icon size={15} className="menu-icon" />}
             <span className="menu-text">{item.label}</span>
             {item.trailing}
             {item.shortcut && <span className="menu-shortcut">{item.shortcut}</span>}
+            {Icon && <Icon size={15} className="menu-icon" />}
           </button>
         );
       })}
@@ -172,9 +193,6 @@ function SubmenuAnchor({ items }: { items: MenuItem[] }) {
   useLayoutEffect(() => {
     setRect(ref.current?.parentElement?.getBoundingClientRect() ?? null);
   }, []);
-  return (
-    <span ref={ref}>
-      {rect && <MenuPanel items={items} x={rect.right - 2} y={rect.top - 5} submenu />}
-    </span>
-  );
+  // Portaled: a fixed panel inside the parent menu would be positioned against its (animated, transformed) box.
+  return <span ref={ref}>{rect && createPortal(<MenuPanel items={items} x={rect.right - 2} y={rect.top - 5} submenu />, document.body)}</span>;
 }

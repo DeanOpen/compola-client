@@ -2,7 +2,7 @@
 // the members of a group, polls in the loaded history, and the photos / files / links of the loaded messages.
 // The full "Kho lưu trữ" (shared-media store), mute / pin / more actions arrive with their waves.
 
-import { BarChart3, ChevronRight, Info, Link as LinkIcon, PanelRightClose, Tag } from 'lucide-react';
+import { BarChart3, ChevronRight, Info, Link as LinkIcon, PanelRightClose, Phone, Tag, Video } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { mentionCandidates } from '../../engine/chat';
@@ -173,29 +173,58 @@ function InspectorActions({ conversationId }: { conversationId: string }) {
   const currentLabel = labels.find((l) => l.id === current);
   return (
     <div className="inspector-actions">
-      <div className="action-slot">
-        <button
-          className="circle-glass"
-          style={{ width: 40, height: 40, color: currentLabel ? (cssColor(currentLabel.colorHex) ?? undefined) : undefined }}
-          aria-label="Phân loại"
-          onClick={(e) =>
-            openMenuBelow(
-              e.currentTarget,
-              labels.length
-                ? labels.map((l) => ({
-                    label: l.name,
-                    dot: cssColor(l.colorHex) ?? undefined,
-                    checked: current === l.id,
-                    onSelect: () => setConversationLabel(conversationId, current === l.id ? null : l.id),
-                  }))
-                : [{ label: 'Chưa có thẻ phân loại', disabled: true, onSelect: () => {} }],
-            )
-          }
-        >
-          <Tag size={17} fill={currentLabel ? 'currentColor' : 'none'} />
-        </button>
-        <span>{currentLabel?.name ?? 'Phân loại'}</span>
-      </div>
+      <ActionSlot label="Gọi thoại" help="Gọi thoại — chưa hỗ trợ trên phiên bản này" disabled>
+        <Phone size={17} />
+      </ActionSlot>
+      <ActionSlot label="Gọi video" help="Gọi video — chưa hỗ trợ trên phiên bản này" disabled>
+        <Video size={17} />
+      </ActionSlot>
+      <ActionSlot
+        label={currentLabel?.name ?? 'Phân loại'}
+        help="Phân loại"
+        color={currentLabel ? (cssColor(currentLabel.colorHex) ?? undefined) : undefined}
+        onClick={(el) =>
+          openMenuBelow(
+            el,
+            labels.length
+              ? labels.map((l) => ({
+                  label: l.name,
+                  dot: cssColor(l.colorHex) ?? undefined,
+                  checked: current === l.id,
+                  onSelect: () => setConversationLabel(conversationId, current === l.id ? null : l.id),
+                }))
+              : [{ label: 'Chưa có thẻ phân loại', disabled: true, onSelect: () => {} }],
+          )
+        }
+      >
+        <Tag size={17} fill={currentLabel ? 'currentColor' : 'none'} />
+      </ActionSlot>
+    </div>
+  );
+}
+
+/** A round glass action with its caption underneath. */
+function ActionSlot({
+  label,
+  help,
+  color,
+  disabled = false,
+  onClick,
+  children,
+}: {
+  label: string;
+  help: string;
+  color?: string;
+  disabled?: boolean;
+  onClick?: (el: HTMLButtonElement) => void;
+  children: ReactNode;
+}) {
+  return (
+    <div className="action-slot">
+      <button className="action-button" style={{ color }} disabled={disabled} title={help} aria-label={help} onClick={(e) => onClick?.(e.currentTarget)}>
+        {children}
+      </button>
+      <span className="truncate">{label}</span>
     </div>
   );
 }
