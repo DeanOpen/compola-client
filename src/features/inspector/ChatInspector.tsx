@@ -1,9 +1,10 @@
-// Conversation info in the inspector (⌥⌘I; Swift `ChatInspector` + InspectorBlocks.swift): who it is, quick actions,
-// the members of a group, polls in the loaded history, and the photos / files / links of the loaded messages.
-// The shared photos / files / links and "Kho lưu trữ" come from features/sharedMedia; mute / pin / more actions arrive
-// with their waves.
+// The Zalo PC info panel (docs/zalo-pc-style.md §5; logic from Swift `ChatInspector` + InspectorBlocks.swift):
+// "Thông tin hội thoại" / "Thông tin nhóm", the avatar and name, round actions, then collapsible sections — members,
+// group board, photos / videos, files, links (features/sharedMedia: the official media store), security settings, and the
+// red actions.
+// Actions that need the conversation-actions port are shown disabled until it lands.
 
-import { BarChart3, ChevronRight, Info, PanelRightClose, Tag } from 'lucide-react';
+import { BarChart3, BellOff, ChevronDown, ChevronRight, EyeOff, Info, Pencil, Pin, Settings, Tag, Timer, Trash2, UserPlus, UsersRound, LogOut, type LucideIcon } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { mentionCandidates } from '../../engine/chat';
@@ -11,8 +12,8 @@ import { setConversationLabel } from '../../engine/conversations';
 import type { ChatMessage, MentionCandidate } from '../../engine/models/chat';
 import { cssColor, type ConversationSummary } from '../../engine/models/conversations';
 import { setEngine, useEngine } from '../../engine/store';
-import { shell } from '../../shell/shellStore';
 import { Avatar } from '../../ui/Avatar';
+import { ConversationAvatar } from '../conversations/ConversationRow';
 import { ContentUnavailable } from '../../ui/ContentUnavailable';
 import { openMenuBelow } from '../../ui/Menu';
 import { Spinner } from '../../ui/Spinner';
@@ -30,11 +31,8 @@ export function ChatInspectorColumn({ conversationId }: { conversationId: string
     <div className="column">
       <div className="toolbar inspector-toolbar" data-tauri-drag-region>
         <span className="inspector-toolbar-title" data-tauri-drag-region>
-          Thông tin
+          {conversation?.isGroup ? 'Thông tin nhóm' : 'Thông tin hội thoại'}
         </span>
-        <button className="icon-button" style={{ width: 28, height: 28 }} onClick={() => shell.hideInspector()} title="Ẩn thông tin (⌥⌘I)" aria-label="Ẩn thông tin">
-          <PanelRightClose size={16} />
-        </button>
       </div>
       {conversation && browsing ? (
         <SharedMediaBrowser conversationId={conversation.id} kind={browsing} />
@@ -72,13 +70,17 @@ function ChatInspector({ conversation }: { conversation: ConversationSummary }) 
 
   return (
     <div className="inspector">
-      <div className="inspector-header">
-        <Avatar url={conversation.avatar} name={conversation.name} size={76} />
-        <div className="inspector-name clamp-2">{conversation.name}</div>
+      <div className="inspector-block inspector-header">
+        <ConversationAvatar conversation={conversation} size={56} isSelf={false} />
+        <div className="inspector-name">
+          <span className="clamp-2">{conversation.name}</span>
+          <button className="icon-button" style={{ width: 24, height: 24 }} disabled title="Đổi tên gợi nhớ — chưa hỗ trợ" aria-label="Đổi tên">
+            <Pencil size={14} />
+          </button>
+        </div>
         {subtitle && <div className="inspector-sub">{subtitle}</div>}
+        <InspectorActions conversationId={id} isGroup={conversation.isGroup} />
       </div>
-
-      <InspectorActions conversationId={id} />
 
       {conversation.isGroup && (
         <>
@@ -91,7 +93,7 @@ function ChatInspector({ conversation }: { conversation: ConversationSummary }) 
               )}
             </List>
           </Section>
-          <Section title="Thành viên" trailing={conversation.members > 0 ? String(conversation.members) : undefined}>
+          <Section title="Thành viên nhóm" trailing={conversation.members > 0 ? String(conversation.members) : undefined}>
             {members === null ? (
               <div className="inspector-loading">
                 <Spinner size={14} />
@@ -114,40 +116,95 @@ function ChatInspector({ conversation }: { conversation: ConversationSummary }) 
       )}
 
       <SharedMediaSections conversationId={id} />
+
+      <Section title="Thiết lập bảo mật">
+        <List>
+          <Row icon={<Timer size={15} />} title="Tin nhắn tự xóa" subtitle="Không bao giờ" />
+          <Row icon={<EyeOff size={15} />} title="Ẩn trò chuyện" />
+        </List>
+      </Section>
+
+      <div className="inspector-block inspector-danger">
+        <button className="inspector-danger-row" disabled title="Chưa hỗ trợ trên phiên bản này">
+          <Trash2 size={16} /> Xóa lịch sử trò chuyện
+        </button>
+        {conversation.isGroup && (
+          <button className="inspector-danger-row" disabled title="Chưa hỗ trợ trên phiên bản này">
+            <LogOut size={16} /> Rời nhóm
+          </button>
+        )}
+      </div>
     </div>
   );
 }
 
-/** Round glass actions with captions. Mute / pin / more need the conversation-actions wave; labels work now. */
-function InspectorActions({ conversationId }: { conversationId: string }) {
+/** Round actions with captions (Zalo PC): Tắt thông báo, Ghim hội thoại, Thêm thành viên / Tạo nhóm, Quản lý nhóm, and
+ * Phân loại. Mute / pin / group management arrive with the conversation-actions port. */
+function InspectorActions({ conversationId, isGroup }: { conversationId: string; isGroup: boolean }) {
   const labels = useEngine(useShallow((s) => s.extras.labels));
   const current = useEngine((s) => s.extras.labelByConversation[conversationId] ?? null);
   const currentLabel = labels.find((l) => l.id === current);
+  const soon = (label: string) => `${label} — chưa hỗ trợ trên phiên bản này`;
+  const action = (icon: LucideIcon, label: string) => (
+    <ActionSlot label={label} help={soon(label)} disabled>
+      {(() => {
+        const I = icon;
+        return <I size={18} />;
+      })()}
+    </ActionSlot>
+  );
   return (
     <div className="inspector-actions">
-      <div className="action-slot">
-        <button
-          className="circle-glass"
-          style={{ width: 40, height: 40, color: currentLabel ? (cssColor(currentLabel.colorHex) ?? undefined) : undefined }}
-          aria-label="Phân loại"
-          onClick={(e) =>
-            openMenuBelow(
-              e.currentTarget,
-              labels.length
-                ? labels.map((l) => ({
-                    label: l.name,
-                    dot: cssColor(l.colorHex) ?? undefined,
-                    checked: current === l.id,
-                    onSelect: () => setConversationLabel(conversationId, current === l.id ? null : l.id),
-                  }))
-                : [{ label: 'Chưa có thẻ phân loại', disabled: true, onSelect: () => {} }],
-            )
-          }
-        >
-          <Tag size={17} fill={currentLabel ? 'currentColor' : 'none'} />
-        </button>
-        <span>{currentLabel?.name ?? 'Phân loại'}</span>
-      </div>
+      {action(BellOff, 'Tắt thông báo')}
+      {action(Pin, 'Ghim hội thoại')}
+      {action(isGroup ? UserPlus : UsersRound, isGroup ? 'Thêm thành viên' : 'Tạo nhóm trò chuyện')}
+      {isGroup && action(Settings, 'Quản lý nhóm')}
+      <ActionSlot
+        label={currentLabel?.name ?? 'Phân loại'}
+        help="Phân loại"
+        color={currentLabel ? (cssColor(currentLabel.colorHex) ?? undefined) : undefined}
+        onClick={(el) =>
+          openMenuBelow(
+            el,
+            labels.length
+              ? labels.map((l) => ({
+                  label: l.name,
+                  dot: cssColor(l.colorHex) ?? undefined,
+                  checked: current === l.id,
+                  onSelect: () => setConversationLabel(conversationId, current === l.id ? null : l.id),
+                }))
+              : [{ label: 'Chưa có thẻ phân loại', disabled: true, onSelect: () => {} }],
+          )
+        }
+      >
+        <Tag size={18} fill={currentLabel ? 'currentColor' : 'none'} />
+      </ActionSlot>
+    </div>
+  );
+}
+
+/** A round glass action with its caption underneath. */
+function ActionSlot({
+  label,
+  help,
+  color,
+  disabled = false,
+  onClick,
+  children,
+}: {
+  label: string;
+  help: string;
+  color?: string;
+  disabled?: boolean;
+  onClick?: (el: HTMLButtonElement) => void;
+  children: ReactNode;
+}) {
+  return (
+    <div className="action-slot">
+      <button className="action-button" style={{ color }} disabled={disabled} title={help} aria-label={help} onClick={(e) => onClick?.(e.currentTarget)}>
+        {children}
+      </button>
+      <span className="truncate">{label}</span>
     </div>
   );
 }
@@ -174,13 +231,16 @@ const sharedContent = (messages: ChatMessage[]) => {
 };
 
 function Section({ title, trailing, children }: { title: string; trailing?: string; children: ReactNode }) {
+  const [open, setOpen] = useState(true);
   return (
-    <section className="inspector-section">
-      <div className="inspector-section-head">
+    <section className="inspector-block inspector-section">
+      <button className="inspector-section-head" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
         <span>{title}</span>
-        {trailing && <span className="tertiary">{trailing}</span>}
-      </div>
-      {children}
+        {trailing && <span className="inspector-section-count">{trailing}</span>}
+        <span className="conv-tabs-spacer" />
+        {open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+      </button>
+      {open && children}
     </section>
   );
 }

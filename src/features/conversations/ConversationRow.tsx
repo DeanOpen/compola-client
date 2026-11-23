@@ -5,6 +5,7 @@ import { BellOff, Cloud, Pin, Users } from 'lucide-react';
 import { memo } from 'react';
 import { cssColor, displayName, selfConversationTitle, type ConversationLabel, type ConversationSummary, type StrangerBox } from '../../engine/models/conversations';
 import { Avatar } from '../../ui/Avatar';
+import { useGroupMosaic } from '../../engine/groupMosaic';
 import { listTime, tileName } from './support';
 
 /** Conversation avatar: remote photo, tinted cloud for "Cloud của tôi", a small people badge on groups. */
@@ -16,12 +17,40 @@ export function ConversationAvatar({ conversation, size, isSelf }: { conversatio
         <span className="conv-avatar-cloud" style={{ width: size, height: size }}>
           <Cloud size={size * 0.45} fill="currentColor" strokeWidth={1.5} />
         </span>
+      ) : conversation.isGroup && !conversation.avatar ? (
+        <GroupMosaic conversation={conversation} size={size} />
       ) : (
         <Avatar url={conversation.avatar} name={displayName(conversation)} size={size} />
       )}
-      {conversation.isGroup && !isSelf && (
+      {conversation.isGroup && !isSelf && conversation.avatar && (
         <span className="conv-avatar-group" style={{ width: badge, height: badge }}>
           <Users size={badge * 0.5} strokeWidth={2.6} />
+        </span>
+      )}
+    </span>
+  );
+}
+
+/**
+ * Zalo's group avatar when the group has no photo of its own: up to four member avatars in a 2×2 mosaic; with more than
+ * four members the last tile is the member count. Initials while the members are not known.
+ */
+export function GroupMosaic({ conversation, size }: { conversation: ConversationSummary; size: number }) {
+  const members = useGroupMosaic(conversation.id, true);
+  if (members.length < 2) return <Avatar url={null} name={displayName(conversation)} size={size} />;
+  const tile = Math.round(size * 0.52);
+  const shown = conversation.members > 4 ? members.slice(0, 3) : members.slice(0, 4);
+  const rest = conversation.members > 4 ? conversation.members - 3 : 0;
+  return (
+    <span className={`group-mosaic is-${Math.min(4, shown.length + (rest ? 1 : 0))}`} style={{ width: size, height: size }} aria-hidden>
+      {shown.map((m, i) => (
+        <span key={i} className="group-mosaic-tile">
+          <Avatar url={m.avatar} name={m.name} size={tile} />
+        </span>
+      ))}
+      {rest > 0 && (
+        <span className="group-mosaic-tile group-mosaic-count" style={{ width: tile, height: tile, fontSize: tile * 0.4 }}>
+          {rest > 99 ? '99+' : rest}
         </span>
       )}
     </span>
@@ -93,10 +122,9 @@ export const ConversationRow = memo(function ConversationRow({
       onMouseDown={() => onSelect(conversation.id)}
       onContextMenu={(e) => onContextMenu(e, conversation.id)}
     >
-      <ConversationAvatar conversation={conversation} size={44} isSelf={isSelf} />
+      <ConversationAvatar conversation={conversation} size={48} isSelf={isSelf} />
       <div className="conv-row-body">
         <div className="conv-row-top">
-          {showsPin && <Pin size={10} className="conv-row-pin" fill="currentColor" aria-label="Đã ghim" />}
           <span className="conv-row-name truncate">{isSelf ? selfConversationTitle : displayName(conversation)}</span>
           {label && <LabelTag label={label} />}
           {isStranger && !isSelf && <span className="stranger-badge">Người lạ</span>}
@@ -106,11 +134,17 @@ export const ConversationRow = memo(function ConversationRow({
         </div>
         <div className="conv-row-bottom">
           {typing ? (
-            <span className="conv-row-preview is-typing clamp-2">{typing} đang soạn tin…</span>
+            <span className="conv-row-preview is-typing truncate">{typing} đang soạn tin…</span>
           ) : (
-            <span className="conv-row-preview clamp-2">{subtitle}</span>
+            <span className="conv-row-preview truncate">{subtitle}</span>
           )}
-          {unread ? <UnreadBadge count={conversation.unread} muted={muted} /> : unreadMark ? <span className="unread-dot" title="Đánh dấu chưa đọc" /> : null}
+          {unread ? (
+            <UnreadBadge count={conversation.unread} muted={muted} />
+          ) : unreadMark ? (
+            <span className="unread-dot" title="Đánh dấu chưa đọc" />
+          ) : showsPin ? (
+            <Pin size={12} className="conv-row-pin" aria-label="Đã ghim" />
+          ) : null}
         </div>
       </div>
     </div>
@@ -167,7 +201,7 @@ export function PinTile({
 export function StrangerBoxRow({ box, newest, onOpen }: { box: StrangerBox; newest: ConversationSummary | null; onOpen: () => void }) {
   return (
     <div className="conv-row" role="option" aria-selected={false} onMouseDown={onOpen}>
-      <span className="conv-avatar stranger-box-avatar" style={{ width: 44, height: 44 }}>
+      <span className="conv-avatar stranger-box-avatar" style={{ width: 48, height: 48 }}>
         <Users size={20} />
       </span>
       <div className="conv-row-body">
@@ -177,7 +211,7 @@ export function StrangerBoxRow({ box, newest, onOpen }: { box: StrangerBox; newe
           {newest?.preview?.date && <span className="conv-row-time nums">{listTime(newest.preview.date)}</span>}
         </div>
         <div className="conv-row-bottom">
-          <span className="conv-row-preview clamp-2">
+          <span className="conv-row-preview truncate">
             {newest ? `${displayName(newest)}: ${newest.preview?.text ?? ''}` : `${box.chats} cuộc trò chuyện`}
           </span>
           {box.unreadChats > 0 && <UnreadBadge count={box.unreadChats} muted={false} />}

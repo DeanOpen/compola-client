@@ -15,8 +15,8 @@ body,
 
 body {
   font-family: var(--font);
-  font-size: 13px;
-  line-height: 1.35;
+  font-size: 14px;
+  line-height: 1.4;
   color: var(--text);
   background: var(--window);
   -webkit-font-smoothing: antialiased;
@@ -105,21 +105,12 @@ a {
   clip: rect(0 0 0 0);
 }
 
-/* Liquid Glass surfaces */
-.glass {
-  background: var(--glass-bg);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  border: 0.5px solid var(--glass-border);
-  box-shadow: var(--glass-shadow), inset 0 0 0 0.5px var(--glass-edge);
-}
-
+/* Elevated surfaces (menus, popovers, sheets, toasts): solid, with a soft shadow (Zalo PC) */
+.glass,
 .glass-strong {
-  background: var(--glass-bg-strong);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
+  background: var(--glass-bg);
   border: 0.5px solid var(--glass-border);
-  box-shadow: var(--glass-shadow), inset 0 0 0 0.5px var(--glass-edge);
+  box-shadow: var(--glass-shadow);
 }
 
 /* Buttons */
@@ -128,18 +119,17 @@ a {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  height: 28px;
-  padding: 0 14px;
-  border-radius: 999px;
-  font-size: 13px;
-  font-weight: 500;
+  height: 32px;
+  padding: 0 16px;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: 600;
   white-space: nowrap;
 }
 
 .btn-prominent {
   background: var(--accent);
   color: var(--on-accent);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15), inset 0 0.5px 0 rgba(255, 255, 255, 0.35);
 }
 
 .btn-prominent:hover:not(:disabled) {
@@ -147,21 +137,19 @@ a {
 }
 
 .btn-glass {
-  background: var(--glass-bg);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  border: 0.5px solid var(--glass-border);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), inset 0 0 0 0.5px var(--glass-edge);
+  background: var(--subtle);
+  color: var(--text);
 }
 
 .btn-glass:hover:not(:disabled) {
-  background: var(--glass-bg-strong);
+  background: var(--fill);
+  filter: brightness(0.97);
 }
 
 .btn-large {
-  height: 36px;
-  padding: 0 20px;
-  font-size: 14px;
+  height: 40px;
+  padding: 0 24px;
+  font-size: 15px;
 }
 
 .btn-small {
@@ -188,7 +176,7 @@ a {
   align-items: center;
   justify-content: center;
   color: var(--text-secondary);
-  border-radius: 999px;
+  border-radius: 4px;
 }
 
 .icon-button:hover:not(:disabled) {
@@ -200,18 +188,13 @@ a {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 999px;
-  background: var(--glass-bg);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  border: 0.5px solid var(--glass-border);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1), inset 0 0 0 0.5px var(--glass-edge);
+  border-radius: 4px;
   color: var(--text-secondary);
-  transition: transform 0.12s ease;
+  transition: background var(--motion-fast);
 }
 
 .circle-glass:hover:not(:disabled) {
-  background: var(--glass-bg-strong);
+  background: var(--hover);
   color: var(--text);
 }
 
@@ -239,7 +222,14 @@ a {
 @keyframes compola-pop-in {
   from {
     opacity: 0;
-    transform: scale(0.96) translateY(4px);
+    transform: scale(0.97) translateY(3px);
+  }
+}
+
+@keyframes compola-sheet-in {
+  from {
+    opacity: 0;
+    transform: scale(0.94) translateY(10px);
   }
 }
 
@@ -261,11 +251,15 @@ a {
 }
 
 .pop-in {
-  animation: compola-pop-in 0.18s ease-out both;
+  animation: compola-pop-in 150ms ease-out both;
+}
+
+.sheet-in {
+  animation: compola-sheet-in var(--motion-sheet) both;
 }
 
 .slide-up {
-  animation: compola-slide-up 0.18s ease-out both;
+  animation: compola-slide-up 150ms ease-out both;
 }
 
 /* Scrollbars (macOS overlay look) */

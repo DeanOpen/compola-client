@@ -66,16 +66,17 @@ export const raceTimeout = <T>(seconds: number, promise: Promise<T>): Promise<{ 
   });
 
 /**
- * A composer action that needs files the user picks (adapter clicks its hidden `<input type=file>`; Swift answered the
- * open panel with the picked URLs). Needs the Rust command `engine_call_with_files` (not in the contract yet): with
- * `files: null` Rust shows the native open panel itself. Throws when the command does not exist.
+ * A composer action that needs files (the adapter clicks its hidden `<input type=file>`; Swift answered the open panel
+ * with the picked URLs). Needs the Rust command `engine_call_with_files` (not in the contract yet): `files` are absolute
+ * paths to provide, or null to let Rust show the native open panel (`pick` filters it). Throws when it does not exist.
  */
 export const callAdapterWithFiles = async <T = unknown>(
   target: AdapterTarget,
   method: string,
   args: unknown[],
-  files: { paths: string[] | null; kind: 'media' | 'files' },
+  files: string[] | null,
+  pick: 'media' | 'files' = 'files',
 ): Promise<T> => {
   const b = await backend();
-  return b.invoke<T>('engine_call_with_files', { target, method, args, files: files.paths, pick: files.kind });
+  return b.invoke<T>('engine_call_with_files', { target, method, args, files, pick });
 };

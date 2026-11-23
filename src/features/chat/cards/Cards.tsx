@@ -21,7 +21,7 @@ import { tryAdapter } from '../../../engine/call';
 import { arr, obj, str, webLink } from '../../../engine/models/json';
 import { locationMapUrl, type CardButton, type ChatMessage, type ContactCard, type ECard, type LocationInfo, type OAPart, type PollInfo } from '../../../engine/models/chat';
 import { setEngine } from '../../../engine/store';
-import { openExternal } from '../../../engine/system';
+import { openAttachment, openExternal } from '../../../engine/system';
 import { openCardLink } from '../../../engine/cardSheets';
 import { formatBytes } from '../../setup/RuntimeSetupView';
 import { Avatar } from '../../../ui/Avatar';
@@ -392,14 +392,11 @@ const fileIcon = (name: string) => {
   return FileIcon;
 };
 
-/**
- * A file card. Swift downloads through the client's network stack and opens the local copy (revealing files that could
- * run code in Finder instead); until the Rust side offers that, the link opens in the browser.
- */
+/** A file card: opens through `media_open_file` (download + open, or reveal in Finder for files that could run code). */
 export function FileCard({ name, size, url }: { name: string; size: number; url: string | null }) {
   const Icon = fileIcon(name);
   return (
-    <button className="file-card" disabled={!url} onClick={() => void openExternal(url)} title={name}>
+    <button className="file-card" disabled={!url} onClick={() => void openAttachment(url, name)} title={name}>
       <span className="file-icon">
         <Icon size={20} />
       </span>

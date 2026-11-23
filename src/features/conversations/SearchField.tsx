@@ -11,7 +11,7 @@ export function SearchField() {
     if (focusTick) ref.current?.focus();
   }, [focusTick]);
   return (
-    <label className="search-field glass">
+    <label className="search-field">
       <Search size={13} className="secondary" />
       <input
         ref={ref}

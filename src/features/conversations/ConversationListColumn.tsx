@@ -1,9 +1,10 @@
-// Content column for the conversation mailboxes / labels (Swift `ConversationListColumn`): search field (and the label
-// filter of the inbox) on top, pinned tiles, then the rows. The list is exactly what the official ConvListController
-// computed for the active filter; search looks through every conversation.
+// The Zalo PC list column (docs/zalo-pc-style.md §2), logic from Swift `ConversationListColumn`: the search field with
+// Thêm bạn / Tạo nhóm, the "Tất cả | Chưa đọc" tabs (or "Ưu tiên | Khác" with the official Khác feature) with Phân loại ▾
+// and ⋯, then 72px rows — pinned chats first, as the official list orders them. The list is exactly what the official
+// ConvListController computed for the active filter; search looks through every conversation.
 
-import { openCreateGroup } from '../contacts/hosts';
-import { Archive, LockOpen, ShieldHalf, Tag, UsersRound, X } from 'lucide-react';
+import { Archive, ArrowLeft, ChevronDown, EyeOff, LockOpen, MoreHorizontal, ShieldHalf, Tag, UserPlus, UserRoundSearch, UsersRound } from 'lucide-react';
+import { openAddFriend, openCreateGroup } from '../contacts/hosts';
 import { useCallback, useEffect, useMemo, useRef, type MouseEvent as ReactMouseEvent } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { setConversationLabel } from '../../engine/conversations';
@@ -20,10 +21,9 @@ import {
 } from '../../engine/models/conversations';
 import { getEngine, isPinnedConversation, useEngine } from '../../engine/store';
 import { appName } from '../setup/SplashView';
-import { ColumnToolbar } from '../../shell/MainShell';
 import { labelIdOf, shell, useShell, type Destination } from '../../shell/shellStore';
 import { openContextMenu, openMenuBelow, type MenuItem } from '../../ui/Menu';
-import { ConversationRow, PinTile, StrangerBoxRow } from './ConversationRow';
+import { ConversationRow, StrangerBoxRow } from './ConversationRow';
 import { ConversationListEmpty, ConversationListLoading, ListBanner } from './ConversationListStates';
 import { SearchField } from './SearchField';
 import { unreadCounts, unreadInLabel } from './support';
@@ -68,25 +68,16 @@ export function ConversationListColumn() {
     });
   }, [conversations, extras, actions, destination, isSearching, query, unlocked]);
 
-  /** In the inbox the pinned chats leave the rows and become tiles (not while searching). */
+  /** Zalo PC keeps pinned chats as rows (first, with a pin): no tiles. Their order is the official list's. */
   const listing = useMemo(() => {
-    if (destination !== 'inbox' || isSearching) return { pins: [] as ConversationSummary[], rows: items };
     const s = getEngine();
-    const pins: ConversationSummary[] = [];
-    const rows: ListItem[] = [];
-    for (const item of items) {
-      if (item.kind === 'conversation' && isPinnedConversation(s, item.conversation)) pins.push(item.conversation);
-      else rows.push(item);
-    }
-    return { pins, rows };
+    const pins = destination === 'inbox' && !isSearching
+      ? items.flatMap((i) => (i.kind === 'conversation' && isPinnedConversation(s, i.conversation) ? [i.conversation] : []))
+      : [];
+    return { pins, rows: items };
   }, [items, destination, isSearching, actions]);
 
-  const unreadChats =
-    listing.rows.reduce((n, i) => n + (i.kind === 'conversation' && i.conversation.unread > 0 ? 1 : 0), 0) +
-    listing.pins.filter((c) => c.unread > 0).length;
   const loading = conversations.length === 0 || !actions.hiddenKnown;
-  const status = unreadChats > 0 ? `${unreadChats} cuộc trò chuyện chưa đọc` : 'Đã đọc hết';
-  const subtitle = loading ? (activeLabel?.name ?? '') : activeLabel ? `${activeLabel.name} · ${status}` : status;
 
   const select = useCallback((id: string) => shell.select(id), []);
   const onContextMenu = useCallback((e: ReactMouseEvent, id: string) => openContextMenu(e, conversationMenu(id)), []);
@@ -109,7 +100,7 @@ export function ConversationListColumn() {
   // ↑ / ↓ move the selection through the rows when the list has focus.
   const onListKey = (e: React.KeyboardEvent) => {
     if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
-    const ids = [...listing.pins.map((c) => c.id), ...listing.rows.flatMap((i) => (i.kind === 'conversation' ? [i.conversation.id] : []))];
+    const ids = listing.rows.flatMap((i) => (i.kind === 'conversation' ? [i.conversation.id] : []));
     if (!ids.length) return;
     e.preventDefault();
     const at = selection ? ids.indexOf(selection) : -1;
@@ -120,22 +111,36 @@ export function ConversationListColumn() {
 
   const banner = !isSearching ? bannerFor(destination, unlocked !== null) : null;
 
+  const folder = destination === 'strangers' || destination === 'hidden';
+
   return (
     <div className="column conv-column">
-      <ColumnToolbar title={titleFor(destination)} subtitle={subtitle} />
-      <div className="conv-header">
-        <div className="conv-header-row">
-          <SearchField />
-          {offersLabelFilter && <LabelFilterButton active={activeLabel} disabled={isSearching} />}
-          <button className="circle-glass" style={{ width: 30, height: 30 }} onClick={() => openCreateGroup()} title="Tạo nhóm trò chuyện (⇧⌘N)" aria-label="Tạo nhóm">
-            <UsersRound size={14} />
-          </button>
-        </div>
-        {activeLabel && <LabelChip label={activeLabel} onClear={() => shell.setDestination('inbox')} />}
+      <div className="conv-top" data-tauri-drag-region>
+        <SearchField />
+        <button className="conv-top-button" onClick={() => openAddFriend()} title="Thêm bạn" aria-label="Thêm bạn">
+          <UserPlus size={18} />
+        </button>
+        <button className="conv-top-button" onClick={() => openCreateGroup()} title="Tạo nhóm trò chuyện (⇧⌘N)" aria-label="Tạo nhóm">
+          <UsersRound size={18} />
+        </button>
       </div>
+      {isSearching ? (
+        <div className="conv-tabs">
+          <span className="conv-search-title">Kết quả tìm kiếm</span>
+        </div>
+      ) : folder ? (
+        <div className="conv-tabs is-folder">
+          <button className="conv-back" onClick={() => shell.setDestination('inbox')} title="Quay lại" aria-label="Quay lại">
+            <ArrowLeft size={17} />
+          </button>
+          <span className="conv-folder-title">{destination === 'strangers' ? 'Tin nhắn từ người lạ' : 'Trò chuyện ẩn'}</span>
+        </div>
+      ) : (
+        <ListTabs destination={destination} activeLabel={activeLabel} offersLabelFilter={offersLabelFilter} />
+      )}
       {loading ? (
         <ConversationListLoading />
-      ) : listing.pins.length === 0 && listing.rows.length === 0 ? (
+      ) : listing.rows.length === 0 ? (
         <div className="conv-empty-wrap">
           {banner}
           <ConversationListEmpty destination={destination} searchText={isSearching ? query : null} hiddenEnabled={actions.hiddenEnabled} />
@@ -143,24 +148,6 @@ export function ConversationListColumn() {
       ) : (
         <div className="conv-list" role="listbox" tabIndex={0} onKeyDown={onListKey} aria-label={titleFor(destination)}>
           {banner && <div className="conv-banner-wrap">{banner}</div>}
-          {listing.pins.length > 0 && (
-            <div className="pin-grid">
-              {listing.pins.map((c, i) => (
-                <PinTile
-                  key={c.id}
-                  conversation={c}
-                  index={i}
-                  isSelf={c.id === selfId}
-                  selected={selection === c.id}
-                  muted={mutedIds.has(c.id)}
-                  unreadMark={actions.unreadMarkIds.has(c.id)}
-                  onSelect={select}
-                  onContextMenu={onContextMenu}
-                />
-              ))}
-            </div>
-          )}
-          {isSearching && <div className="conv-section-title">Cuộc trò chuyện</div>}
           {listing.rows.map((item) =>
             item.kind === 'strangerBox' ? (
               <StrangerBoxRow
@@ -177,7 +164,7 @@ export function ConversationListColumn() {
                 key={item.conversation.id}
                 conversation={item.conversation}
                 label={labelOf(extras, item.conversation.id)}
-                showsPin={!(destination === 'inbox' && !isSearching) && isPinnedConversation(getEngine(), item.conversation)}
+                showsPin={isPinnedConversation(getEngine(), item.conversation)}
                 unreadMark={actions.unreadMarkIds.has(item.conversation.id)}
                 isStranger={destination !== 'strangers' && extras.strangerIds.has(item.conversation.id)}
                 isSelf={item.conversation.id === selfId}
@@ -191,6 +178,49 @@ export function ConversationListColumn() {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+const tabTitle = (f: TypeFilter) => (f === TypeFilter.all ? 'Tất cả' : f === TypeFilter.focused ? 'Ưu tiên' : typeFilterTitle(f));
+const tabDestination = (f: TypeFilter): Destination => (f === TypeFilter.other ? 'other' : f === TypeFilter.unread ? 'unread' : 'inbox');
+
+/** "Tất cả | Chưa đọc" (or "Ưu tiên | Khác | Chưa đọc"), then Phân loại ▾ and ⋯ on the right. */
+function ListTabs({ destination, activeLabel, offersLabelFilter }: { destination: Destination; activeLabel: ConversationLabel | null; offersLabelFilter: boolean }) {
+  const archivedEnabled = useEngine((s) => s.extras.archivedEnabled);
+  const hiddenEnabled = useEngine((s) => s.conversationActions.hiddenEnabled);
+  const tabs = archivedEnabled ? [TypeFilter.focused, TypeFilter.other, TypeFilter.unread] : [TypeFilter.all, TypeFilter.unread];
+  const current: Destination = labelIdOf(destination) ? 'inbox' : destination;
+  return (
+    <div className="conv-tabs" role="tablist">
+      {tabs.map((t) => {
+        const d = tabDestination(t);
+        const on = current === d;
+        return (
+          <button key={t} role="tab" aria-selected={on} className={`conv-tab ${on ? 'is-active' : ''}`} onClick={() => shell.setDestination(d)}>
+            {tabTitle(t)}
+          </button>
+        );
+      })}
+      <span className="conv-tabs-spacer" />
+      {offersLabelFilter && <LabelFilterButton active={activeLabel} />}
+      <button
+        className="conv-tab-icon"
+        title="Thêm"
+        aria-label="Thêm"
+        onClick={(e) =>
+          openMenuBelow(
+            e.currentTarget,
+            [
+              { label: 'Tin nhắn từ người lạ', icon: UserRoundSearch, onSelect: () => shell.setDestination('strangers') },
+              ...(hiddenEnabled ? [{ label: 'Trò chuyện ẩn', icon: EyeOff, onSelect: () => shell.setDestination('hidden') } as MenuItem] : []),
+            ],
+            'end',
+          )
+        }
+      >
+        <MoreHorizontal size={17} />
+      </button>
     </div>
   );
 }
@@ -258,52 +288,40 @@ const conversationMenu = (id: string): MenuItem[] => {
   ];
 };
 
-/** Round glass button beside the search field: picks the label that filters "Tin nhắn" ("Tất cả" clears it). */
-function LabelFilterButton({ active, disabled }: { active: ConversationLabel | null; disabled: boolean }) {
+/** "Phân loại ▾": picks the label that filters the inbox ("Tất cả" clears it); shows the active label's name. */
+function LabelFilterButton({ active }: { active: ConversationLabel | null }) {
   const open = (el: Element) => {
     const s = getEngine();
     const counts = unreadCounts(s);
-    openMenuBelow(el, [
-      { label: 'Tất cả', checked: !active, onSelect: () => shell.setDestination('inbox') },
-      { kind: 'separator' },
-      ...(s.extras.labels.length === 0 ? [{ label: 'Chưa có thẻ phân loại', disabled: true, onSelect: () => {} } as MenuItem] : []),
-      ...s.extras.labels.map((l): MenuItem => {
-        const unread = unreadInLabel(counts, l);
-        return {
-          label: l.name,
-          dot: cssColor(l.colorHex) ?? undefined,
-          checked: active?.id === l.id,
-          trailing: unread > 0 ? <span className="menu-shortcut">{unread}</span> : undefined,
-          onSelect: () => shell.setDestination(active?.id === l.id ? 'inbox' : `label:${l.id}`),
-        };
-      }),
-      { kind: 'separator' },
-      { label: 'Quản lý thẻ phân loại…', disabled: true, onSelect: () => {} },
-    ]);
+    openMenuBelow(
+      el,
+      [
+        { label: 'Tất cả', checked: !active, onSelect: () => shell.setDestination('inbox') },
+        { kind: 'separator' },
+        ...(s.extras.labels.length === 0 ? [{ label: 'Chưa có thẻ phân loại', disabled: true, onSelect: () => {} } as MenuItem] : []),
+        ...s.extras.labels.map((l): MenuItem => {
+          const unread = unreadInLabel(counts, l);
+          return {
+            label: l.name,
+            dot: cssColor(l.colorHex) ?? undefined,
+            checked: active?.id === l.id,
+            trailing: unread > 0 ? <span className="menu-shortcut">{unread}</span> : undefined,
+            onSelect: () => shell.setDestination(active?.id === l.id ? 'inbox' : `label:${l.id}`),
+          };
+        }),
+        { kind: 'separator' },
+        { label: 'Quản lý thẻ phân loại', disabled: true, onSelect: () => {} },
+      ],
+      'end',
+    );
   };
+  const color = active ? (cssColor(active.colorHex) ?? undefined) : undefined;
   return (
-    <button
-      className={`circle-glass ${active ? 'is-active-filter' : ''}`}
-      style={{ width: 30, height: 30 }}
-      disabled={disabled}
-      onClick={(e) => open(e.currentTarget)}
-      title="Lọc theo thẻ phân loại"
-      aria-label="Lọc theo thẻ phân loại"
-    >
-      <Tag size={14} fill={active ? 'currentColor' : 'none'} />
+    <button className={`conv-label-filter ${active ? 'is-active' : ''}`} onClick={(e) => open(e.currentTarget)} title="Lọc theo thẻ phân loại">
+      {active ? <Tag size={13} fill={color} color={color} /> : null}
+      <span className="truncate">{active ? active.name : 'Phân loại'}</span>
+      <ChevronDown size={14} />
     </button>
   );
 }
 
-/** "● Gia đình  ✕" under the search field while a label filters the inbox. */
-function LabelChip({ label, onClear }: { label: ConversationLabel; onClear: () => void }) {
-  return (
-    <div className="label-chip glass slide-up">
-      <span className="label-chip-dot" style={{ background: cssColor(label.colorHex) ?? 'var(--accent)' }} />
-      <span className="truncate">{label.name}</span>
-      <button className="icon-button" style={{ width: 16, height: 16 }} onClick={onClear} title="Bỏ lọc" aria-label={`Bỏ lọc ${label.name}`}>
-        <X size={10} strokeWidth={3} />
-      </button>
-    </div>
-  );
-}

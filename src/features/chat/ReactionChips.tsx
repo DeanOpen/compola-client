@@ -11,7 +11,8 @@ import { Spinner } from '../../ui/Spinner';
 
 export function ReactionIconView({ icon, size }: { icon: ReactionIcon; size: number }) {
   const src = reactionImageUrl(icon.image);
-  if (src) return <img src={src} width={size} height={size} alt={icon.emoji} draggable={false} />;
+  const [failed, setFailed] = useState(false);
+  if (src && !failed) return <img src={src} width={size} height={size} alt={icon.emoji} draggable={false} onError={() => setFailed(true)} />;
   return (
     <span className="reaction-emoji" style={{ fontSize: size * 0.95 }} aria-label={icon.emoji}>
       {icon.emoji}

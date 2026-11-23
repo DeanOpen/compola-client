@@ -9,9 +9,13 @@ export type EngineEvent =
   | 'compola://log'
   | 'compola://badge'
   | 'compola://page'
-  | 'compola://call-event'
+  /** `{id, convId}`: a notification was clicked — open that conversation. */
   | 'compola://notification-click'
+  /** `{id, convId, text}`: an inline reply typed in a notification — send it. */
   | 'compola://notification-reply'
+  /** Call helper lifecycle (call UI, later wave). */
+  | 'compola://call-event'
+  /** ZaloCap outcome: `{kind: send|sendToMe|share|shareText|noPermission|failed, …}`. */
   | 'compola://screen-capture';
 
 export interface Backend {
@@ -59,13 +63,19 @@ export const commands = {
   retryRuntime: async () => (await backend()).invoke('engine_retry_runtime'),
   showRenderer: async () => (await backend()).invoke('engine_show_renderer'),
   switchToSqlite: async () => (await backend()).invoke('engine_switch_to_sqlite'),
-  /** Saves a media URL to `destPath` (absolute, folder must exist); see docs/media.md. */
-  mediaSave: async (url: string, destPath: string) => (await backend()).invoke<string>('media_save', { url, destPath }),
-  /** Stages + quarantines a media file and opens it (or reveals it in Finder when it could run code). */
-  mediaOpenFile: async (url: string, name: string) =>
-    (await backend()).invoke<{ path: string; revealed: boolean }>('media_open_file', { url, name }),
-  setShowsPreview: async (shows: boolean) => (await backend()).invoke('ui_set_shows_preview', { shows }),
+  /** Tells Rust which chat is on screen (notifications for it are suppressed); null when none. */
   setOpenConversation: async (id: string | null) => (await backend()).invoke('ui_set_open_conversation', { id }),
+  /** Whether notifications may show the message text. */
+  setShowsPreview: async (shows: boolean) => (await backend()).invoke('ui_set_shows_preview', { shows }),
+  /** Starts the official screenshot tool; the result arrives as `compola://screen-capture`. */
+  screenCaptureStart: async (conversationId: string, withCompola: boolean) =>
+    (await backend()).invoke('screen_capture_start', { conversationId, withCompola }),
+  /** Widens (or with a negative delta narrows) the main window by `delta` logical px; the minimum width is 960. */
+  widenWindow: async (delta: number) => (await backend()).invoke('ui_widen_window', { delta }),
+  /** Downloads an attachment through the client's network stack and opens it (files that could run code are revealed). */
+  mediaOpenFile: async (url: string, name: string) => (await backend()).invoke<{ path: string; revealed: boolean }>('media_open_file', { url, name }),
+  /** Saves a media URL to an absolute path (its folder must exist) → the path. */
+  mediaSave: async (url: string, destPath: string) => (await backend()).invoke<string>('media_save', { url, destPath }),
 };
 
 /** Files dragged over / dropped on the main window (Tauri's native drag-drop; the page's own HTML5 drop never fires).

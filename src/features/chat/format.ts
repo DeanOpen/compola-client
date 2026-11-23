@@ -89,3 +89,11 @@ export const textRuns = (text: string, mentions: Mention[], myId: string | null)
   if (at < text.length) out.push(...linkify(text.slice(at)));
   return out;
 };
+
+export const statusText = {
+  sending: 'Đang gửi',
+  sent: 'Đã gửi',
+  delivered: 'Đã nhận',
+  seen: 'Đã xem',
+  failed: 'Gửi thất bại',
+} as const;

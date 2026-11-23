@@ -1,10 +1,13 @@
 // Boot: subscribe to the Rust engine's events and wire the feature handlers (Swift `ZaloEngine.boot` / `handle`).
 
 import { backend, commands } from './backend';
-import { handleChat } from './chat';
-import { handleCompose, dropComposerConfirms } from './composer';
+import { handleChat, sendText, stashFailedDraft } from './chat';
+import { dropComposerConfirms, handleCompose, handleScreenCapture } from './composer';
+import { obj, str } from './models/json';
+import { showToast } from './toast';
 import { handleConversationExtras, mergeConversations, resetConversations } from './conversations';
 import { dispatchState, registerStateHandler } from './dispatch';
+import { resetGroupMosaics } from './groupMosaic';
 import { handlePins, resetMessageActions, rewatchPins } from './messageActions';
 import type { Phase } from './models/phase';
 import { getEngine, resetAccount, setEngine } from './store';
@@ -26,6 +29,7 @@ const setPhase = (phase: Phase) => {
 };
 
 const resetAccountState = () => {
+  resetGroupMosaics();
   resetConversations();
   resetMessageActions();
   resetAccount();
@@ -46,6 +50,24 @@ export const startEngine = (): Promise<void> => {
         dropComposerConfirms();
         if (page === 'main' || page === 'Main') rewatchPins();
       }),
+      // A notification was clicked: show its conversation (the shell consumes the request).
+      b.listen('compola://notification-click', (p) => {
+        const convId = str(obj(p)?.convId);
+        if (convId) setEngine({ navigationRequest: convId });
+      }),
+      // An inline reply typed in a notification: send it; a refusal goes back to that conversation's composer.
+      b.listen('compola://notification-reply', (p) => {
+        const json = obj(p);
+        const convId = str(json?.convId);
+        const text = str(json?.text);
+        if (!convId || !text.trim()) return;
+        void sendText(text, convId).then((ok) => {
+          if (ok) return;
+          stashFailedDraft({ text, mentions: [], replyTo: null }, convId, true);
+          showToast('Chưa gửi được trả lời từ thông báo. Nội dung đã được giữ lại trong ô soạn thảo.', null);
+        });
+      }),
+      b.listen('compola://screen-capture', handleScreenCapture),
     ]);
     try {
       setPhase(await commands.phase());

@@ -1,23 +1,20 @@
 // Native chat pane for one conversation (Swift `ChatView`): header in the toolbar, pinned bar, message list, composer.
 
-import { BellOff, Info, MessageSquareDashed, MoreHorizontal, Tag, Upload } from 'lucide-react';
+import { BellOff, MessageSquareDashed, PanelRight, Search, Upload, UserPlus, type LucideIcon } from 'lucide-react';
 import { CallButtons } from '../calls/CallButtons';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useShallow } from 'zustand/react/shallow';
 import { onFileDrop } from '../../engine/backend';
 import { markRead, sendText, stashFailedDraft, takeFailedDraft } from '../../engine/chat';
 import { clipboardFiles, reportComposer, sendPaths } from '../../engine/composer';
-import { setConversationLabel } from '../../engine/conversations';
 import { pinnedMessage } from '../../engine/messageActions';
 import { appendDraft, isStandalone, type ChatMessage, type ComposerDraft } from '../../engine/models/chat';
-import { cssColor, type ConversationSummary } from '../../engine/models/conversations';
+import { type ConversationSummary } from '../../engine/models/conversations';
 import { pinnedLabel, type PinnedItem } from '../../engine/models/outcomes';
 import { getEngine, useEngine } from '../../engine/store';
 import { showToast } from '../../engine/toast';
 import { shell, useShell } from '../../shell/shellStore';
-import { Avatar } from '../../ui/Avatar';
+import { ConversationAvatar } from '../conversations/ConversationRow';
 import { ContentUnavailable } from '../../ui/ContentUnavailable';
-import { openMenuBelow } from '../../ui/Menu';
 import { Alert } from '../../ui/Overlays';
 import { Spinner } from '../../ui/Spinner';
 import { ToastView } from '../../ui/Toast';
@@ -67,6 +64,7 @@ export function ChatView({ conversation }: { conversation: ConversationSummary }
   const lastMarkedId = useRef<string | null>(null);
 
   const last = loaded?.[loaded.length - 1];
+
 
   /** Marks read only when there is something unread (no redundant server round trips). */
   const markReadIfNeeded = useCallback(
@@ -170,8 +168,10 @@ export function ChatView({ conversation }: { conversation: ConversationSummary }
 
   return (
     <div className="chat column">
-      <ChatHeader conversation={conversation} subtitle={subtitle} typing={!!typingName} muted={muted} />
-      <PinnedBar conversationId={id} open={openPin} />
+      <div className="chat-top">
+        <ChatHeader conversation={conversation} subtitle={subtitle} typing={!!typingName} muted={muted} />
+        <PinnedBar conversationId={id} open={openPin} />
+      </div>
       <div className="chat-body">
         {loaded === undefined ? (
           <div className="chat-loading">
@@ -188,9 +188,10 @@ export function ChatView({ conversation }: { conversation: ConversationSummary }
         ) : (
           <MessageList conversation={conversation} scrollToBottomTick={sendTick} jumpTarget={jumpTarget} onJumped={() => setJumpTarget(null)} onReply={reply} />
         )}
-        <ToastView conversationId={id} bottom={16} />
       </div>
-      <Composer
+      <div className="chat-bottom">
+        <ToastView conversationId={id} bottom={0} />
+        <Composer
         name={conversation.name}
         conversationId={id}
         isGroup={conversation.isGroup}
@@ -200,8 +201,9 @@ export function ChatView({ conversation }: { conversation: ConversationSummary }
         focusTick={focusTick}
         onSend={send}
         onSendLike={sendLike}
-        onPasteFiles={() => void clipboardFiles().then((paths) => paths.length && setPendingPaste(paths))}
-      />
+          onPasteFiles={() => void clipboardFiles().then((paths) => paths.length && setPendingPaste(paths))}
+        />
+      </div>
       {dropping && (
         <div className="chat-drop-overlay fade-in">
           <div className="chat-drop-card">
@@ -232,59 +234,36 @@ export function ChatView({ conversation }: { conversation: ConversationSummary }
   );
 }
 
-/** Avatar, name and subtitle, then the call / info / "⋯" buttons: the chat column's toolbar. */
+/** The 68px chat header (Zalo PC): avatar, name and subtitle, then Thêm vào nhóm, Tìm kiếm tin nhắn, Gọi thoại,
+ * Gọi video and Thông tin hội thoại (toggles the right panel). */
 function ChatHeader({ conversation, subtitle, typing, muted }: { conversation: ConversationSummary; subtitle: string; typing: boolean; muted: boolean }) {
   const showInspector = useShell((s) => s.showInspector);
-  const labels = useEngine(useShallow((s) => s.extras.labels));
-  const current = useEngine((s) => s.extras.labelByConversation[conversation.id] ?? null);
   return (
     <div className="toolbar chat-toolbar" data-tauri-drag-region>
       <div className="chat-header" data-tauri-drag-region>
-        <Avatar url={conversation.avatar} name={conversation.name} size={30} />
+        <ConversationAvatar conversation={conversation} size={48} isSelf={false} />
         <div className="chat-header-text" data-tauri-drag-region>
           <div className="chat-header-name">
             <span className="truncate">{conversation.name}</span>
-            {muted && <BellOff size={11} className="secondary" />}
+            {muted && <BellOff size={13} className="secondary" />}
           </div>
           {subtitle && <div className={`chat-header-sub truncate ${typing ? 'tint' : ''}`}>{subtitle}</div>}
         </div>
       </div>
-      <div className="toolbar-group glass">
+      <div className="toolbar-group">
+        <HeaderButton icon={UserPlus} label={conversation.isGroup ? 'Thêm thành viên' : 'Tạo nhóm với người này'} disabled />
+        <HeaderButton icon={Search} label="Tìm kiếm tin nhắn" disabled />
         <CallButtons conversation={conversation} />
-      </div>
-      <div className="toolbar-group glass">
-        <button className={`toolbar-button ${showInspector ? 'is-on' : ''}`} onClick={() => shell.toggleInspector()} title="Thông tin (⌥⌘I)" aria-label="Thông tin">
-          <Info size={16} />
-        </button>
-        <button
-          className="toolbar-button"
-          title="Tùy chọn"
-          aria-label="Tùy chọn"
-          onClick={(e) =>
-            openMenuBelow(
-              e.currentTarget,
-              [
-                {
-                  kind: 'submenu',
-                  label: 'Phân loại',
-                  icon: Tag,
-                  items: labels.length
-                    ? labels.map((l) => ({
-                        label: l.name,
-                        dot: cssColor(l.colorHex) ?? undefined,
-                        checked: current === l.id,
-                        onSelect: () => setConversationLabel(conversation.id, current === l.id ? null : l.id),
-                      }))
-                    : [{ label: 'Chưa có thẻ phân loại', disabled: true, onSelect: () => {} }],
-                },
-              ],
-              'end',
-            )
-          }
-        >
-          <MoreHorizontal size={16} />
-        </button>
+        <HeaderButton icon={PanelRight} label="Thông tin hội thoại (⌥⌘I)" on={showInspector} onClick={() => shell.toggleInspector()} />
       </div>
     </div>
+  );
+}
+
+function HeaderButton({ icon: Icon, label, on = false, disabled = false, onClick }: { icon: LucideIcon; label: string; on?: boolean; disabled?: boolean; onClick?: () => void }) {
+  return (
+    <button className={`toolbar-button ${on ? 'is-on' : ''}`} disabled={disabled} title={disabled ? `${label} — chưa hỗ trợ trên phiên bản này` : label} aria-label={label} onClick={onClick}>
+      <Icon size={20} strokeWidth={1.8} />
+    </button>
   );
 }

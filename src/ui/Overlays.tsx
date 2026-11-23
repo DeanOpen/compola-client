@@ -11,7 +11,7 @@ export function Sheet({ onClose, children, width = 440, height }: { onClose: () 
   useEscape(true, onClose);
   return createPortal(
     <div className="sheet-backdrop fade-in" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="sheet glass-strong pop-in" style={{ width, height }} role="dialog" aria-modal>
+      <div className="sheet glass-strong sheet-in" style={{ width, height }} role="dialog" aria-modal>
         {children}
       </div>
     </div>,
@@ -46,7 +46,7 @@ export function Alert({ title, message, buttons }: { title: string; message?: st
   useEffect(() => primary.current?.focus(), []);
   return createPortal(
     <div className="sheet-backdrop fade-in">
-      <div className="alert glass-strong pop-in" role="alertdialog" aria-modal>
+      <div className="alert glass-strong sheet-in" role="alertdialog" aria-modal>
         <div className="alert-title">{title}</div>
         {message && <div className="alert-message">{message}</div>}
         <div className="alert-buttons">

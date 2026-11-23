@@ -1,11 +1,10 @@
-// Signed-in window (Swift `MainShellView`): Mail / Messages-style columns. The sidebar picks a destination, the
-// content column lists it and the detail column shows the chat; the inspector slides in on the right.
+// Signed-in window in the Zalo PC layout (docs/zalo-pc-style.md): the blue 64px rail, the 344px list column, the chat,
+// and the 344px info panel on the right (toggled from the chat header). Logic from Swift `MainShellView`.
 
 import { MessagesSquare } from 'lucide-react';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { closeConversation, openConversation } from '../engine/chat';
-import { answerComposerConfirm } from '../engine/composer';
 import { setConversationFilter } from '../engine/conversations';
 import { getEngine, setEngine, useEngine } from '../engine/store';
 import { ChatDetail } from '../features/chat/ChatDetail';
@@ -17,23 +16,25 @@ import { FeatureHosts } from '../features/FeatureHosts';
 import { ContactsContentColumn, ContactsDetailColumn } from '../features/contacts/ContactsColumns';
 import { CloudContentColumn, CloudDetailColumn } from '../features/cloud/CloudColumns';
 import { ContentUnavailable } from '../ui/ContentUnavailable';
-import { Alert } from '../ui/Overlays';
+import { ComposerPrompts } from '../features/chat/ComposerPrompts';
 import { ToastView } from '../ui/Toast';
 import { useShellShortcuts } from './keyboard';
-import { Sidebar } from './Sidebar';
+import { Rail } from './Rail';
+import { commands } from '../engine/backend';
 import { isContacts, isConversationList, labelIdOf, officialFilter, shell, useShell, type Destination } from './shellStore';
 import './shell.css';
 
 export function MainShell() {
-  const { destination, selection, sidebarVisible, showInspector } = useShell(
-    useShallow((s) => ({ destination: s.destination, selection: s.selection, sidebarVisible: s.sidebarVisible, showInspector: s.showInspector })),
+  const { destination, selection, showInspector } = useShell(
+    useShallow((s) => ({ destination: s.destination, selection: s.selection, showInspector: s.showInspector })),
   );
   const extrasLoaded = useEngine((s) => s.extras.loaded);
   const labelIds = useEngine(useShallow((s) => s.extras.labels.map((l) => l.id)));
   const navigationRequest = useEngine((s) => s.navigationRequest);
-  const composerConfirm = useEngine((s) => s.composerConfirm);
+  const inspectorShown = showInspector && isConversationList(destination);
 
   useShellShortcuts();
+  useInspectorRoom(inspectorShown);
 
   // The selection opens the conversation in the official client.
   useEffect(() => {
@@ -58,7 +59,7 @@ export function MainShell() {
     if (id && extrasLoaded && !labelIds.includes(id)) shell.setDestination('inbox');
   }, [labelIds, destination, extrasLoaded]);
 
-  // Other views (cards, mentions…) ask to show a conversation: back to the unfiltered inbox with it open.
+  // Other views (cards, mentions, notifications…) ask to show a conversation: back to the unfiltered inbox with it open.
   useEffect(() => {
     if (!navigationRequest) return;
     shell.setDestination('inbox');
@@ -68,9 +69,8 @@ export function MainShell() {
   }, [navigationRequest]);
 
   return (
-    <div className={`shell ${sidebarVisible ? '' : 'is-sidebar-hidden'} ${showInspector ? 'has-inspector' : ''}`}>
-      <div className="shell-backdrop" aria-hidden />
-      {sidebarVisible && <Sidebar />}
+    <div className={`shell ${inspectorShown ? 'has-inspector' : ''}`}>
+      <Rail />
       <section className="shell-content">
         <ContentColumn destination={destination} />
       </section>
@@ -78,27 +78,39 @@ export function MainShell() {
         <DetailColumn destination={destination} selection={selection} />
         <ToastView conversationId={null} bottom={24} />
       </section>
-      {showInspector && isConversationList(destination) && (
-        <aside className="shell-inspector slide-in-right">
+      {inspectorShown && (
+        <aside className="shell-inspector">
           <ChatInspectorColumn conversationId={selection} />
         </aside>
       )}
       <QuickSwitcher />
       <MediaViewerHost />
+      <ComposerPrompts />
       <FeatureHosts />
-      {composerConfirm && (
-        <Alert
-          title={composerConfirm.title}
-          message={composerConfirm.message}
-          buttons={[
-            { label: composerConfirm.ok, onClick: () => answerComposerConfirm(composerConfirm, true) },
-            { label: composerConfirm.cancel, role: 'cancel', onClick: () => answerComposerConfirm(composerConfirm, false) },
-          ]}
-        />
-      )}
     </div>
   );
 }
+
+/** Rail + list + the chat's minimum + the info panel: below this the window is widened while the panel shows. */
+const roomWithInspector = 64 + 344 + 520 + 344;
+const inspectorWidening = 300;
+
+/**
+ * Swift `InspectorRoom`: the info panel takes its width from the window, never from the chat. Opening it on a window
+ * too narrow widens the window (`ui_widen_window`); closing it gives back what was added.
+ */
+const useInspectorRoom = (shown: boolean) => {
+  const widened = useRef(false);
+  useEffect(() => {
+    if (shown && !widened.current && window.innerWidth < roomWithInspector) {
+      widened.current = true;
+      void commands.widenWindow(inspectorWidening).catch(() => (widened.current = false));
+    } else if (!shown && widened.current) {
+      widened.current = false;
+      void commands.widenWindow(-inspectorWidening).catch(() => {});
+    }
+  }, [shown]);
+};
 
 /** Middle column: the list for the sidebar destination. */
 function ContentColumn({ destination }: { destination: Destination }) {

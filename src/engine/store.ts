@@ -4,6 +4,7 @@ import type { MessageTransferState } from './transfer';
 // selectors. Later waves add their slices here (contacts, polls, cloud, calls, transfer, …).
 
 import { create } from 'zustand';
+import type { ScreenshotShare } from './composer';
 import type { ChatMessage, ComposerDraft } from './models/chat';
 import { emptyExtras, type ConversationExtras, type ConversationSummary } from './models/conversations';
 import type { PinnedList } from './models/outcomes';
@@ -121,6 +122,10 @@ export interface EngineState {
   // Composer (ZaloEngine+Composer.swift)
   composerConfirm: ComposerConfirm | null;
   queuedComposerConfirms: ComposerConfirm[];
+  /** "Chia sẻ" from the screenshot tool, waiting for its conversations. */
+  screenshotShare: ScreenshotShare | null;
+  /** The screenshot tool may not record the screen (System Settings ▸ Privacy ▸ Screen Recording). */
+  screenCaptureNeedsPermission: boolean;
 
   toast: Toast | null;
 }
@@ -160,6 +165,8 @@ const accountState = (): Omit<EngineState, 'phase' | 'badge'> => ({
   deleteUndo: null,
   composerConfirm: null,
   queuedComposerConfirms: [],
+  screenshotShare: null,
+  screenCaptureNeedsPermission: false,
   toast: null,
 });
 

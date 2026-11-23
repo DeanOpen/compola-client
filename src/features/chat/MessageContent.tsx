@@ -1,13 +1,13 @@
 // The content of a bubble row per message kind (Swift `MessageRow.content` + `bubble`): text, media, files, cards.
 
-import { CornerDownLeft, Phone, PhoneIncoming, PhoneMissed, Video, VideoOff } from 'lucide-react';
+import { AlertCircle, CornerDownLeft, Lock, Phone, PhoneIncoming, PhoneMissed, Video, VideoOff } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { performCardAction } from '../../engine/cardActions';
 import type { ChatMessage, Quote } from '../../engine/models/chat';
 import { setEngine, useEngine } from '../../engine/store';
 import { openExternal } from '../../engine/system';
 import { symbolIcon } from '../../ui/symbols';
-import { clock, textRuns } from './format';
+import { clock, statusText, textRuns, time } from './format';
 import { ContactCardView, FileCard, LinkCard, LocationCard, OAMessageCard, StickerSetCard, ZInstantCard } from './cards/Cards';
 import { LivePollCard } from '../poll/PollCard';
 import { GifView, PhotoView, StickerView, VideoThumb, VoiceView } from './cards/Media';
@@ -21,7 +21,7 @@ interface ContentProps {
 export function BubbleContent({ message, firstInGroup, lastInGroup }: ContentProps) {
   const mine = message.isMine;
   const k = message.kind;
-  const bubble = (children: ReactNode, opts: { tail?: boolean; muted?: boolean; padding?: number } = {}) => (
+  const bubble = (children: ReactNode, opts: { tail?: boolean; muted?: boolean; padding?: number; meta?: 'inline' | 'block' | false } = {}) => (
     <Bubble message={message} firstInGroup={firstInGroup} lastInGroup={lastInGroup} {...opts}>
       {children}
     </Bubble>
@@ -30,11 +30,19 @@ export function BubbleContent({ message, firstInGroup, lastInGroup }: ContentPro
 
   switch (k.type) {
     case 'sticker':
-      return <StickerView url={k.url} />;
+      return (
+        <span className="media-with-meta">
+          <StickerView url={k.url} />
+          <BubbleMeta message={message} overlay />
+        </span>
+      );
     case 'photo':
       return (
         <div className="media-stack">
-          <PhotoView message={message} url={k.url} width={k.width} height={k.height} />
+          <span className="media-with-meta">
+            <PhotoView message={message} url={k.url} width={k.width} height={k.height} />
+            {!caption && <BubbleMeta message={message} overlay />}
+          </span>
           {caption}
         </div>
       );
@@ -54,7 +62,7 @@ export function BubbleContent({ message, firstInGroup, lastInGroup }: ContentPro
     case 'text':
       return bubble(<MessageText message={message} />);
     case 'voice':
-      return bubble(<VoiceView url={k.url} duration={k.duration} mine={mine} />);
+      return bubble(<VoiceView url={k.url} duration={k.duration} mine={mine} />, { meta: 'block' });
     case 'file':
       // Files are cards, not bubbles: neutral for both sides, no tail.
       return (
@@ -77,17 +85,17 @@ export function BubbleContent({ message, firstInGroup, lastInGroup }: ContentPro
     case 'location':
       return <LocationCard info={k.info} />;
     case 'call': {
+      // A system-style one-liner with an icon, not a bubble.
       const Icon = k.video ? (k.missed ? VideoOff : Video) : k.missed ? PhoneMissed : mine ? Phone : PhoneIncoming;
       const callBack = message.cardButtons.find((b) => b.ref === 'call:back');
-      return bubble(
-        <div className="call-log">
-          <span className={`call-icon ${k.missed ? 'is-missed' : ''}`}>
-            <Icon size={17} strokeWidth={2.2} />
+      return (
+        <div className={`call-log ${k.missed ? 'is-missed' : ''}`}>
+          <span className="call-icon">
+            <Icon size={14} strokeWidth={2.2} />
           </span>
-          <span className="call-text">
-            <span className={`call-title ${k.missed ? 'is-missed' : ''}`}>{k.title || (k.video ? 'Cuộc gọi video' : 'Cuộc gọi thoại')}</span>
-            <span className="call-detail">{k.detail || (k.missed ? 'Cuộc gọi nhỡ' : k.duration > 0 ? clock(k.duration) : 'Đã kết thúc')}</span>
-          </span>
+          <span className="call-title">{k.title || (k.video ? 'Cuộc gọi video' : 'Cuộc gọi thoại')}</span>
+          <span className="call-detail">· {k.detail || (k.missed ? 'Cuộc gọi nhỡ' : k.duration > 0 ? clock(k.duration) : 'Đã kết thúc')}</span>
+          <span className="call-detail nums">· {time(message.date)}</span>
           {callBack && (
             <button
               className="call-back"
@@ -98,8 +106,7 @@ export function BubbleContent({ message, firstInGroup, lastInGroup }: ContentPro
               <CornerDownLeft size={12} /> {callBack.label}
             </button>
           )}
-        </div>,
-        { padding: 10 },
+        </div>
       );
     }
     case 'oaMessage':
@@ -128,39 +135,45 @@ export function BubbleContent({ message, firstInGroup, lastInGroup }: ContentPro
 }
 
 /**
- * Bubble chrome: tighter corners between the bubbles of one run; the last bubble of a run carries the Messages tail on
- * its sender's side. `muted` draws an outline instead of a fill (recalled / unsupported / pending encryption).
+ * Bubble chrome: 18px corners, smaller on the sender's side between the bubbles of one run. Mine are Zalo tonal (solid
+ * blue in dark mode), theirs a neutral surface. Time and delivery status sit inside the bottom-right corner; `muted` draws
+ * an outline instead of a fill (recalled / unsupported / pending encryption).
  */
 function Bubble({
   message,
-  firstInGroup,
   lastInGroup,
-  tail = true,
   muted = false,
   padding,
+  meta = 'inline',
   children,
-}: ContentProps & { tail?: boolean; muted?: boolean; padding?: number; children: ReactNode }) {
+}: ContentProps & { tail?: boolean; muted?: boolean; padding?: number; meta?: 'inline' | 'block' | false; children: ReactNode }) {
   const mine = message.isMine;
-  const hasTail = tail && !muted && lastInGroup;
-  const big = 18;
-  const small = 6;
-  const lastBottom = lastInGroup ? (hasTail ? 4 : big) : small;
-  const radius = mine
-    ? `${big}px ${firstInGroup ? big : small}px ${lastBottom}px ${big}px`
-    : `${firstInGroup ? big : small}px ${big}px ${big}px ${lastBottom}px`;
+  // Zalo PC: the time shows on the last bubble of a run only.
+  const showsMeta = meta !== false && lastInGroup;
   return (
     <div
       className={`bubble ${mine ? 'is-mine' : 'is-theirs'} ${muted ? 'is-muted' : ''} ${message.status === 'sending' ? 'is-sending' : ''}`}
-      style={{ borderRadius: radius, padding: padding !== undefined ? padding : undefined }}
+      style={{ padding: padding !== undefined ? padding : undefined }}
     >
-      {hasTail && (
-        <svg className="bubble-tail" width="11" height="17" viewBox="0 0 11 17" aria-hidden>
-          <path d="M11 0C11 8 7 14 0 17L11 17Z" fill="currentColor" />
-        </svg>
-      )}
       {message.quote && <QuoteBlock quote={message.quote} mine={mine && !muted} />}
       {children}
+      {showsMeta && (
+        <div className="bubble-meta-row">
+          <BubbleMeta message={message} inline />
+        </div>
+      )}
     </div>
+  );
+}
+
+/** The time inside the bubble (Zalo PC); the delivery status is the line under my last message (MessageRow). */
+export function BubbleMeta({ message, inline = false, overlay = false }: { message: ChatMessage; inline?: boolean; overlay?: boolean }) {
+  return (
+    <span className={`bubble-meta ${inline ? 'is-inline' : ''} ${overlay ? 'is-overlay' : ''} nums`}>
+      {message.isE2EE && <Lock size={9} aria-label="Mã hóa đầu cuối" />}
+      {time(message.date)}
+      {message.status === 'failed' && <AlertCircle size={12} className="bubble-status is-failed" aria-label={statusText.failed} />}
+    </span>
   );
 }
 

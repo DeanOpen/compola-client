@@ -42,14 +42,15 @@ export function SetupFlow({ onFinish }: { onFinish: (startTour: boolean) => void
   const stage: Stage = phase.kind === 'ready' ? afterSignIn : 0;
   const contentKey = phase.kind === 'login' ? 'login' : phase.kind === 'ready' ? (afterSignIn === 2 ? 'welcome' : 'sync') : 'signingIn';
 
+  // The QR sign-in is its own centred card; the setup card with its stepper follows once signed in.
+  if (phase.kind === 'login') return <LoginView state={phase.login} notice={phase.notice ?? null} />;
+
   return (
     <BrandBackground>
       <div className="setup-card glass">
         <SetupSidebar stage={stage} syncOutcome={syncOutcome} />
         <div className="setup-content" key={contentKey}>
-          {phase.kind === 'login' ? (
-            <LoginView state={phase.login} notice={phase.notice ?? null} />
-          ) : phase.kind === 'ready' ? (
+          {phase.kind === 'ready' ? (
             afterSignIn === 2 ? (
               <WelcomeStep syncSkipped={syncOutcome === 'skipped'} onFinish={onFinish} />
             ) : (

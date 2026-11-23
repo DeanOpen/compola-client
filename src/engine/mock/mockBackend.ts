@@ -381,7 +381,12 @@ export const createMockBackend = (): Backend => {
         }
         case 'login':
           setPhase(login({ kind: 'generating' }));
-          setTimeout(() => setPhase(login({ kind: 'waitingScan' })), 700);
+          setTimeout(() => {
+            setPhase(login({ kind: 'waitingScan' }));
+            // Dev aid: `&login=confirm|expired|failed|qr2` shows that login state.
+            const state = params.get('login');
+            if (state) (window as unknown as Record<string, (s: string) => void>).__mockLogin(state);
+          }, 700);
           return;
         case 'signingIn':
           setPhase({ kind: 'signingIn' });
@@ -442,6 +447,21 @@ export const createMockBackend = (): Backend => {
           setTimeout(() => setPhase(login({ kind: 'waitingScan' })), 600);
           return undefined as T;
         case 'engine_retry_runtime':
+        case 'ui_set_open_conversation':
+        case 'ui_set_shows_preview':
+        case 'ui_widen_window':
+          return undefined as T;
+        case 'media_save':
+          return args.destPath as T;
+        case 'screen_capture_start':
+          // The tool's "Chia sẻ" when started without Compola's window, "Gửi" otherwise.
+          setTimeout(
+            () =>
+              emit('compola://screen-capture', args.withCompola
+                ? { kind: 'send', path: '/tmp/compola-shot.png', conversationId: args.conversationId }
+                : { kind: 'share', path: '/tmp/compola-shot.png', conversationId: args.conversationId }),
+            600,
+          );
           return undefined as T;
         case 'engine_call': {
           const fn = mockAdapters[String(args.target)]?.[String(args.method)] ?? adapters[String(args.target)]?.[String(args.method)];
@@ -449,7 +469,18 @@ export const createMockBackend = (): Backend => {
           return (await fn(...((args.args as unknown[]) ?? []))) as T;
         }
         case 'engine_call_with_files': {
-          const id = String((args.args as unknown[])[0]);
+          const first = (args.args as unknown[])[0];
+          const targets = Array.isArray(first) ? first.map(String) : [String(first)];
+          if (args.method === 'sendShot' || args.method === 'shareShot') {
+            for (const t of targets) {
+              const shot = message(t, { from: ME.userId, text: '[Hình ảnh]', kind: { type: 'photo', url: 'https://picsum.photos/id/0/1200/750', width: 1200, height: 750 }, ago: 0 });
+              history(t).push(shot);
+              if (openId === t) publishChat(t, false, [shot]);
+              touch(t, shot);
+            }
+            return { status: 'done' } as T;
+          }
+          const id = targets[0];
           const m =
             args.pick === 'media'
               ? message(id, { from: ME.userId, text: '[Hình ảnh]', kind: { type: 'photo', url: 'https://picsum.photos/id/29/900/600', width: 900, height: 600 }, ago: 0 })
