@@ -1,7 +1,7 @@
 // The official "Bình chọn" popup (Swift `PollDetailSheet`): question, settings, options with checkboxes, "Thêm lựa
 // chọn", and "Chi tiết bình chọn" (who voted for what). Every write starts from a button press.
 
-import { AlertTriangle, ChevronLeft, ChevronRight, ClockAlert, Lock, MoreHorizontal, Pin, PinOff, Plus, Share2, X, XCircle } from 'lucide-react';
+import { AlertTriangle, ChevronLeft, ChevronRight, ClockAlert, Lock, MoreHorizontal, Pin, PinOff, Plus, Share2, Users, X, XCircle } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import {
   addRow,
@@ -85,7 +85,8 @@ export function PollDetailSheet({
   // Live updates replace an untouched draft; edits in progress are kept.
   useEffect(() => {
     if (detail && (!draft || !draftHasChanges(draft))) setDraft(voteDraft(detail));
-    if (detail && showVoters) void loadVoters();
+    // The faces next to each option come from the voter list (read-only), when the poll lets me see it.
+    if (detail && (showVoters || votersVisible(detail))) void loadVoters();
   }, [detail]);
 
   useEffect(() => {
@@ -225,6 +226,7 @@ export function PollDetailSheet({
                 setDraft={setDraft}
                 config={config}
                 pinned={pinState.pinned}
+                voters={voters}
                 busy={busy}
                 showVoters={() => setShowVoters(true)}
               />
@@ -319,6 +321,7 @@ function VotePage({
   setDraft,
   config,
   pinned,
+  voters,
   busy,
   showVoters,
 }: {
@@ -328,6 +331,7 @@ function VotePage({
   setDraft: (d: PollVoteDraft) => void;
   config: PollConfig;
   pinned: boolean;
+  voters: PollVoters | null;
   busy: boolean;
   showVoters: () => void;
 }) {
@@ -351,22 +355,31 @@ function VotePage({
 
   return (
     <div className="poll-vote-page">
-      <div className="poll-sheet-question selectable">{detail.question || question}</div>
-      {byline.length > 0 && <div className="poll-byline">{byline.join(' - ')}</div>}
-      {pinned && (
-        <div className="poll-pinned">
-          <Pin size={11} /> Đã ghim lên đầu trò chuyện
-        </div>
-      )}
-      <PollSettingsLine poll={detail} showsSingleChoice />
-      {detail.voterCount > 0 && (
-        <button className="poll-voters-link" disabled={!canSeeVoters} onClick={showVoters} style={{ color: canSeeVoters ? undefined : 'var(--zp-text-secondary)' }}>
-          {detail.voterCount} người bình chọn
-          {canSeeVoters && <ChevronRight size={11} strokeWidth={2.5} />}
-        </button>
-      )}
+      <div className="poll-sheet-head">
+        <div className="poll-sheet-question selectable">{detail.question || question}</div>
+        {byline.length > 0 && <div className="poll-byline">{byline.join(' · ')}</div>}
+        <PollSettingsLine poll={detail} showsSingleChoice chips />
+      </div>
+      <div className="poll-summary">
+        <span className="poll-summary-icon">
+          <Users size={15} />
+        </span>
+        <span className="poll-summary-text">
+          {detail.voterCount > 0 ? `${detail.voterCount} người đã bình chọn` : 'Chưa có ai bình chọn'}
+          {pinned && (
+            <span className="poll-summary-pin">
+              <Pin size={11} /> Đã ghim
+            </span>
+          )}
+        </span>
+        {detail.voterCount > 0 && canSeeVoters && (
+          <button className="poll-summary-link" onClick={showVoters}>
+            Xem chi tiết <ChevronRight size={13} strokeWidth={2.25} />
+          </button>
+        )}
+      </div>
       {resultsHidden(detail) && !locked && <div className="poll-hint">Người tham gia chỉ có thể thấy kết quả sau khi bình chọn.</div>}
-      <div className="poll-options">
+      <div className="poll-options poll-options-sheet">
         {detail.options.map((option) => {
           const shown = preview.options.find((o) => o.id === option.id) ?? option;
           return (
@@ -374,6 +387,9 @@ function VotePage({
               key={option.id}
               option={shown}
               weight={optionWeight(preview, shown)}
+              showsPercent={!resultsHidden(detail)}
+              voters={voters?.groups.find((g) => g.id === option.id)?.users}
+              onShowVoters={canSeeVoters ? showVoters : undefined}
               control={{
                 multi: detail.multi,
                 isOn: draft.selected.includes(option.id),
@@ -420,8 +436,8 @@ function VotePage({
         })}
       </div>
       {addVisible && (
-        <button className="zp-btn zp-btn-secondary zp-btn-small poll-add" disabled={draftHasDuplicates(draft, detail)} onClick={add}>
-          <Plus size={14} /> Thêm lựa chọn
+        <button className="poll-add-row" disabled={draftHasDuplicates(draft, detail)} onClick={add}>
+          <Plus size={15} /> Thêm lựa chọn
         </button>
       )}
       {detail.closed ? (
@@ -459,21 +475,25 @@ function VotersPage({ voters, failed, retry }: { voters: PollVoters | null; fail
   return (
     <div className="poll-voters">
       {(voters.restricted || voters.groups.length === 0) && (
-        <div className="poll-hint">{voters.restricted ? 'Danh sách người bình chọn không được hiển thị.' : 'Chưa có ai bình chọn.'}</div>
+        <div className="poll-sheet-state">
+          <Users size={28} className="tertiary" />
+          <span className="secondary">{voters.restricted ? 'Danh sách người bình chọn không được hiển thị.' : 'Chưa có ai bình chọn.'}</span>
+        </div>
       )}
       {voters.groups.map((group) => (
-        <div key={group.id} className="poll-voter-group">
+        <section key={group.id} className="poll-voter-group">
           <div className="poll-voter-heading">
-            {group.content} ({group.votes})
+            <span className="poll-voter-option">{group.content}</span>
+            <span className="poll-vote-pill nums">{group.votes} phiếu</span>
           </div>
           {group.users.map((user) => (
             <div key={user.uid} className="poll-voter">
-              <Avatar url={user.avatar} name={user.name} size={28} />
-              <span className="truncate">{user.name}</span>
+              <Avatar url={user.avatar} name={user.name} size={32} />
+              <span className="poll-voter-name truncate">{user.name}</span>
               {user.isMe && <span className="poll-voter-me">Bạn</span>}
             </div>
           ))}
-        </div>
+        </section>
       ))}
     </div>
   );
