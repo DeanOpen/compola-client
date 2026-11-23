@@ -151,6 +151,20 @@ pub fn computer_name() -> String {
     .clone()
 }
 
+/// Whether a server URL names this Mac (loopback, `localhost`, or one of its own addresses).
+fn points_at_this_mac(url: &str) -> bool {
+    let Ok(u) = url::Url::parse(url) else { return false };
+    match u.host() {
+        Some(url::Host::Domain(d)) => {
+            let d = d.trim_end_matches('.').to_ascii_lowercase();
+            d == "localhost" || d.ends_with(".localhost") || d == computer_name().to_ascii_lowercase().replace(' ', "-") + ".local"
+        }
+        Some(url::Host::Ipv4(ip)) => ip.is_loopback() || ip.is_unspecified() || local_addresses().iter().any(|a| a.get("ip").and_then(Value::as_str) == Some(&ip.to_string())),
+        Some(url::Host::Ipv6(ip)) => ip.is_loopback() || ip.is_unspecified(),
+        None => false,
+    }
+}
+
 /// The IPv4 addresses joined apps can reach this Mac on: `{ip, kind: lan|tailscale|public}`.
 fn local_addresses() -> Vec<Value> {
     let mut out: Vec<(std::net::Ipv4Addr, &'static str)> = Vec::new();
@@ -209,11 +223,20 @@ pub struct Remote {
     join_cancel: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
     /// The listener runs: the mirror follows the renderer's state.
     serving: std::sync::atomic::AtomicBool,
+    /// The host app's own sign-in to its server (the owner), for the native admin screens (`remote_api`).
+    owner_token: Mutex<Option<String>>,
 }
 
 impl Remote {
     pub fn new(app: AppHandle) -> Arc<Self> {
-        let config = load();
+        let mut config = load();
+        // A host that joined its own server (loopback / its own address while its server is on) would never start
+        // the server it waits for: back to host mode.
+        if config.server.enabled && config.join.as_ref().is_some_and(|j| points_at_this_mac(&j.url)) {
+            log::warn!("compola server: this app had joined its own server; leaving it");
+            config.join = None;
+            let _ = save(&config);
+        }
         let client = config.join.clone().and_then(|join| match Client::new(app.clone(), join, config.instance.clone()) {
             Ok(c) => Some(c),
             Err(e) => {
@@ -243,6 +266,7 @@ impl Remote {
             mirror: RwLock::new(policy::Mirror::default()),
             join_cancel: Mutex::new(None),
             serving: std::sync::atomic::AtomicBool::new(false),
+            owner_token: Mutex::new(None),
         })
     }
 
@@ -459,6 +483,34 @@ impl Remote {
         })
     }
 
+    /// A join must not switch off this app's own shared account: refused while its server is on, and never to itself.
+    fn check_join(&self, server: &Value) -> Result<(), String> {
+        let (instance, enabled) = {
+            let c = self.config.lock();
+            (c.instance.clone(), c.server.enabled)
+        };
+        if server.get("instance").and_then(Value::as_str) == Some(instance.as_str()) {
+            return Err("Đây là Compola Server của chính máy này. Máy này đã dùng tài khoản Zalo của nó, không cần tham gia.".into());
+        }
+        if enabled {
+            return Err(
+                "Máy này đang bật Compola Server. Tham gia máy chủ khác sẽ tắt tài khoản Zalo đang chia sẻ: hãy tắt Compola Server trong Cài đặt trước.".into(),
+            );
+        }
+        Ok(())
+    }
+
+    /// The admin the host app acts as: the one created in the app, else the oldest active admin.
+    fn owner(&self, auth: &auth::Auth) -> Result<store::User, String> {
+        let owner = self.config.lock().owner_user_id.clone();
+        auth.store
+            .user(&owner)
+            .ok()
+            .filter(|u| u.is_admin && !u.disabled)
+            .or_else(|| auth.store.first_admin().ok().flatten())
+            .ok_or_else(|| "Tạo tài khoản quản trị trước.".to_owned())
+    }
+
     fn save_join(&self, join: JoinConfig) -> Result<(), String> {
         let last = LastJoin { url: join.url.clone(), device_name: join.device_name.clone(), username: join.username.clone() };
         self.update_config(|c| {
@@ -567,22 +619,66 @@ pub fn remote_admin_setup(remote: RemoteState<'_>, username: String, password: S
 
 /// Opens the admin console in the browser, signed in as the owner (a one-time link).
 #[tauri::command]
-pub async fn remote_admin_open(remote: RemoteState<'_>) -> Result<String, String> {
+pub async fn remote_admin_open(remote: RemoteState<'_>, next: Option<String>) -> Result<String, String> {
+    let next = next.filter(|n| n.starts_with("/admin/")).unwrap_or_else(|| "/admin/".into());
+    // Joined: the console of the server, signed in as this device's user.
+    if let Some(client) = &remote.client {
+        let url = client.admin_link(&next).await?;
+        tauri_plugin_opener::open_url(&url, None::<&str>).map_err(|e| e.to_string())?;
+        return Ok(url);
+    }
     let auth = remote.auth().ok_or("Không mở được cơ sở dữ liệu tài khoản.")?;
     let Some(port) = remote.server.lock().await.as_ref().map(|h| h.port) else {
         return Err("Bật Compola Server trước.".into());
     };
-    let owner = remote.config.lock().owner_user_id.clone();
-    let user = auth
-        .store
-        .user(&owner)
-        .ok()
-        .filter(|u| u.is_admin && !u.disabled)
-        .or_else(|| auth.store.first_admin().ok().flatten())
-        .ok_or("Tạo tài khoản quản trị trước.")?;
-    let url = format!("http://127.0.0.1:{port}/api/auth/otp?t={}", auth.otp_create(&user.id));
+    let user = remote.owner(&auth)?;
+    let next: String = url::form_urlencoded::byte_serialize(next.as_bytes()).collect();
+    let url = format!("http://127.0.0.1:{port}/api/auth/otp?t={}&next={next}", auth.otp_create(&user.id));
     tauri_plugin_opener::open_url(&url, None::<&str>).map_err(|e| e.to_string())?;
     Ok(url)
+}
+
+/// The server's REST API (`path` below `/api/`, e.g. `admin/users`) for the app's native admin screens: as this
+/// device's user when joined, as the owner on the host. The server checks the rights of every call.
+#[tauri::command]
+pub async fn remote_api(remote: RemoteState<'_>, method: String, path: String, body: Option<Value>) -> Result<Value, String> {
+    let method = method.to_ascii_uppercase();
+    if !matches!(method.as_str(), "GET" | "POST" | "PATCH" | "PUT" | "DELETE") {
+        return Err("bad method".into());
+    }
+    let path = path.trim_start_matches('/').to_owned();
+    if path.contains("..") || path.contains("://") || !(path.starts_with("admin/") || path.starts_with("me") || path.starts_with("device/")) {
+        return Err("bad path".into());
+    }
+    if let Some(client) = &remote.client {
+        return client.api(&method, &path, body).await;
+    }
+    let auth = remote.auth().ok_or("Không mở được cơ sở dữ liệu tài khoản.")?;
+    let Some(port) = remote.server.lock().await.as_ref().map(|h| h.port) else {
+        return Err("Bật Compola Server trước.".into());
+    };
+    let base = url::Url::parse(&format!("http://127.0.0.1:{port}/")).map_err(|e| e.to_string())?;
+    let http = reqwest::Client::new();
+    for attempt in 0..2 {
+        let token = match remote.owner_token.lock().clone() {
+            Some(t) => t,
+            None => {
+                let user = remote.owner(&auth)?;
+                let (_, t) = auth.store.create_session(&user.id, "web", "", "Ứng dụng Compola (máy chủ)", "127.0.0.1", auth::WEB_TTL_MS).map_err(|e| e.message)?;
+                *remote.owner_token.lock() = Some(t.clone());
+                t
+            }
+        };
+        match client::api_call(&http, &base, &token, &method, &path, body.clone()).await {
+            // The owner session expired or was revoked: a new one, once.
+            Err(e) if attempt == 0 && auth.store.session_by_token(&token, "127.0.0.1", None).ok().flatten().is_none() => {
+                log::debug!("compola server: owner session renewed ({e})");
+                *remote.owner_token.lock() = None;
+            }
+            other => return other,
+        }
+    }
+    Err("Không gọi được máy chủ.".into())
 }
 
 /// Revokes a joined session (the person signs in again to come back).
@@ -602,9 +698,10 @@ pub fn remote_kick(remote: RemoteState<'_>, session_id: String) -> Result<bool, 
 
 /// Checks the address and lists how to sign in: `{url, serverName, local, ldap, oidc}`.
 #[tauri::command]
-pub async fn remote_providers(url: String) -> Result<Value, String> {
+pub async fn remote_providers(remote: RemoteState<'_>, url: String) -> Result<Value, String> {
     let base = client::normalize_url(&url)?;
     let mut providers = client::providers(&base).await?;
+    remote.check_join(&providers)?;
     providers["url"] = json!(base.to_string());
     Ok(providers)
 }
@@ -629,10 +726,12 @@ pub async fn remote_join_password(
         return Err("Máy này đang tham gia một Compola Server khác.".into());
     }
     let base = client::normalize_url(&url)?;
+    let server = client::providers(&base).await?;
+    remote.check_join(&server)?;
     let device_name = device_name_or_default(&device_name);
     let instance = remote.config.lock().instance.clone();
     let signed_in = client::login_password(&base, &username, &password, provider.as_deref().unwrap_or("local"), &device_name, &instance).await?;
-    let server_name = client::providers(&base).await.ok().and_then(|p| p.get("serverName").and_then(Value::as_str).map(str::to_owned)).unwrap_or_default();
+    let server_name = server.get("serverName").and_then(Value::as_str).unwrap_or_default().to_owned();
     remote.save_join(JoinConfig {
         url: base.to_string(),
         token: signed_in.token,
@@ -658,6 +757,8 @@ pub async fn remote_join_browser(
         return Err("Máy này đang tham gia một Compola Server khác.".into());
     }
     let base = client::normalize_url(&url)?;
+    let server = client::providers(&base).await?;
+    remote.check_join(&server)?;
     let device_name = device_name_or_default(&device_name);
     let instance = remote.config.lock().instance.clone();
     let mut start = client::device_start(&base, &device_name, &instance).await?;
@@ -678,7 +779,7 @@ pub async fn remote_join_browser(
     };
     remote.join_cancel.lock().take();
     let signed_in = outcome?;
-    let server_name = client::providers(&base).await.ok().and_then(|p| p.get("serverName").and_then(Value::as_str).map(str::to_owned)).unwrap_or_default();
+    let server_name = server.get("serverName").and_then(Value::as_str).unwrap_or_default().to_owned();
     remote.save_join(JoinConfig {
         url: base.to_string(),
         token: signed_in.token,

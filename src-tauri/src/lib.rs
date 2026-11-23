@@ -163,6 +163,7 @@ pub fn run() {
             remote::remote_admin_setup,
             remote::remote_admin_open,
             remote::remote_kick,
+            remote::remote_api,
             remote::remote_providers,
             remote::remote_join_password,
             remote::remote_join_browser,

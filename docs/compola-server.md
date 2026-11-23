@@ -63,7 +63,7 @@ Auth: admin console = cookie `compola_session` **and** header `X-Compola: 1` on 
 something (cross-site forms cannot set it). Joined apps = `Authorization: Bearer <device token>`.
 
 ### Public
-- `GET /info` → `{app: "compola-server", version}`
+- `GET /info` → `{app: "compola-server", version, instance}` (`instance`: a joining app refuses its own server)
 - `GET /api/auth/providers` → `{serverName, local: true, ldap: [{id, name}], oidc: [{id, name}]}`
 
 ### Sign-in
@@ -73,6 +73,8 @@ something (cross-site forms cannot set it). Joined apps = `Authorization: Bearer
 - `GET /api/auth/oidc/callback?code&state` → session cookie, 302 to `next` (or the device approval page).
 - `GET /api/auth/otp?t=<one-time token>` → session cookie for the host's owner (created by the host app's
   "Mở trang quản trị" button), 302 to `/admin/`.
+- `POST /api/auth/link` (signed in, any user) → `{token}`: a one-time link `GET /api/auth/otp?t=<token>&next=/admin/…`
+  that opens the console signed in as that user (the apps' "Mở trang quản trị").
 - `POST /api/auth/logout` → clears the cookie / revokes the bearer token.
 - `GET /api/me` → `{user, access: {role: "admin" | "agent" | "viewer" | null, scope}}`
 
@@ -100,6 +102,10 @@ something (cross-site forms cannot set it). Joined apps = `Authorization: Bearer
 - Audit: `GET /api/admin/audit?limit=100&before=<id>&userId=&action=`
 - Account data for the grant editor: `GET /api/admin/conversations` → `{conversations: [{id, name, isGroup, avatar,
   labels: [labelId]}], labels: [{id, name, color}]}` (from what the host's renderer posted)
+- The host's Zalo account: `GET /api/admin/zalo` → `{phase, account: {name, avatar, phase}}` (`phase` is the engine
+  phase, `login.qr` a data URL, steps generating / waitingScan / waitingConfirm {name, avatar} / expired / failed);
+  `POST /api/admin/zalo/qr` (new QR), `POST /api/admin/zalo/logout` (sign the host out of Zalo), `POST
+  /api/admin/zalo/retry` (runtime setup). All audited (`zalo.*`). Poll `GET` every ~2 s while the screen is open.
 - Server: `GET /api/admin/server` → `{name, version, publicUrl, account: {name, avatar, phase}, listen: {port,
   allowNetwork}, addresses}` · `PATCH /api/admin/server` `{name?, publicUrl?}`
 
@@ -141,6 +147,15 @@ regains focus.
 - `remote_admin_setup({username, password, displayName})` → creates the first admin (only when there is none)
 - `remote_admin_open()` → opens the admin console in the browser, signed in as the owner (one-time link); returns it
 - `remote_kick(sessionId)` → revokes a session
+- `remote_api({method, path, body?})` → the REST API above (`path` below `/api/`: `admin/…`, `me…`, `device/…`) for the
+  app's native admin screens: as the device's user when joined (bearer token), as the owner on the host. The server
+  enforces admin on `admin/*`. Errors are the server's Vietnamese `{error}` text.
+- `remote_admin_open({next?})` → opens `<server>/admin/` (or `next`, e.g. `/admin/#/audit`) signed in: the owner on the
+  host, the device's user when joined.
+
+Joining is refused when the server's `instance` is this install, and while this app's own server is enabled (it
+would stop sharing its account). A saved join to this Mac (loopback / own address) is dropped at startup when the
+server is enabled. Leaving (`remote_leave`) restarts the app in host mode: engine, automation and server start again.
 
 ## Joined app — Tauri commands
 
@@ -165,3 +180,36 @@ Refused with a message: `screen_capture_start`, `call_show_window`, `engine_show
 `engine_eval`, `automation_*` and `ai_clients_*` (except `automation_search`, `automation_search_status`,
 `automation_conversations`, `automation_messages`, which the host serves with the policy applied). Everything else →
 `remote_invoke`.
+
+## Activity tracking (per staff)
+
+Every call a server user makes through Compola Server (joined app, web client) is attributed and stored in
+`server.db` table `activity`, next to the audit log (the audit log is about administration; activity is about the
+Zalo work itself). Calls made directly in the host app are recorded with `user = null`, `device.kind = "host"`.
+
+Entry: `{id, at, account, user: {id, username, displayName} | null, device: {id, name, kind: "device" | "web" |
+"host"}, action, conversation: {id, name} | null, messageId, ok, responseMs | null, detail}`.
+`account` is the Zalo account id (`""` until multi-account lands).
+
+Actions (from `policy::describe_call`): `message.send` (text), `message.media`, `message.file`, `message.sticker`,
+`message.card`, `message.forward`, `message.recall`, `message.delete`, `message.react`, `message.pin`,
+`message.unpin`, `message.star`, `conversation.open`, `conversation.read`, `conversation.unread`,
+`conversation.pin`, `conversation.archive`, `conversation.mute`, `poll.create`, `poll.vote`, `reminder.create`,
+`group.member`, `contact.request`, … (`detail.call` keeps `target.method`). Message text is never stored.
+
+`responseMs`: on a successful send, the time since the oldest inbound message of that conversation that had no
+reply yet (from the host's renderer state), else null.
+
+- `GET /api/admin/activity?userId=&account=&conversationId=&action=<exact or prefix>&from=<ms>&to=<ms>&limit=100&before=<id>`
+  → `[entry]`, newest first.
+- `GET /api/admin/activity/stats?from=&to=&account=&userId=&groupBy=user|day|account|conversation` →
+  `{rows: [{key, label, sent, media, recalled, reactions, reads, opens, conversations, responses, avgResponseMs,
+  medianResponseMs, p90ResponseMs}], totals: {…same}}`; `day` keys are `YYYY-MM-DD` in the host's local time.
+- `GET /api/admin/activity/export.csv?…filters` → CSV (UTF-8 with BOM, for Excel), `Content-Disposition: attachment`.
+
+## Web client (`/web/`)
+
+The desktop UI also runs in the browser at `<server>/web/` (built with `npm run build:web` into
+`src-tauri/web-dist`). It signs in with the console's cookie session (`/admin/#/login?next=/web/`), talks to `GET /ws`
+with that cookie (Origin must be the server's own), loads media from `/media/load` and uploads through `/upload`
+(cookie + `X-Compola: 1`). Same policy as joined apps: a user needs an access grant.
