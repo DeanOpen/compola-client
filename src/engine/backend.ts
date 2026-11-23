@@ -16,7 +16,9 @@ export type EngineEvent =
   /** Call helper lifecycle (call UI, later wave). */
   | 'compola://call-event'
   /** ZaloCap outcome: `{kind: send|sendToMe|share|shareText|noPermission|failed, …}`. */
-  | 'compola://screen-capture';
+  | 'compola://screen-capture'
+  /** Automation (MCP, schedules, add-ons): `{kind: changed|message|schedule|toolCall, …}` (src-tauri/src/automation). */
+  | 'compola://automation';
 
 export interface Backend {
   readonly isMock: boolean;

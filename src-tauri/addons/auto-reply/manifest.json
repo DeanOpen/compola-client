@@ -1,0 +1,16 @@
+{
+  "id": "auto-reply",
+  "name": "Trả lời tự động",
+  "version": "1.0.0",
+  "description": "Tự trả lời tin nhắn đến trong khung giờ bạn chọn (ví dụ ngoài giờ làm việc), mỗi hội thoại tối đa một lần trong khoảng chờ.",
+  "author": "Compola",
+  "main": "main.js",
+  "permissions": ["messages:read", "messages:send"],
+  "settings": [
+    { "key": "message", "label": "Nội dung trả lời", "type": "textarea", "default": "Mình đang bận, sẽ trả lời bạn sau nhé!" },
+    { "key": "onlyDirect", "label": "Chỉ trả lời tin nhắn 1-1 (bỏ qua nhóm)", "type": "boolean", "default": true },
+    { "key": "activeFrom", "label": "Bắt đầu lúc (HH:MM, để trống = cả ngày)", "type": "text", "default": "18:00" },
+    { "key": "activeTo", "label": "Kết thúc lúc (HH:MM)", "type": "text", "default": "08:00" },
+    { "key": "cooldownMinutes", "label": "Không trả lời lại cùng hội thoại trong (phút)", "type": "number", "default": 120 }
+  ]
+}

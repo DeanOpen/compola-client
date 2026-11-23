@@ -1,0 +1,14 @@
+{
+  "id": "daily-digest",
+  "name": "Tóm tắt hằng ngày",
+  "version": "1.0.0",
+  "description": "Theo lịch cron, gửi bản tóm tắt tin nhắn đến kể từ lần trước (theo hội thoại) vào hội thoại bạn chọn. Cũng cung cấp công cụ MCP \"digest\" để AI đọc bản tóm tắt.",
+  "author": "Compola",
+  "main": "main.js",
+  "permissions": ["messages:read", "messages:send", "schedules"],
+  "settings": [
+    { "key": "cron", "label": "Lịch (cron)", "type": "cron", "default": "0 18 * * *" },
+    { "key": "target", "label": "Gửi bản tóm tắt vào", "type": "conversation", "default": "" },
+    { "key": "maxPerConversation", "label": "Số tin tối đa mỗi hội thoại", "type": "number", "default": 3 }
+  ]
+}

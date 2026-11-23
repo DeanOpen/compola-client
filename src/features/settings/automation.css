@@ -1,0 +1,338 @@
+/* Settings › MCP, Lịch tự động, Add-on (AutomationSettings.tsx). Builds on settings.css tokens (--st-*). */
+
+.st-auto-loading {
+  display: flex;
+  justify-content: center;
+  padding: 40px 0;
+}
+
+.st-auto-item + .st-auto-item,
+.st-auto-item + .st-auto-editor,
+.st-auto-item + .st-auto-footer-actions,
+.st-row + .st-auto-item,
+.st-row + .st-auto-footer-actions,
+.st-row + .st-auto-editor,
+.st-auto-editor + .st-auto-item {
+  border-top: 1px solid var(--st-border);
+}
+
+.st-auto-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-weight: 500;
+}
+
+.st-auto-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.st-auto-actions.is-end {
+  justify-content: flex-end;
+}
+
+.st-auto-actions .truncate {
+  flex: 1;
+  min-width: 0;
+}
+
+.st-auto-footer-actions {
+  display: flex;
+  gap: 8px;
+  padding: 10px 14px;
+}
+
+.st-auto-sub {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 14px 14px 14px;
+}
+
+.st-auto-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  background: color-mix(in srgb, var(--st-primary) 4%, transparent);
+}
+
+.st-auto-editor.is-flat {
+  padding: 0;
+  background: none;
+}
+
+.st-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 13px;
+}
+
+.st-field > span:first-child {
+  color: var(--text-secondary);
+  font-size: 12.5px;
+}
+
+.st-field.is-inline {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.st-input {
+  width: 100%;
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 1px solid var(--st-border);
+  border-radius: 6px;
+  background: var(--st-bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 13.5px;
+  resize: vertical;
+}
+
+.st-input:focus {
+  outline: none;
+  border-color: var(--st-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--st-primary) 18%, transparent);
+}
+
+.st-input.is-narrow {
+  width: 200px;
+}
+
+select.st-input {
+  appearance: auto;
+}
+
+.st-auto-mono,
+.st-code,
+.st-snippet {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 12px;
+}
+
+.st-code {
+  word-break: break-all;
+}
+
+.st-snippet {
+  margin: 0;
+  padding: 10px 12px;
+  max-height: 220px;
+  overflow: auto;
+  border-radius: 6px;
+  background: var(--st-subtle);
+  white-space: pre-wrap;
+  word-break: break-all;
+  line-height: 1.45;
+}
+
+.st-row.is-column .st-button {
+  align-self: flex-start;
+}
+
+.st-auto-log {
+  max-height: 160px;
+}
+
+.st-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 10px;
+  background: var(--st-subtle);
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.st-chip.is-tool {
+  background: color-mix(in srgb, var(--st-primary) 12%, transparent);
+  color: var(--st-primary);
+}
+
+.st-chip.is-button {
+  height: 24px;
+  cursor: pointer;
+}
+
+.st-chip.is-button:hover {
+  filter: brightness(0.95);
+}
+
+.st-chip.is-selected {
+  background: var(--st-primary);
+  color: #fff;
+}
+
+.st-auto-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.st-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-tertiary, #a0a8b5);
+  flex: none;
+}
+
+.st-dot.is-on {
+  background: #2fb36d;
+}
+
+.st-dot.is-bad {
+  background: var(--danger);
+}
+
+.st-ok {
+  color: #1f9d5a;
+}
+
+.st-bad {
+  color: var(--danger);
+  font-size: 12.5px;
+}
+
+.st-auto-error {
+  margin: -6px 0 14px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  color: var(--danger);
+  font-size: 13px;
+}
+
+.st-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  color: var(--text-secondary);
+}
+
+.st-icon-button:hover {
+  background: var(--st-subtle);
+  color: var(--text);
+}
+
+.st-link {
+  align-self: flex-start;
+  color: var(--st-primary);
+  font-size: 12.5px;
+}
+
+.st-link:hover {
+  text-decoration: underline;
+}
+
+.st-auto-tool {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--st-subtle);
+}
+
+.st-auto-tool-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.st-auto-tool-head .st-link {
+  margin-left: auto;
+}
+
+.st-auto-try {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.st-auto-try .st-button {
+  align-self: flex-start;
+}
+
+/* Settings › Tìm kiếm (SearchSettings.tsx) */
+.st-search-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  color: var(--text-secondary);
+}
+
+.st-search-results {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--st-border);
+}
+
+.st-search-meta {
+  padding: 8px 14px 4px;
+  font-size: 12px;
+}
+
+.st-search-hit {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 14px;
+  text-align: left;
+  color: var(--text);
+}
+
+.st-search-hit:hover {
+  background: var(--st-subtle);
+}
+
+.st-search-hit-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.st-search-hit-head .st-muted {
+  margin-left: auto;
+  flex: none;
+  font-size: 12px;
+}
+
+.st-search-hit-text {
+  font-size: 13px;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.st-search-hit mark {
+  background: color-mix(in srgb, #ffd43b 55%, transparent);
+  color: inherit;
+  border-radius: 2px;
+}
+
+.st-search-provider {
+  padding: 12px 14px 14px;
+  border-top: 1px solid var(--st-border);
+}
