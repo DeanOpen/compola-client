@@ -370,6 +370,28 @@ impl Engine {
     }
 }
 
+impl Engine {
+    /// `window[target][method](...args)` in the main renderer page (see `engine_call`).
+    pub async fn call_adapter(&self, target: &str, method: &str, args: Vec<Value>) -> Result<Value, String> {
+        if !target.starts_with("__zalo") && !target.starts_with("__swz") {
+            return Err("unknown target".into());
+        }
+        let host = main_host(self)?;
+        host.call_js(&format!(
+            "const t = window[{}]; if (!t || typeof t[{m}] !== 'function') throw new Error('no ' + {} + '.' + {m}); return await t[{m}](...{});",
+            js_literal(&json!(target)),
+            js_literal(&json!(target)),
+            js_literal(&Value::Array(args)),
+            m = js_literal(&json!(method)),
+        ))
+        .await
+    }
+
+    fn automation(&self) -> Option<Arc<crate::automation::Automation>> {
+        self.app.try_state::<Arc<crate::automation::Automation>>().map(|s| s.inner().clone())
+    }
+}
+
 impl MainProcess {
     fn jar_clear(&self) {
         self.app.state::<Arc<crate::net::cookies::CookieJar>>().clear_zalo();
@@ -408,12 +430,18 @@ impl HostObserver for Engine {
             return;
         }
         self.record_replay(&state);
+        if let Some(a) = self.automation() {
+            a.observe_state(&state);
+        }
         emit_ui(&self.app, "compola://state", state);
     }
 
     fn page_started(&self, host: &Arc<Host>) {
         if host.kind == HostKind::Main {
             self.clear_replay();
+            if let Some(a) = self.automation() {
+                a.reset_mirror();
+            }
         }
         if let Some(m) = self.main_process() {
             m.page_did_start_loading(host);
@@ -488,18 +516,7 @@ pub fn engine_info(engine: EngineState<'_>) -> Value {
 /// `__zaloChat`, `__zaloCompose`, `__zaloPoll`, …) and returns its JSON result.
 #[tauri::command]
 pub async fn engine_call(engine: EngineState<'_>, target: String, method: String, args: Vec<Value>) -> Result<Value, String> {
-    if !target.starts_with("__zalo") && !target.starts_with("__swz") {
-        return Err("unknown target".into());
-    }
-    let host = main_host(&engine)?;
-    host.call_js(&format!(
-        "const t = window[{}]; if (!t || typeof t[{m}] !== 'function') throw new Error('no ' + {} + '.' + {m}); return await t[{m}](...{});",
-        js_literal(&json!(target)),
-        js_literal(&json!(target)),
-        js_literal(&Value::Array(args)),
-        m = js_literal(&json!(method)),
-    ))
-    .await
+    engine.call_adapter(&target, &method, args).await
 }
 
 /// Development aid: evaluates an async function body in the main renderer page.

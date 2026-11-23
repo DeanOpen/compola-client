@@ -1,6 +1,7 @@
 // Boot: subscribe to the Rust engine's events and wire the feature handlers (Swift `ZaloEngine.boot` / `handle`).
 
 import { resetStickers } from './stickers';
+import { startAddonRuntime } from './addons';
 import { backend, commands } from './backend';
 import { handleChat, sendText, stashFailedDraft } from './chat';
 import { dropComposerConfirms, handleCompose, handleScreenCapture } from './composer';
@@ -77,6 +78,8 @@ export const startEngine = (): Promise<void> => {
       }),
       b.listen('compola://screen-capture', handleScreenCapture),
     ]);
+    // Add-ons run in workers next to the UI (they get their events from Rust, not from this page's state).
+    void startAddonRuntime().catch((e) => console.warn('[addons] runtime failed to start', e));
     try {
       setPhase(await commands.phase());
     } catch {
