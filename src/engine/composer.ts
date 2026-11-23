@@ -1,7 +1,7 @@
 // Composer "+" actions bridged to `host-scripts/composer-adapter.js` (`window.__zaloCompose`). Port of
 // ZaloEngine+Composer.swift: photo / video and file sends and screenshots (files reach the page through the Rust
 // file-input answer, see `callAdapterWithFiles`), the official screenshot tool (`screen_capture_start` →
-// `compola://screen-capture`), official confirms and toasts. My card and reminders are later waves.
+// `compola://screen-capture`), official confirms and toasts, my contact card ("Gửi danh thiếp") and new reminders ("Tạo nhắc hẹn").
 
 import { backend, commands } from './backend';
 import { callAdapter, callAdapterWithFiles, log, raceTimeout } from './call';
@@ -115,6 +115,84 @@ export const shareScreenshot = async (share: ScreenshotShare, ids: string[]): Pr
   if (!share.image) return { kind: 'cancelled' };
   return composeWithFiles('shareShot', [ids], [share.image]);
 };
+
+// MARK: Danh thiếp, Nhắc hẹn
+
+/** A compose call without files (Swift `compose(_:_:timeout:)`). */
+const compose = async (method: string, args: unknown[], seconds: number): Promise<ComposerOutcome> => {
+  const answer = await raceTimeout(seconds, callAdapter('__zaloCompose', method, ...args).catch(() => ({ status: 'error' })));
+  if (!answer) return { kind: 'pending', text: noAnswerText };
+  const outcome = parseComposerOutcome(answer.value);
+  log(`compose ${method} → ${outcome.kind}`);
+  return outcome;
+};
+
+/** My own contact card as the official "Gửi danh thiếp" modal would send it. */
+export interface MyCardInfo {
+  uid: string;
+  name: string;
+  avatar: string | null;
+  /** Display form of my number, "" when the profile has none. */
+  phone: string;
+  /** The official "Gửi kèm số điện thoại" choice remembered for this account. */
+  withPhone: boolean;
+}
+
+export const myCard = async (): Promise<MyCardInfo | null> => {
+  const row = obj((await raceTimeout(15, callAdapter('__zaloCompose', 'myCard').catch(() => null)))?.value);
+  const uid = row ? str(row.uid) : '';
+  if (!row || !uid) return null;
+  return { uid, name: str(row.name), avatar: str(row.avatar) || null, phone: str(row.phone), withPhone: row.withPhone !== false };
+};
+
+export const sendMyCard = (conversationId: string, withPhone: boolean) => compose('sendMyCard', [conversationId, withPhone], 45);
+
+/** What the official chat-bar gate and compose modal allow for a conversation. */
+export interface ReminderComposeInfo {
+  allowed: boolean;
+  /** OA conversations have no "Nhắc hẹn" item at all. */
+  hidden: boolean;
+  /** Why it is not allowed (official warning), "" when there is nothing to say. */
+  text: string;
+  isGroup: boolean;
+  /** Group reminders are pinned (official default) when I may pin; `pinToggle` = the modal shows the checkbox. */
+  canPin: boolean;
+  pinToggle: boolean;
+  titleMaxChars: number;
+  titleMaxBytes: number;
+}
+
+export const reminderComposeInfo = async (conversationId: string): Promise<ReminderComposeInfo | null> => {
+  const row = obj((await raceTimeout(15, callAdapter('__zaloCompose', 'reminderInfo', conversationId).catch(() => null)))?.value);
+  if (!row) return null;
+  const n = (v: unknown, d: number) => (typeof v === 'number' && Number.isFinite(v) ? Math.trunc(v) : d);
+  return {
+    allowed: row.allowed === true,
+    hidden: row.hidden === true,
+    text: str(row.text),
+    isGroup: row.isGroup === true,
+    canPin: row.canPin === true,
+    pinToggle: row.pinToggle === true,
+    titleMaxChars: n(row.titleMaxChars, 3000),
+    titleMaxBytes: n(row.titleMaxBytes, 3700),
+  };
+};
+
+/** Official limits: fewer than `titleMaxChars` UTF-16 units of raw text and at most `titleMaxBytes` UTF-8 bytes trimmed. */
+export const reminderTitleTooLong = (info: ReminderComposeInfo, raw: string) =>
+  raw.length >= info.titleMaxChars || new TextEncoder().encode(raw.trim()).length > info.titleMaxBytes;
+
+/** Repeat choices of the legacy compose modal. */
+export const reminderRepeats = [
+  { value: 0, title: 'Không lặp lại' },
+  { value: 1, title: 'Hàng ngày' },
+  { value: 2, title: 'Hàng tuần' },
+  { value: 3, title: 'Hàng tháng' },
+] as const;
+
+/** WRITE: runs only from the "Tạo nhắc hẹn" button. */
+export const createReminder = (conversationId: string, title: string, start: Date, repeat: number, pin: boolean) =>
+  compose('createReminder', [conversationId, { title, startTime: Math.round(start.getTime()), repeat, needPin: pin }], 40);
 
 // MARK: Official confirms / toasts
 

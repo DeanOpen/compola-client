@@ -22,7 +22,8 @@ import {
 } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { mentionCandidates } from '../../../engine/chat';
-import { reportComposer, sendFiles, sendMedia, startScreenCapture } from '../../../engine/composer';
+import { reminderComposeInfo, reportComposer, sendFiles, sendMedia, startScreenCapture, type ReminderComposeInfo } from '../../../engine/composer';
+import { MyCardSheet, ReminderComposeSheet } from './ComposerSheets';
 import type { ComposerDraft, MentionCandidate } from '../../../engine/models/chat';
 import { Avatar } from '../../../ui/Avatar';
 import { openMenuBelow } from '../../../ui/Menu';
@@ -76,6 +77,21 @@ export function Composer({
   // Sticker picker popover, and the stickers suggested for the draft (Swift `TypingStickerState`): they show only while
   // the draft still is the text they were found for; a send with no answer holds that text away from the strip.
   const [showStickers, setShowStickers] = useState(false);
+  const [showMyCard, setShowMyCard] = useState(false);
+  const [reminderInfo, setReminderInfo] = useState<ReminderComposeInfo | null>(null);
+  /** OA conversations have no "Nhắc hẹn" (learned from the gate's answer). */
+  const [reminderHidden, setReminderHidden] = useState(false);
+
+  /** The chat-bar gate decides on click, as the official item does (its warning when I may not create one here). */
+  const openReminder = () => {
+    const target = conversationId;
+    void reminderComposeInfo(target).then((info) => {
+      if (!info) return showToast('Chưa đọc được thông tin nhắc hẹn từ Zalo. Hãy thử lại sau giây lát.', target);
+      if (info.hidden) setReminderHidden(true);
+      if (!info.allowed) return showToast(info.text || 'Không thể tạo nhắc hẹn trong cuộc trò chuyện này.', target);
+      if (getEngine().openConversationId === target) setReminderInfo(info);
+    });
+  };
   const stickerButton = useRef<HTMLButtonElement>(null);
   const [typing, setTyping] = useState<{ stickers: StickerEntry[]; for: string | null }>({ stickers: [], for: null });
   const [stripDismissed, setStripDismissed] = useState(false);
@@ -300,8 +316,8 @@ export function Composer({
             ])
           }
         />
-        <ToolButton icon={ContactRound} label="Gửi danh thiếp" disabled />
-        <ToolButton icon={AlarmClock} label="Tạo nhắc hẹn" disabled />
+        <ToolButton icon={ContactRound} label="Gửi danh thiếp" onClick={() => setShowMyCard(true)} />
+        {!reminderHidden && <ToolButton icon={AlarmClock} label="Tạo nhắc hẹn" onClick={openReminder} />}
         <ToolButton icon={Type} label="Định dạng tin nhắn" disabled />
         <ToolButton
           icon={MoreHorizontal}
@@ -327,6 +343,8 @@ export function Composer({
           </button>
         </div>
       )}
+      {showMyCard && <MyCardSheet conversationId={conversationId} conversationName={name} onClose={() => setShowMyCard(false)} />}
+      {reminderInfo && <ReminderComposeSheet conversationId={conversationId} info={reminderInfo} onClose={() => setReminderInfo(null)} />}
       {stripOpen && (
         <TypingStickerStrip stickers={typing.stickers} sending={sendingSuggestion} pick={sendSuggestion} dismiss={() => setStripDismissed(true)} />
       )}
