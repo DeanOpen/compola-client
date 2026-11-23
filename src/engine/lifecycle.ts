@@ -8,6 +8,7 @@ import { dispatchState, registerStateHandler } from './dispatch';
 import { handlePins, resetMessageActions, rewatchPins } from './messageActions';
 import type { Phase } from './models/phase';
 import { getEngine, resetAccount, setEngine } from './store';
+import './features';
 
 registerStateHandler('conversationExtras', handleConversationExtras);
 registerStateHandler('compose', handleCompose);

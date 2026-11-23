@@ -166,7 +166,17 @@ export const getEngine = useEngine.getState;
 export const setEngine = useEngine.setState;
 
 /** Logout / logged out: drop everything of the previous account. */
-export const resetAccount = () => setEngine(accountState());
+export const resetAccount = () => {
+  setEngine(accountState());
+  for (const hook of accountResetHooks) hook();
+};
+
+const accountResetHooks: (() => void)[] = [];
+
+/** Feature slices kept outside this store register how to drop the previous account's data. */
+export const onAccountReset = (hook: () => void) => {
+  accountResetHooks.push(hook);
+};
 
 // MARK: - Derived helpers (pure; take the state so they work in selectors)
 

@@ -7,6 +7,7 @@ import { noAnswerText, parseCardActionOutcome, type CardActionOutcome } from './
 import { setEngine } from './store';
 import { showToast } from './toast';
 import { openExternal } from './system';
+import { presentCardEffect } from './cardSheets';
 
 const running = new Set<string>();
 
@@ -40,7 +41,7 @@ export const applyCardOutcome = (outcome: CardActionOutcome, conversationId: str
       void navigator.clipboard.writeText(outcome.text).then(() => showToast('Đã sao chép', conversationId));
       return;
     case 'present':
-      showToast('Chưa hỗ trợ trên ứng dụng này', conversationId);
+      presentCardEffect(outcome.effect, conversationId);
       return;
     default:
       showToast(outcome.text, conversationId);

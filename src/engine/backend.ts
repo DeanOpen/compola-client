@@ -3,7 +3,16 @@
 
 import type { Phase } from './models/phase';
 
-export type EngineEvent = 'compola://phase' | 'compola://state' | 'compola://log' | 'compola://badge' | 'compola://page';
+export type EngineEvent =
+  | 'compola://phase'
+  | 'compola://state'
+  | 'compola://log'
+  | 'compola://badge'
+  | 'compola://page'
+  | 'compola://call-event'
+  | 'compola://notification-click'
+  | 'compola://notification-reply'
+  | 'compola://screen-capture';
 
 export interface Backend {
   readonly isMock: boolean;
@@ -50,4 +59,8 @@ export const commands = {
   retryRuntime: async () => (await backend()).invoke('engine_retry_runtime'),
   showRenderer: async () => (await backend()).invoke('engine_show_renderer'),
   switchToSqlite: async () => (await backend()).invoke('engine_switch_to_sqlite'),
+  /** Saves a media URL to `destPath` (absolute, folder must exist); see docs/media.md. */
+  mediaSave: async (url: string, destPath: string) => (await backend()).invoke<string>('media_save', { url, destPath }),
+  setShowsPreview: async (shows: boolean) => (await backend()).invoke('ui_set_shows_preview', { shows }),
+  setOpenConversation: async (id: string | null) => (await backend()).invoke('ui_set_open_conversation', { id }),
 };

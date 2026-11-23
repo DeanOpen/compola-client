@@ -1,6 +1,7 @@
 // Native chat pane for one conversation (Swift `ChatView`): header in the toolbar, pinned bar, message list, composer.
 
-import { BellOff, Info, MessageSquareDashed, MoreHorizontal, Phone, Tag, Video } from 'lucide-react';
+import { BellOff, Info, MessageSquareDashed, MoreHorizontal, Tag } from 'lucide-react';
+import { CallButtons } from '../calls/CallButtons';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { markRead, sendText, stashFailedDraft, takeFailedDraft } from '../../engine/chat';
@@ -209,12 +210,7 @@ function ChatHeader({ conversation, subtitle, typing, muted }: { conversation: C
         </div>
       </div>
       <div className="toolbar-group glass">
-        <button className="toolbar-button" disabled title="Gọi thoại — chưa hỗ trợ trên phiên bản này" aria-label="Gọi thoại">
-          <Phone size={15} />
-        </button>
-        <button className="toolbar-button" disabled title="Gọi video — chưa hỗ trợ trên phiên bản này" aria-label="Gọi video">
-          <Video size={16} />
-        </button>
+        <CallButtons conversation={conversation} />
       </div>
       <div className="toolbar-group glass">
         <button className={`toolbar-button ${showInspector ? 'is-on' : ''}`} onClick={() => shell.toggleInspector()} title="Thông tin (⌥⌘I)" aria-label="Thông tin">
