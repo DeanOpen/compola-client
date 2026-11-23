@@ -23,7 +23,8 @@
 .rail-titlebar {
   flex: none;
   width: 100%;
-  height: 34px;
+  /* The macOS traffic lights (overlay title bar) sit here: keep the avatar fully below them. */
+  height: 44px;
 }
 
 .rail-avatar {
