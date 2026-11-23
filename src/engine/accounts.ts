@@ -13,7 +13,7 @@
 
 import { create, type StoreApi, type UseBoundStore } from 'zustand';
 import { setActiveAccountId } from './activeAccount';
-import { backend, joinedSync, setAccountOnScreen } from './backend';
+import { backend, joinedSync } from './backend';
 import { log } from './call';
 import { arr, bool, int, obj, str } from './models/json';
 import type { LoginState, Phase } from './models/phase';
@@ -149,10 +149,10 @@ const applyList = (v: unknown) => {
 const activate = (id: string) => {
   const before = get().activeId;
   if (id === before) return;
-  swapStores(before, id);
+  // The account on screen first: store subscribers that react to the swap already address the new account.
   setActiveAccountId(id);
+  swapStores(before, id);
   set({ activeId: id });
-  setAccountOnScreen(id);
   if (before !== null) void resync();
 };
 
