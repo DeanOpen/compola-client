@@ -2,7 +2,7 @@
 
 import { resetStickers } from './stickers';
 import { startAddonRuntime } from './addons';
-import { backend, commands, isJoined } from './backend';
+import { backend, commands, forAccount, isJoined } from './backend';
 import { handleChat, sendText, stashFailedDraft } from './chat';
 import { dropComposerConfirms, handleCompose, handleScreenCapture } from './composer';
 import { obj, str } from './models/json';
@@ -141,7 +141,7 @@ const catchUp = async () => {
   }
   if (b.isMock) return;
   try {
-    const events = await b.invoke<unknown[]>('engine_replay');
+    const events = await b.invoke<unknown[]>('engine_replay', forAccount());
     for (const event of events) dispatchState(event);
   } catch {
     /* older engine */

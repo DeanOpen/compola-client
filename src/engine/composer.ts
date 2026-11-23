@@ -3,6 +3,7 @@
 // file-input answer, see `callAdapterWithFiles`), the official screenshot tool (`screen_capture_start` →
 // `compola://screen-capture`), official confirms and toasts, my contact card ("Gửi danh thiếp") and new reminders ("Tạo nhắc hẹn").
 
+import { accountPrefix, otherAccount, switchAccount } from './accounts';
 import { backend, commands } from './backend';
 import { callAdapter, callAdapterWithFiles, log, raceTimeout } from './call';
 import { sendText } from './chat';
@@ -14,12 +15,19 @@ import { showToast } from './toast';
 const missingCommand = /engine_call_with_files|not found|unknown command|not allowed/i;
 
 /** `files` = paths to hand over, or null to let Rust show the open panel filtered by `pick`. */
-const composeWithFiles = async (method: string, args: unknown[], files: string[] | null, pick: 'media' | 'files' = 'files'): Promise<ComposerOutcome> => {
+const composeWithFiles = async (
+  method: string,
+  args: unknown[],
+  files: string[] | null,
+  pick: 'media' | 'files' = 'files',
+  /** Another account than the one on screen (multi-account). */
+  account?: string | null,
+): Promise<ComposerOutcome> => {
   if (files && files.length === 0) return { kind: 'cancelled' };
   // Photos are processed before the call returns; the uploads themselves continue in the page.
   const answer = await raceTimeout(
     180,
-    callAdapterWithFiles('__zaloCompose', method, args, files, pick).catch((e: unknown) => {
+    callAdapterWithFiles('__zaloCompose', method, args, files, pick, account).catch((e: unknown) => {
       const text = String(e);
       log(`compose ${method} → ${text}`);
       return { status: 'error', text: missingCommand.test(text) ? 'Chưa hỗ trợ gửi tệp trên phiên bản này.' : undefined };
@@ -82,13 +90,22 @@ export const handleScreenCapture = (payload: unknown) => {
   const event = obj(payload);
   if (!event) return;
   const id = str(event.conversationId);
+  // Tagged with the account the capture was started in (multi-account §6): it may no longer be the one on screen.
+  const other = otherAccount(payload);
   switch (event.kind) {
     case 'send':
     case 'sendToMe': {
       const toMe = event.kind === 'sendToMe';
-      void composeWithFiles('sendShot', [id, toMe], [str(event.path)]).then((o) => reportComposer(o, id));
+      void composeWithFiles('sendShot', [id, toMe], [str(event.path)], 'files', other ?? undefined).then((o) => (other ? o.kind === 'failed' && showToast(`${accountPrefix(other)}${o.text}`, null) : reportComposer(o, id)));
       return;
     }
+    case 'share':
+    case 'shareText':
+      // The conversation picker lists the capture's account's conversations: show that account first.
+      if (other) switchAccount(other);
+      break;
+  }
+  switch (event.kind) {
     case 'share':
       shareSeq += 1;
       setEngine({ screenshotShare: { id: shareSeq, image: str(event.path) || null, text: null, conversationId: id } });

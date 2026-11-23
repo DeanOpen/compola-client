@@ -9,11 +9,10 @@
 // A host without accounts_list (single-account builds) keeps today's UI: the list stays empty.
 
 import { create, type StoreApi, type UseBoundStore } from 'zustand';
-import { backend } from './backend';
+import { backend, setAccountOnScreen } from './backend';
 import { log } from './call';
 import { arr, bool, int, obj, str } from './models/json';
 import type { LoginState, Phase } from './models/phase';
-import { useCalls } from './calls';
 import { useCardSheets } from './cardSheets';
 import { useCloud } from './cloud';
 import { useContacts } from './contacts';
@@ -91,7 +90,7 @@ const scoped: UseBoundStore<StoreApi<any>>[] = [
   useShell,
   useContacts,
   useNotifications,
-  useCalls,
+  // Not useCalls: one call helper serves every account (§4); a call goes on while another account is on screen.
   useCloud,
   useGroupMembers,
   usePolls,
@@ -148,6 +147,7 @@ const activate = (id: string) => {
   if (id === before) return;
   swapStores(before, id);
   set({ activeId: id });
+  setAccountOnScreen(id);
   if (before !== null) void resync();
 };
 

@@ -1,7 +1,7 @@
 // Calls into the host-script adapters running in the official renderer (`window[target][method](...args)`), via the
 // Rust `engine_call` command. Replaces every `host.evaluate("window.__zaloX.method(...)")` of the Swift engine.
 
-import { backend } from './backend';
+import { backend, forAccount } from './backend';
 
 /** Adapter objects the renderer exposes (host-scripts/*-adapter.js). */
 export type AdapterTarget =
@@ -30,7 +30,7 @@ export const log = (line: string) => {
  */
 export const callAdapter = async <T = unknown>(target: AdapterTarget, method: string, ...args: unknown[]): Promise<T> => {
   const b = await backend();
-  return b.invoke<T>('engine_call', { target, method, args: args.map((a) => (a === undefined ? null : a)) });
+  return b.invoke<T>('engine_call', forAccount({ target, method, args: args.map((a) => (a === undefined ? null : a)) }));
 };
 
 /** Like `callAdapter` but never throws: `fallback` when anything fails. */
@@ -76,7 +76,9 @@ export const callAdapterWithFiles = async <T = unknown>(
   args: unknown[],
   files: string[] | null,
   pick: 'media' | 'files' = 'files',
+  /** Another account than the one on screen (a screen capture finished after a switch). */
+  account?: string | null,
 ): Promise<T> => {
   const b = await backend();
-  return b.invoke<T>('engine_call_with_files', { target, method, args, files, pick });
+  return b.invoke<T>('engine_call_with_files', forAccount({ target, method, args, files, pick }, account));
 };
