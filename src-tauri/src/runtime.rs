@@ -18,6 +18,7 @@ use std::sync::Arc;
 use crate::asar::{AsarArchive, client_version_from_main_js};
 use crate::net::fp;
 
+#[derive(Clone)]
 pub struct RuntimeInfo {
     pub app_dir: PathBuf,
     pub version: String,

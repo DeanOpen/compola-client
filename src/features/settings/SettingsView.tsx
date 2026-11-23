@@ -761,7 +761,11 @@ function EngineSettings() {
     let unlisten: (() => void) | null = null;
     let cancelled = false;
     void backend()
-      .then((b) => b.listen('compola://log', (line) => setInfo((i) => (i ? { ...i, recentLog: [...i.recentLog, logLine(line)].slice(-400) } : i))))
+      .then((b) => b.listen('compola://log', (payload) => {
+        // `{account, line}` (docs/multi-account.md §6) or the bare line.
+        const line = typeof payload === 'string' ? payload : String((payload as { line?: unknown } | null)?.line ?? '');
+        setInfo((i) => (i ? { ...i, recentLog: [...i.recentLog, line].slice(-400) } : i));
+      }))
       .then((u) => (cancelled ? u() : (unlisten = u)));
     return () => {
       cancelled = true;
@@ -866,6 +870,3 @@ function Stat({ label, value, detail }: { label: string; value: string; detail?:
     </div>
   );
 }
-
-/** `compola://log` is `"line"`, or `{account, line}` on multi-account hosts (docs/multi-account.md §6). */
-const logLine = (v: unknown) => (v && typeof v === 'object' && 'line' in v ? String((v as { line: unknown }).line) : String(v));

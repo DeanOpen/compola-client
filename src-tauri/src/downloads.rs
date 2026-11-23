@@ -179,7 +179,6 @@ impl Job {
 }
 
 pub struct DownloadManager {
-    app: AppHandle,
     /// The account's cookie jar.
     jar: Arc<crate::net::cookies::CookieJar>,
     platform: Arc<Platform>,
@@ -198,7 +197,6 @@ struct Slot(Mutex<HashMap<String, Arc<DownloadManager>>>);
 pub fn install(app: &AppHandle, reg: &mut Registry, platform: &Arc<Platform>, account: &Arc<crate::account::Account>) {
     let temp_dir = dirs::cache_dir().unwrap_or_else(std::env::temp_dir).join("Compola/download-tmp");
     let manager = Arc::new(DownloadManager {
-        app: app.clone(),
         jar: account.jar.clone(),
         platform: platform.clone(),
         temp_dir: temp_dir.clone(),

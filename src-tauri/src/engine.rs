@@ -16,9 +16,9 @@ use std::time::Duration;
 use parking_lot::Mutex;
 use serde::Serialize;
 use serde_json::{Value, json};
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Manager};
 
-use crate::host::{Host, HostKind, HostObserver, Page, emit_ui};
+use crate::host::{Host, HostKind, HostObserver, Page};
 use crate::main_process::{MainEvent, MainProcess};
 use crate::platform::Platform;
 use crate::values::{Args, js_literal};
@@ -89,6 +89,11 @@ pub struct Engine {
     app: AppHandle,
     /// The Zalo account this engine runs.
     pub account: Arc<crate::account::Account>,
+    me: std::sync::Weak<Engine>,
+    /// The account's unread badge (what the official client puts on the dock icon).
+    badge: std::sync::atomic::AtomicI64,
+    /// `boot` ran (the hosts exist).
+    booted: std::sync::atomic::AtomicBool,
     inner: Mutex<Inner>,
     main: Mutex<Option<Arc<MainProcess>>>,
 }
@@ -98,7 +103,63 @@ const SECOND_QR_REQUIRED_CODE: i64 = -20;
 
 impl Engine {
     pub fn new(app: AppHandle, account: Arc<crate::account::Account>) -> Arc<Self> {
-        Arc::new(Self { app, account, inner: Mutex::new(Inner { phase: Some(Phase::Starting), ..Default::default() }), main: Mutex::new(None) })
+        Arc::new_cyclic(|me| Self {
+            app,
+            account,
+            me: me.clone(),
+            badge: Default::default(),
+            booted: Default::default(),
+            inner: Mutex::new(Inner { phase: Some(Phase::Starting), ..Default::default() }),
+            main: Mutex::new(None),
+        })
+    }
+
+    pub fn id(&self) -> &str {
+        self.account.id()
+    }
+
+    pub fn badge(&self) -> i64 {
+        self.badge.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    pub fn is_booted(&self) -> bool {
+        self.booted.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    fn accounts(&self) -> Option<Arc<crate::account::Accounts>> {
+        self.app.try_state::<Arc<crate::account::Accounts>>().map(|a| a.inner().clone())
+    }
+
+    /// An event of this account (tagged with `account`; see `Accounts::emit`).
+    fn emit(&self, event: &str, payload: Value) {
+        if let Some(a) = self.accounts() {
+            a.emit(self.id(), event, payload);
+        }
+    }
+
+    /// Boots on a runtime another account already located / installed (no-op once booted).
+    pub fn boot_with(self: &Arc<Self>, info: crate::runtime::RuntimeInfo) {
+        if !self.is_booted() {
+            self.boot(info);
+        }
+    }
+
+    /// Stops the account's renderers (account removed or disabled, app exit).
+    pub fn shutdown(&self) {
+        if let Some(t) = self.inner.lock().login_timeout.take() {
+            t.abort();
+        }
+        let main = self.main.lock().take();
+        if let Some(main) = main {
+            main.stop_shared_worker();
+            if let Some(h) = main.host() {
+                h.destroy();
+            }
+            if let Some(sqlite) = &main.sqlite {
+                sqlite.close_all();
+            }
+        }
+        self.booted.store(false, std::sync::atomic::Ordering::SeqCst);
     }
 
     pub fn main_process(&self) -> Option<Arc<MainProcess>> {
@@ -117,7 +178,10 @@ impl Engine {
             }
             st.phase = Some(phase.clone());
         }
-        emit_ui(&self.app, "compola://phase", phase);
+        self.emit("compola://phase", serde_json::to_value(&phase).unwrap_or(Value::Null));
+        if let Some(a) = self.accounts() {
+            a.changed();
+        }
     }
 
     fn log_line(&self, line: &str) {
@@ -128,7 +192,7 @@ impl Engine {
                 st.recent_log.pop_front();
             }
         }
-        emit_ui(&self.app, "compola://log", line.to_owned());
+        self.emit("compola://log", Value::String(line.to_owned()));
     }
 
     // ---- lifecycle ----
@@ -192,6 +256,10 @@ impl Engine {
     }
 
     fn boot(self: &Arc<Self>, info: crate::runtime::RuntimeInfo) {
+        self.booted.store(true, std::sync::atomic::Ordering::SeqCst);
+        if let Some(a) = self.accounts() {
+            a.runtime_ready(&info);
+        }
         crate::net::fingerprint::FingerprintProxy::shared().warm_up(&self.app);
         self.inner.lock().runtime_version = Some(info.version.clone());
         let platform = Arc::new(Platform::new(info.version.clone(), info.client_version.clone(), self.account.paths.user_data()));
@@ -233,12 +301,12 @@ impl Engine {
                 self.set_phase(Phase::Login { login: LoginState::default(), notice });
             }
             MainEvent::Badge(n) => {
-                // Dock badge like the official client: nothing at 0, "5+" above five.
-                if let Some(w) = self.app.get_webview_window("main") {
-                    let label = (n > 0).then(|| if n > 5 { "5+".to_owned() } else { n.to_string() });
-                    let _ = w.set_badge_label(label);
+                self.badge.store(n, std::sync::atomic::Ordering::Relaxed);
+                self.emit("compola://badge", json!(n));
+                // The dock badge is the sum over accounts.
+                if let Some(a) = self.accounts() {
+                    a.changed();
                 }
-                emit_ui(&self.app, "compola://badge", n);
             }
         }
     }
@@ -427,7 +495,12 @@ impl Engine {
         self.inner.lock().replay.iter().cloned().collect()
     }
 
+    /// Automation (MCP tools, search index, mirror) follows the `default` account until it is keyed by account
+    /// (docs/multi-account.md §8).
     fn automation(&self) -> Option<Arc<crate::automation::Automation>> {
+        if !self.account.paths.is_default() {
+            return None;
+        }
         self.app.try_state::<Arc<crate::automation::Automation>>().map(|s| s.inner().clone())
     }
 }
@@ -456,11 +529,13 @@ impl HostObserver for Engine {
         }
         let page = state.get("page").and_then(Value::as_str).unwrap_or("-").to_owned();
         if page == "login" {
-            // Needs Arc<Self>: go through the managed state.
-            if let Some(engine) = self.app.try_state::<Arc<Engine>>() {
+            if let Some(engine) = self.me.upgrade() {
                 engine.handle_login_state(&state);
             }
             return;
+        }
+        if let (Some(user), Some(a)) = (state.get("user"), self.accounts()) {
+            a.observe_user(self.id(), user);
         }
         // Engine-side handling the UI doesn't need to see: the renderer's own notification sound rules.
         if let Some(n) = state.get("notification").filter(|n| n.get("kind").and_then(Value::as_str) == Some("sound")) {
@@ -473,7 +548,7 @@ impl HostObserver for Engine {
         if let Some(a) = self.automation() {
             a.observe_state(&state);
         }
-        emit_ui(&self.app, "compola://state", state);
+        self.emit("compola://state", state);
     }
 
     fn page_started(&self, host: &Arc<Host>) {
@@ -497,7 +572,7 @@ impl HostObserver for Engine {
             self.set_phase(Phase::Ready);
         }
         if host.kind == HostKind::Main {
-            emit_ui(&self.app, "compola://page", page);
+            self.emit("compola://page", serde_json::to_value(page).unwrap_or(Value::Null));
         }
     }
 
@@ -534,26 +609,31 @@ fn shape(args: &Args) -> String {
 
 // ---- commands ----
 
-type EngineState<'a> = State<'a, Arc<Engine>>;
+/// The engine of an optional `account` argument (missing = the active account).
+fn engine_for(app: &AppHandle, account: Option<String>) -> Result<Arc<Engine>, String> {
+    crate::account::engine(app, account.as_deref())
+}
 
 fn main_host(engine: &Engine) -> Result<Arc<Host>, String> {
     engine.main_process().and_then(|m| m.host()).ok_or_else(|| "engine not running".to_owned())
 }
 
 #[tauri::command]
-pub fn engine_phase(engine: EngineState<'_>) -> Phase {
-    engine.phase()
+pub fn engine_phase(app: AppHandle, account: Option<String>) -> Result<Value, String> {
+    let engine = engine_for(&app, account)?;
+    Ok(crate::account::tag_payload("compola://phase", engine.id(), serde_json::to_value(engine.phase()).unwrap_or(Value::Null)))
 }
 
 #[tauri::command]
-pub fn engine_info(engine: EngineState<'_>) -> Value {
-    engine.info()
+pub fn engine_info(app: AppHandle, account: Option<String>) -> Result<Value, String> {
+    Ok(engine_for(&app, account)?.info())
 }
 
 /// Calls `window[target][method](...args)` in the main renderer page (the host-script adapters:
 /// `__zaloChat`, `__zaloCompose`, `__zaloPoll`, …) and returns its JSON result.
 #[tauri::command]
-pub async fn engine_call(app: AppHandle, engine: EngineState<'_>, target: String, method: String, args: Vec<Value>) -> Result<Value, String> {
+pub async fn engine_call(app: AppHandle, account: Option<String>, target: String, method: String, args: Vec<Value>) -> Result<Value, String> {
+    let engine = engine_for(&app, account)?;
     let result = engine.call_adapter(&target, &method, args.clone()).await;
     crate::remote::record_local_call(&app, "engine_call", &target, &method, &args, result.is_ok());
     result
@@ -561,7 +641,8 @@ pub async fn engine_call(app: AppHandle, engine: EngineState<'_>, target: String
 
 /// Development aid: evaluates an async function body in the main renderer page.
 #[tauri::command]
-pub async fn engine_eval(engine: EngineState<'_>, script: String) -> Result<Value, String> {
+pub async fn engine_eval(app: AppHandle, account: Option<String>, script: String) -> Result<Value, String> {
+    let engine = engine_for(&app, account)?;
     if !cfg!(debug_assertions) {
         return Err("disabled in release builds".into());
     }
@@ -569,32 +650,36 @@ pub async fn engine_eval(engine: EngineState<'_>, script: String) -> Result<Valu
 }
 
 #[tauri::command]
-pub fn engine_refresh_qr(engine: EngineState<'_>) {
-    engine.refresh_qr();
-}
-
-#[tauri::command]
-pub fn engine_logout(engine: EngineState<'_>) {
-    engine.log_out();
-}
-
-#[tauri::command]
-pub fn engine_retry_runtime(engine: EngineState<'_>) {
-    engine.inner().retry_runtime_setup();
-}
-
-#[tauri::command]
-pub fn engine_show_renderer(engine: EngineState<'_>) -> Result<(), String> {
-    main_host(&engine)?.show_debug();
+pub fn engine_refresh_qr(app: AppHandle, account: Option<String>) -> Result<(), String> {
+    engine_for(&app, account)?.refresh_qr();
     Ok(())
 }
 
 #[tauri::command]
-pub fn engine_switch_to_sqlite(engine: EngineState<'_>) {
+pub fn engine_logout(app: AppHandle, account: Option<String>) -> Result<(), String> {
+    engine_for(&app, account)?.log_out();
+    Ok(())
+}
+
+#[tauri::command]
+pub fn engine_retry_runtime(app: AppHandle) {
+    crate::account::accounts(&app).retry_runtime_setup();
+}
+
+#[tauri::command]
+pub fn engine_show_renderer(app: AppHandle, account: Option<String>) -> Result<(), String> {
+    main_host(&*engine_for(&app, account)?)?.show_debug();
+    Ok(())
+}
+
+#[tauri::command]
+pub fn engine_switch_to_sqlite(app: AppHandle, account: Option<String>) -> Result<(), String> {
+    let engine = engine_for(&app, account)?;
     if let Some(m) = engine.main_process() {
         m.switch_storage(crate::main_process::StorageBackend::Sqlite);
     }
     engine.log_out();
+    Ok(())
 }
 
 /// The UI reports the conversation on screen (notification suppression backstop).
@@ -615,13 +700,14 @@ pub fn ui_set_shows_preview(app: AppHandle, shows: bool) {
 #[tauri::command]
 pub async fn engine_call_with_files(
     app: AppHandle,
-    engine: EngineState<'_>,
+    account: Option<String>,
     target: String,
     method: String,
     args: Vec<Value>,
     files: Option<Vec<String>>,
     pick: Option<String>,
 ) -> Result<Value, String> {
+    let engine = engine_for(&app, account)?;
     let paths = match files {
         Some(f) => f,
         None => match pick_files(&app, pick.as_deref()).await {
@@ -697,6 +783,7 @@ pub fn clipboard_paste_files() -> Result<Vec<String>, String> {
 
 /// Everything the main page posted since it loaded (compacted), for a UI that (re)loaded after it: dispatch in order.
 #[tauri::command]
-pub fn engine_replay(engine: EngineState<'_>) -> Vec<Value> {
-    engine.replay()
+pub fn engine_replay(app: AppHandle, account: Option<String>) -> Result<Vec<Value>, String> {
+    let engine = engine_for(&app, account)?;
+    Ok(engine.replay().into_iter().map(|v| crate::account::tag_payload("compola://state", engine.id(), v)).collect())
 }

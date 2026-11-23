@@ -232,7 +232,8 @@ useEngine.subscribe((s, prev) => {
 });
 
 void backend().then((b) =>
-  b.listen('compola://page', (page) => {
+  b.listen('compola://page', (payload) => {
+    const page = typeof payload === 'string' ? payload : str(obj(payload)?.page);
     if (page === 'main' || page === 'Main') rewatchPolls();
   }),
 );

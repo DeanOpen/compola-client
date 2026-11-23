@@ -25,7 +25,7 @@ use chrono::{Datelike, Local, TimeZone};
 use parking_lot::Mutex;
 use serde::Serialize;
 use serde_json::{Value, json};
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, State};
 use tokio::sync::{Mutex as AsyncMutex, Notify, oneshot};
 
 use crate::engine::{Engine, Phase};
@@ -295,7 +295,7 @@ impl Automation {
     }
 
     fn engine(&self) -> Option<Arc<Engine>> {
-        self.app.try_state::<Arc<Engine>>().map(|s| s.inner().clone())
+        crate::account::engine(&self.app, Some(crate::account::DEFAULT_ID)).ok()
     }
 
     fn ready(&self) -> Result<Arc<Engine>, String> {

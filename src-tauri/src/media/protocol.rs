@@ -9,7 +9,7 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use tauri::{Manager, UriSchemeContext, UriSchemeResponder, Wry};
+use tauri::{UriSchemeContext, UriSchemeResponder, Wry};
 
 use super::headers::Flavour;
 use super::active::ActiveDownload;
@@ -347,7 +347,7 @@ pub async fn respond(app: &tauri::AppHandle, request: &http::Request<Vec<u8>>) -
             .await
             .unwrap_or_else(|e| failure(&MediaError::Io(e.to_string()))),
         Request::Asset(path) => {
-            let asar = app.try_state::<Arc<crate::engine::Engine>>().and_then(|e| e.main_process()).map(|m| m.asar.clone());
+            let asar = crate::account::engine(app, None).ok().and_then(|e| e.main_process()).map(|m| m.asar.clone());
             match asar {
                 Some(asar) => tokio::task::spawn_blocking(move || serve_asset(asar.read(&path), &path, range.as_deref(), head))
                     .await

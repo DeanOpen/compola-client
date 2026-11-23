@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 
 use futures_util::future::{BoxFuture, FutureExt};
 use parking_lot::Mutex;
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 use tokio::sync::Semaphore;
 
 use super::active::{ActiveDownload, FinishGuard};
@@ -155,7 +155,7 @@ impl MediaLoader {
     fn user_agent(&self) -> String {
         self.app
             .as_ref()
-            .and_then(|app| app.try_state::<Arc<crate::engine::Engine>>().and_then(|e| e.main_process()))
+            .and_then(|app| crate::account::engine(app, None).ok().and_then(|e| e.main_process()))
             .map(|main| main.platform.user_agent())
             .unwrap_or_else(|| fp::user_agent(fp::DEFAULT_CLIENT_VERSION))
     }

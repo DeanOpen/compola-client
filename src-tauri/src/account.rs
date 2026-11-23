@@ -16,9 +16,15 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
 use tauri::{AppHandle, Manager};
+
+use crate::engine::{Engine, Phase};
+use crate::runtime::RuntimeInfo;
 
 use crate::net::cookies::CookieJar;
 use crate::shared_worker::SharedWorkerRouter;
@@ -132,17 +138,28 @@ impl Account {
     }
 }
 
-/// The registry plus the accounts opened so far (managed app state).
+/// The registry plus the accounts opened so far and their engines (managed app state).
 pub struct Accounts {
     root: PathBuf,
     registry: Mutex<Registry>,
     open: Mutex<HashMap<String, Arc<Account>>>,
+    engines: Mutex<HashMap<String, Arc<Engine>>>,
+    /// The official runtime, once located / installed (shared by every account).
+    runtime: Mutex<Option<RuntimeInfo>>,
+    app: Mutex<Option<AppHandle>>,
 }
 
 impl Accounts {
     /// Loads (and migrates) `<root>/accounts.json`.
     pub fn load(root: &Path) -> Arc<Self> {
-        Arc::new(Self { root: root.to_path_buf(), registry: Mutex::new(Registry::load(root)), open: Mutex::new(HashMap::new()) })
+        Arc::new(Self {
+            root: root.to_path_buf(),
+            registry: Mutex::new(Registry::load(root)),
+            open: Mutex::new(HashMap::new()),
+            engines: Mutex::new(HashMap::new()),
+            runtime: Mutex::new(None),
+            app: Mutex::new(None),
+        })
     }
 
     pub fn root(&self) -> &Path {
@@ -179,9 +196,363 @@ impl Accounts {
     }
 }
 
+// ---------------------------------------------------------------------------------------------------------------------
+// Engines (docs/multi-account.md §3)
+// ---------------------------------------------------------------------------------------------------------------------
+
+/// Delay between two accounts' boots, so their WebContent processes do not all start at once.
+const BOOT_STAGGER: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Events that reach the UI window whatever account they concern.
+const ALWAYS_TO_UI: &[&str] = &["compola://badge", "compola://accounts", "compola://notification-click", "compola://notification-reply", "compola://call-event"];
+
+/// `ui_set_event_scope("all")`: the UI gets every account's events, not only the active one's.
+static EVENT_SCOPE_ALL: AtomicBool = AtomicBool::new(false);
+
+/// One row of the switcher.
+#[derive(Clone, Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountSummary {
+    pub id: String,
+    pub uid: Option<String>,
+    pub name: Option<String>,
+    pub label: Option<String>,
+    pub avatar: Option<String>,
+    pub order: u32,
+    pub enabled: bool,
+    pub active: bool,
+    /// `disabled` | `starting` | `preparing` | `login` | `signingIn` | `ready`
+    pub phase: &'static str,
+    pub badge: i64,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountList {
+    pub active: String,
+    pub max_accounts: usize,
+    pub accounts: Vec<AccountSummary>,
+}
+
+fn phase_name(phase: &Phase) -> &'static str {
+    match phase {
+        Phase::Starting => "starting",
+        Phase::Preparing { .. } => "preparing",
+        Phase::Login { .. } => "login",
+        Phase::SigningIn => "signingIn",
+        Phase::Ready => "ready",
+    }
+}
+
+/// An account-scoped payload: object payloads gain `account`; the others are wrapped (`badge` → `{account, count}`,
+/// `log` → `{account, line}`, `page` → `{account, page}`, anything else → `{account, value}`).
+pub fn tag_payload(event: &str, account: &str, payload: Value) -> Value {
+    match payload {
+        Value::Object(mut m) => {
+            m.insert("account".into(), Value::String(account.to_owned()));
+            Value::Object(m)
+        }
+        other => {
+            let key = match event {
+                "compola://badge" => "count",
+                "compola://log" => "line",
+                "compola://page" => "page",
+                _ => "value",
+            };
+            json!({ "account": account, key: other })
+        }
+    }
+}
+
+impl Accounts {
+    fn app(&self) -> Option<AppHandle> {
+        self.app.lock().clone()
+    }
+
+    /// Emits an account's event: tagged with `account` to the UI window (the active account's, every account's with
+    /// scope `all`, and the always-delivered kinds). Compola Server still sees the `default` account only, with the
+    /// payloads it knows (until its account dimension lands, docs/multi-account.md §7).
+    pub fn emit(&self, account: &str, event: &str, payload: Value) {
+        let Some(app) = self.app() else { return };
+        if account == DEFAULT_ID {
+            crate::remote::forward_event(&app, event, &payload);
+        }
+        let to_ui = ALWAYS_TO_UI.contains(&event) || EVENT_SCOPE_ALL.load(Ordering::Relaxed) || account == self.active_id();
+        if to_ui {
+            use tauri::Emitter;
+            let _ = app.emit_to("main", event, tag_payload(event, account, payload));
+        }
+    }
+
+    pub fn engine(&self, id: Option<&str>) -> Result<Arc<Engine>, String> {
+        let id = self.registry.lock().resolve(id)?;
+        self.engines.lock().get(&id).cloned().ok_or_else(|| "Tài khoản này đang tắt".to_owned())
+    }
+
+    pub fn engines(&self) -> Vec<Arc<Engine>> {
+        let order = self.registry.lock().ids();
+        let engines = self.engines.lock();
+        order.iter().filter_map(|id| engines.get(id).cloned()).collect()
+    }
+
+    /// Creates the engines of the enabled accounts and starts them: the first one locates or installs the runtime,
+    /// the others boot on it, one after another.
+    /// `run: false` (a joined app): the engines exist, so commands answer, but nothing starts.
+    pub fn start(self: &Arc<Self>, app: &AppHandle, run: bool) {
+        *self.app.lock() = Some(app.clone());
+        let enabled: Vec<String> = self.registry.lock().accounts.iter().filter(|r| r.enabled).map(|r| r.id.clone()).collect();
+        let mut first = run;
+        for id in enabled {
+            let Some(engine) = self.create_engine(&id) else { continue };
+            if first {
+                first = false;
+                engine.start();
+            }
+        }
+        self.changed();
+    }
+
+    fn create_engine(&self, id: &str) -> Option<Arc<Engine>> {
+        let app = self.app()?;
+        let account = self.get(Some(id)).ok()?;
+        let engine = Engine::new(app, account);
+        self.engines.lock().insert(id.to_owned(), engine.clone());
+        Some(engine)
+    }
+
+    /// The runtime is ready (the first engine booted on it): every other engine boots on it, staggered.
+    pub fn runtime_ready(self: &Arc<Self>, info: &RuntimeInfo) {
+        let first = self.runtime.lock().replace(info.clone()).is_none();
+        if first {
+            self.boot_waiting();
+        }
+    }
+
+    fn boot_waiting(self: &Arc<Self>) {
+        let Some(info) = self.runtime.lock().clone() else { return };
+        let waiting: Vec<Arc<Engine>> = self.engines().into_iter().filter(|e| !e.is_booted()).collect();
+        tauri::async_runtime::spawn(async move {
+            for engine in waiting {
+                tokio::time::sleep(BOOT_STAGGER).await;
+                engine.boot_with(info.clone());
+            }
+        });
+    }
+
+    /// Retries a failed runtime setup (on whichever engine shows it).
+    pub fn retry_runtime_setup(&self) {
+        for e in self.engines() {
+            e.retry_runtime_setup();
+        }
+    }
+
+    pub fn list(&self) -> AccountList {
+        let r = self.registry.lock().clone();
+        let engines = self.engines.lock().clone();
+        AccountList {
+            active: r.active.clone(),
+            max_accounts: r.max_accounts,
+            accounts: r
+                .accounts
+                .iter()
+                .map(|rec| {
+                    let engine = engines.get(&rec.id);
+                    AccountSummary {
+                        id: rec.id.clone(),
+                        uid: rec.uid.clone(),
+                        name: rec.name.clone(),
+                        label: rec.label.clone(),
+                        avatar: rec.avatar.clone(),
+                        order: rec.order,
+                        enabled: rec.enabled,
+                        active: rec.id == r.active,
+                        phase: match engine {
+                            Some(e) => phase_name(&e.phase()),
+                            None => "disabled",
+                        },
+                        badge: engine.map(|e| e.badge()).unwrap_or(0),
+                    }
+                })
+                .collect(),
+        }
+    }
+
+    /// Something the switcher shows changed: `compola://accounts {kind: changed, list}` and the dock badge (the sum).
+    pub fn changed(&self) {
+        let list = self.list();
+        let total: i64 = list.accounts.iter().map(|a| a.badge.max(0)).sum();
+        let Some(app) = self.app() else { return };
+        if let Some(w) = app.get_webview_window("main") {
+            let label = (total > 0).then(|| if total > 5 { "5+".to_owned() } else { total.to_string() });
+            let _ = w.set_badge_label(label);
+        }
+        use tauri::Emitter;
+        let _ = app.emit_to("main", "compola://accounts", json!({ "kind": "changed", "list": list }));
+    }
+
+    fn emit_accounts(&self, payload: Value) {
+        if let Some(app) = self.app() {
+            use tauri::Emitter;
+            let _ = app.emit_to("main", "compola://accounts", payload);
+        }
+    }
+
+    /// The renderer of `id` reported its signed-in user. A Zalo account already signed in on another account entry is
+    /// never kept twice: this entry is removed and the existing one shown.
+    pub fn observe_user(self: &Arc<Self>, id: &str, user: &Value) {
+        let Some(uid) = user.get("userId").and_then(Value::as_str).filter(|u| !u.is_empty()) else { return };
+        let name = user.get("displayName").and_then(Value::as_str).filter(|n| !n.is_empty()).or_else(|| user.get("zaloName").and_then(Value::as_str));
+        let avatar = user.get("avatar").and_then(Value::as_str);
+        let before = self.registry.lock().get(id).cloned();
+        match self.update(|r| r.record_profile(id, uid, name, avatar)) {
+            Ok(Some(existing)) => {
+                log::warn!("accounts: {id} signed in to a Zalo account already registered as {existing}: removed");
+                let this = self.clone();
+                let id = id.to_owned();
+                tauri::async_runtime::spawn(async move {
+                    let _ = this.set_active(&existing);
+                    let _ = this.remove(&id);
+                    this.emit_accounts(json!({ "kind": "duplicate", "account": existing }));
+                });
+            }
+            Ok(None) => {
+                if self.registry.lock().get(id).cloned() != before {
+                    self.changed();
+                }
+            }
+            Err(e) => log::warn!("accounts: profile of {id} not recorded: {e}"),
+        }
+    }
+
+    /// Adds an account and boots it on the QR page.
+    pub fn add(self: &Arc<Self>, activate: bool) -> Result<String, String> {
+        let id = self.update(|r| r.add())?;
+        let engine = self.create_engine(&id).ok_or("Không tạo được tài khoản")?;
+        // Bound first: a lock in the match scrutinee would be held while `boot_with` → `runtime_ready` locks it again.
+        let runtime = self.runtime.lock().clone();
+        match runtime {
+            Some(info) => engine.boot_with(info),
+            None => {
+                // No runtime yet (first start still installing, or every account was disabled): this one sets it up.
+                if self.engines().iter().all(|e| !e.is_booted()) {
+                    engine.start();
+                }
+            }
+        }
+        if activate {
+            self.set_active(&id)?;
+        }
+        self.changed();
+        Ok(id)
+    }
+
+    /// Signs the account out and forgets it (`default`: signed out only, it stays registered).
+    pub fn remove(self: &Arc<Self>, id: &str) -> Result<(), String> {
+        if !valid_id(id) {
+            return Err("Tài khoản không tồn tại".into());
+        }
+        let was_active = self.active_id() == id;
+        let removed = self.update(|r| r.remove(id))?;
+        match removed {
+            Removed::SignedOutOnly => {
+                let engine = self.engines.lock().get(id).cloned();
+                if let Some(e) = engine {
+                    e.log_out();
+                }
+            }
+            Removed::Deleted { new_active } => {
+                // Locks are never held across engine calls (they emit, and emitting reads the engines).
+                let engine = self.engines.lock().remove(id);
+                if let Some(e) = engine {
+                    e.log_out();
+                    e.shutdown();
+                }
+                let account = self.open.lock().remove(id);
+                if let Some(account) = account {
+                    account.jar.clear_zalo();
+                }
+                let dir = AccountPaths::new(&self.root, id).data_root;
+                tauri::async_runtime::spawn_blocking(move || {
+                    // The renderers need a moment to let go of their files.
+                    std::thread::sleep(std::time::Duration::from_secs(2));
+                    let _ = std::fs::remove_dir_all(dir);
+                });
+                if was_active {
+                    self.emit_accounts(json!({ "kind": "active", "account": new_active }));
+                }
+            }
+        }
+        self.changed();
+        Ok(())
+    }
+
+    pub fn set_active(&self, id: &str) -> Result<(), String> {
+        if self.active_id() == id {
+            return Ok(());
+        }
+        self.update(|r| r.set_active(id))?;
+        self.emit_accounts(json!({ "kind": "active", "account": id }));
+        self.changed();
+        Ok(())
+    }
+
+    pub fn reorder(&self, ids: &[String]) -> Result<(), String> {
+        self.update(|r| r.reorder(ids))?;
+        self.changed();
+        Ok(())
+    }
+
+    pub fn rename(&self, id: &str, name: Option<String>) -> Result<(), String> {
+        self.update(|r| r.rename(id, name))?;
+        self.changed();
+        Ok(())
+    }
+
+    /// A disabled account keeps its data and session but runs no renderer (no messages, no notifications).
+    pub fn set_enabled(self: &Arc<Self>, id: &str, enabled: bool) -> Result<(), String> {
+        self.update(|r| r.set_enabled(id, enabled))?;
+        let running = self.engines.lock().get(id).cloned();
+        match (enabled, running) {
+            (false, Some(engine)) => {
+                self.engines.lock().remove(id);
+                engine.shutdown();
+            }
+            (true, None) => {
+                if let Some(engine) = self.create_engine(id) {
+                    let runtime = self.runtime.lock().clone();
+                    match runtime {
+                        Some(info) => engine.boot_with(info),
+                        None => engine.start(),
+                    }
+                }
+            }
+            _ => {}
+        }
+        self.changed();
+        Ok(())
+    }
+
+    /// App exit.
+    pub fn shutdown_all(&self) {
+        for e in self.engines() {
+            e.shutdown();
+        }
+    }
+}
+
 /// The managed [`Accounts`].
 pub fn accounts(app: &AppHandle) -> Arc<Accounts> {
     app.state::<Arc<Accounts>>().inner().clone()
+}
+
+/// An account's engine (`None` = the active account).
+pub fn engine(app: &AppHandle, id: Option<&str>) -> Result<Arc<Engine>, String> {
+    app.try_state::<Arc<Accounts>>().ok_or("not ready")?.engine(id)
+}
+
+/// The engine running the host labelled `label`.
+pub fn engine_of_host(app: &AppHandle, host: &crate::host::Host) -> Option<Arc<Engine>> {
+    app.try_state::<Arc<Accounts>>()?.engine(Some(host.account.id())).ok()
 }
 
 /// An account's context (`None` = active).
@@ -451,6 +822,59 @@ impl Registry {
     }
 }
 
+// ---------------------------------------------------------------------------------------------------------------------
+// Commands (docs/multi-account.md §6)
+// ---------------------------------------------------------------------------------------------------------------------
+
+type AccountsState<'a> = tauri::State<'a, Arc<Accounts>>;
+
+#[tauri::command]
+pub fn accounts_list(accounts: AccountsState<'_>) -> AccountList {
+    accounts.list()
+}
+
+#[tauri::command]
+pub fn account_add(accounts: AccountsState<'_>, activate: Option<bool>) -> Result<Value, String> {
+    let id = accounts.inner().add(activate.unwrap_or(true))?;
+    Ok(json!({ "id": id }))
+}
+
+#[tauri::command]
+pub fn account_remove(accounts: AccountsState<'_>, account: String) -> Result<(), String> {
+    accounts.inner().remove(&account)
+}
+
+#[tauri::command]
+pub fn account_set_active(accounts: AccountsState<'_>, account: String) -> Result<(), String> {
+    accounts.set_active(&account)
+}
+
+#[tauri::command]
+pub fn account_reorder(accounts: AccountsState<'_>, ids: Vec<String>) -> Result<(), String> {
+    accounts.reorder(&ids)
+}
+
+#[tauri::command]
+pub fn account_set_enabled(accounts: AccountsState<'_>, account: String, enabled: bool) -> Result<(), String> {
+    accounts.inner().set_enabled(&account, enabled)
+}
+
+#[tauri::command]
+pub fn account_rename(accounts: AccountsState<'_>, account: String, name: Option<String>) -> Result<(), String> {
+    accounts.rename(&account, name)
+}
+
+/// `"all"`: the UI window receives every account's events; `"active"` (default): only the active account's.
+#[tauri::command]
+pub fn ui_set_event_scope(scope: String) -> Result<(), String> {
+    match scope.as_str() {
+        "all" => EVENT_SCOPE_ALL.store(true, Ordering::Relaxed),
+        "active" => EVENT_SCOPE_ALL.store(false, Ordering::Relaxed),
+        _ => return Err("scope: all | active".into()),
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -595,6 +1019,15 @@ mod tests {
         assert!(Account::open(&root, DEFAULT_ID).jar.header_for(&url).is_some_and(|h| !h.contains("second-session")));
         assert!(accounts.get(Some("a00000000")).is_err());
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn event_payloads_carry_the_account() {
+        assert_eq!(tag_payload("compola://state", "a1b2c3d4e", json!({ "kind": "x" })), json!({ "kind": "x", "account": "a1b2c3d4e" }));
+        assert_eq!(tag_payload("compola://badge", "default", json!(3)), json!({ "account": "default", "count": 3 }));
+        assert_eq!(tag_payload("compola://log", "default", json!("l")), json!({ "account": "default", "line": "l" }));
+        assert_eq!(tag_payload("compola://page", "default", json!("main")), json!({ "account": "default", "page": "main" }));
+        assert_eq!(tag_payload("compola://other", "default", json!(1)), json!({ "account": "default", "value": 1 }));
     }
 
     #[test]

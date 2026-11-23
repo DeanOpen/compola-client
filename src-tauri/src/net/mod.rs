@@ -13,7 +13,7 @@ use futures_util::{SinkExt, StreamExt};
 use parking_lot::Mutex;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use serde_json::{Value, json};
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
@@ -92,6 +92,7 @@ pub struct NetworkProxy {
     user_agent: String,
     client: reqwest::Client,
     jar: Arc<CookieJar>,
+    account: Arc<crate::account::Account>,
     sockets: Mutex<HashMap<i64, mpsc::UnboundedSender<WsCmd>>>,
 }
 
@@ -105,13 +106,14 @@ pub struct HttpResponse {
 }
 
 impl NetworkProxy {
-    pub fn new(app: AppHandle, label: String, user_agent: String, jar: Arc<CookieJar>) -> Arc<Self> {
+    pub fn new(app: AppHandle, label: String, user_agent: String, account: Arc<crate::account::Account>) -> Arc<Self> {
+        let jar = account.jar.clone();
         let client = reqwest::Client::builder()
             .user_agent(user_agent.clone())
             .redirect(reqwest::redirect::Policy::limited(10))
             .build()
             .expect("http client");
-        Arc::new(Self { app, label, user_agent, client, jar, sockets: Mutex::new(HashMap::new()) })
+        Arc::new(Self { app, label, user_agent, client, jar, account, sockets: Mutex::new(HashMap::new()) })
     }
 
     /// The cookie jar of this host's account.
@@ -166,7 +168,7 @@ impl NetworkProxy {
 
         match self.request(&method, &url, headers, payload, timeout).await {
             Ok(r) => {
-                if let Some(engine) = self.app.try_state::<Arc<crate::engine::Engine>>() {
+                if let Ok(engine) = crate::account::engine(&self.app, Some(self.account.id())) {
                     engine.observe_response(&url, r.status, &r.body);
                 }
                 let mut map = serde_json::Map::new();

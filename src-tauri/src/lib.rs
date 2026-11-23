@@ -96,13 +96,13 @@ pub fn run() {
             // Compola Server first: `emit_ui` forwards to it, and a joined app does not run its own engine.
             let remote = remote::Remote::new(app.handle().clone());
             app.manage(remote.clone());
-            let engine = engine::Engine::new(app.handle().clone(), accounts.get(Some(account::DEFAULT_ID))?);
-            app.manage(engine.clone());
             let automation = automation::Automation::new(app.handle().clone());
             app.manage(automation.clone());
-            // A joined app shows the host's account: no engine, MCP server, schedules or add-ons of its own.
-            if !remote.is_joined() {
-                engine.start();
+            // A joined app shows the host's accounts: its engines exist (commands answer) but never start, and it has
+            // no MCP server, schedules or add-ons of its own.
+            let joined = remote.is_joined();
+            accounts.start(app.handle(), !joined);
+            if !joined {
                 automation.start();
             }
             remote.start();
@@ -112,6 +112,14 @@ pub fn run() {
             ai_clients::ai_clients_detect,
             ai_clients::ai_clients_install,
             ai_clients::ai_clients_remove,
+            account::accounts_list,
+            account::account_add,
+            account::account_remove,
+            account::account_set_active,
+            account::account_reorder,
+            account::account_set_enabled,
+            account::account_rename,
+            account::ui_set_event_scope,
             engine::engine_phase,
             engine::engine_replay,
             engine::engine_info,

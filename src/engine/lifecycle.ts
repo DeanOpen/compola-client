@@ -52,19 +52,20 @@ export const startEngine = (): Promise<void> => {
     const joined = await isJoined();
     await initRemote();
     await Promise.all([
-      // Multi-account hosts tag events with their account; one for another account than the one on screen (a race
-      // right after a switch) is dropped.
+      // Multi-account hosts tag events with their account (docs/multi-account.md §6); one for another account than the
+      // one on screen (a race right after a switch) is dropped. Bare payloads (single-account hosts) pass.
       b.listen('compola://phase', (p) => isForActiveAccount(p) && setPhase(p as Phase)),
       b.listen('compola://state', (s) => isForActiveAccount(s) && dispatchState(s)),
-      // `n`, or `{account, count}` per account (the rail shows the others' from the account list).
+      // `{account, count}` (§5), or a bare number. Other accounts' badges update the rail (accounts.ts).
       b.listen('compola://badge', (n) => {
         if (typeof n === 'number') return setEngine({ badge: n });
         const r = obj(n);
         if (r && isForActiveAccount(r)) setEngine({ badge: typeof r.count === 'number' ? r.count : 0 });
       }),
-      b.listen('compola://page', (page) => {
-        if (!isForActiveAccount(page)) return;
-        if (page && typeof page === 'object') page = str(obj(page)?.page ?? obj(page)?.kind);
+      b.listen('compola://page', (payload) => {
+        if (!isForActiveAccount(payload)) return;
+        // `{account, page}` (§6) or the bare page name.
+        const page = typeof payload === 'string' ? payload : str(obj(payload)?.page);
         // The main page (re)loaded: watch the open conversation's pins again; its unanswered confirms are gone.
         dropComposerConfirms();
         if (page === 'main' || page === 'Main') {

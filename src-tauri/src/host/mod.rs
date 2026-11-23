@@ -107,7 +107,7 @@ impl Host {
         observer: Arc<dyn HostObserver>,
         account: Arc<crate::account::Account>,
     ) -> anyhow::Result<Arc<Host>> {
-        let net = NetworkProxy::new(app.clone(), label.to_owned(), user_agent.clone(), account.jar.clone());
+        let net = NetworkProxy::new(app.clone(), label.to_owned(), user_agent.clone(), account.clone());
         let host = Arc::new(Host {
             account,
             label: label.to_owned(),
