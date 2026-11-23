@@ -348,6 +348,7 @@ impl Remote {
         let mut slot = self.server.lock().await;
         *slot = None;
         self.serving.store(false, std::sync::atomic::Ordering::Relaxed);
+        crate::account::set_server_multi_account(false);
         self.hub.kick_all("restarted");
         *self.server_error.lock() = None;
         if config.enabled && self.client.is_none() {
@@ -366,6 +367,8 @@ impl Remote {
                             mirrors.insert(id, mirror);
                         }
                         *self.mirrors.write() = mirrors;
+                        // The mirror and policy are per account: every account reaches the server, tagged (§7).
+                        crate::account::set_server_multi_account(true);
                         self.serving.store(true, std::sync::atomic::Ordering::Relaxed);
                         *slot = Some(handle);
                     }
