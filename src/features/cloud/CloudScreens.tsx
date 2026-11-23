@@ -48,41 +48,59 @@ const familyColor = 'rgb(92, 133, 199)';
 /** Quota bar with the official legend (Tin nhắn media / Sao lưu tin nhắn / Cloud của tôi / Gia đình). */
 export function CloudUsageBar({ plan, height = 8 }: { plan: CloudPlan; height?: number }) {
   const quota = Math.max(plan.quota, 1);
-  const segments: [string, number][] = [
-    [mediaColor, plan.cloudMedia],
-    [backupColor, plan.messageBackup],
-    [myCloudColor, plan.myCloud],
-    [familyColor, plan.family],
+  const segments: [string, string, number][] = [
+    [mediaColor, 'Tin nhắn media', plan.cloudMedia],
+    [backupColor, 'Sao lưu tin nhắn', plan.messageBackup],
+    [myCloudColor, 'Cloud của tôi', plan.myCloud],
+    [familyColor, 'Gia đình', plan.family],
   ];
+  const used = plan.usage + plan.family;
   return (
-    <div className="cloud-usage-bar" style={{ height }}>
+    <div
+      className="cloud-usage-bar"
+      style={{ height }}
+      role="meter"
+      aria-valuemin={0}
+      aria-valuemax={quota}
+      aria-valuenow={used}
+      aria-label={`Đã dùng ${formatSize(used)} trên ${formatSize(plan.quota)}`}
+    >
       {segments
-        .filter(([, bytes]) => bytes > 0)
-        .map(([color, bytes], i) => (
-          <span key={i} style={{ background: color, width: `max(2px, ${Math.min(100, (bytes / quota) * 100)}%)` }} />
+        .filter(([, , bytes]) => bytes > 0)
+        .map(([color, title, bytes]) => (
+          <span key={title} title={`${title}: ${formatSize(bytes)}`} style={{ background: color, width: `max(3px, ${Math.min(100, (bytes / quota) * 100)}%)` }} />
         ))}
     </div>
   );
 }
 
+/** Google Drive's storage summary: the used figure first, the split bar, then what uses the space. */
 export function CloudStorageCard() {
   const plan = useCloud((s) => s.plan);
+  const route = useCloudUi((s) => s.route);
   return (
     <div className="cloud-storage-card">
-      <div className="cloud-storage-head">
-        <span className="cloud-storage-title">Dung lượng lưu trữ</span>
-        {plan && <span className="cloud-storage-used">{`${formatSize(plan.usage + plan.family)} / ${formatSize(plan.quota)}`}</span>}
-      </div>
       {plan ? (
         <>
-          <CloudUsageBar plan={plan} />
-          <div className="cloud-legend-wrap">
-            <Legend color={mediaColor} title="Media" />
-            <Legend color={backupColor} title="Sao lưu" />
-            <Legend color={myCloudColor} title="Cloud của tôi" />
-            {plan.family > 0 && <Legend color={familyColor} title="Gia đình" />}
+          <div className="cloud-storage-figure">
+            <span className="cloud-storage-big nums">{formatSize(plan.usage + plan.family)}</span>
+            <span className="cloud-storage-of">/ {formatSize(plan.quota)} đã dùng</span>
           </div>
-          <div className="cloud-storage-free">Còn trống {formatSize(planRemaining(plan))}</div>
+          <CloudUsageBar plan={plan} height={6} />
+          <div className="cloud-legend-wrap">
+            <Legend color={mediaColor} title="Media" bytes={plan.cloudMedia} />
+            <Legend color={backupColor} title="Sao lưu" bytes={plan.messageBackup} />
+            <Legend color={myCloudColor} title="Cloud của tôi" bytes={plan.myCloud} />
+            {plan.family > 0 && <Legend color={familyColor} title="Gia đình" bytes={plan.family} />}
+          </div>
+          <div className="cloud-storage-foot">
+            <span className="cloud-storage-free">Còn trống {formatSize(planRemaining(plan))}</span>
+            {route !== 'plan' && (
+              <button className="cz-link" onClick={() => cloudUi.setRoute('plan')}>
+                Chi tiết
+              </button>
+            )}
+          </div>
         </>
       ) : (
         <div className="cloud-storage-loading">
@@ -93,11 +111,12 @@ export function CloudStorageCard() {
   );
 }
 
-function Legend({ color, title }: { color: string; title: string }) {
+function Legend({ color, title, bytes }: { color: string; title: string; bytes: number }) {
   return (
-    <span className="cloud-legend">
+    <span className="cloud-legend" title={`${title}: ${formatSize(bytes)}`}>
       <span className="cloud-dot" style={{ background: color, width: 6, height: 6 }} />
-      {title}
+      <span className="truncate">{title}</span>
+      <span className="cloud-legend-bytes nums">{formatSize(bytes)}</span>
     </span>
   );
 }
@@ -181,8 +200,15 @@ function ConversationsList() {
   } else if (!rows.length) {
     body = <ContentUnavailable icon={MessagesSquare} title={search ? 'Không tìm thấy' : 'Chưa có dữ liệu'} />;
   } else {
+    const largest = Math.max(1, ...rows.map((r) => r.total));
     body = (
       <div className="cloud-scroll">
+        <div className="cloud-list-head" role="row">
+          <span className="cloud-list-head-name">{`${rows.length} trò chuyện`}</span>
+          <span className="cloud-conv-total">Dung lượng</span>
+          <span className="cloud-row-date">Gần nhất</span>
+          <span style={{ width: 14 }} />
+        </div>
         <div className="cloud-list">
           {rows.map((conv) => (
             <button key={conv.id} className="cloud-row cloud-conv-row" onClick={() => cloudUi.openConversation({ id: conv.id, name: conv.name })}>
@@ -191,7 +217,12 @@ function ConversationsList() {
                 <span className="cloud-row-name truncate">{conv.name}</span>
                 <span className="cloud-row-sub">{conv.isGroup ? 'Nhóm' : 'Cá nhân'}</span>
               </span>
-              <span className="cloud-conv-total nums">{formatSize(conv.total)}</span>
+              <span className="cloud-conv-total">
+                <span className="nums">{formatSize(conv.total)}</span>
+                <span className="cloud-conv-meter" aria-hidden>
+                  <span style={{ width: `max(3px, ${(conv.total / largest) * 100}%)` }} />
+                </span>
+              </span>
               <span className="cloud-row-date nums">{conv.lastActivity ? formatDate(conv.lastActivity) : '--'}</span>
               <ChevronRight size={14} className="tertiary" />
             </button>
@@ -282,9 +313,12 @@ export function CloudPlanView() {
             <div className="cloud-card">
               <div className="cloud-card-head">
                 <span className="cloud-card-title">Dung lượng lưu trữ</span>
-                <span className="cloud-card-aside">
-                  <b>Đã dùng {formatSize(plan.usage + plan.family)}</b> <span className="tertiary">•</span>{' '}
-                  <span className="secondary">Còn trống {formatSize(planRemaining(plan))}</span>
+                <span className="cloud-card-aside secondary">Còn trống {formatSize(planRemaining(plan))}</span>
+              </div>
+              <div className="cloud-storage-figure is-large">
+                <span className="cloud-storage-big nums">{formatSize(plan.usage + plan.family)}</span>
+                <span className="cloud-storage-of">
+                  / {formatSize(plan.quota)} đã dùng ({Math.round(((plan.usage + plan.family) / Math.max(plan.quota, 1)) * 100)}%)
                 </span>
               </div>
               <CloudUsageBar plan={plan} height={12} />

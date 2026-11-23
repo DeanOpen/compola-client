@@ -4,7 +4,6 @@
 import { Clock } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { cloudFileSrc, cloudThumbnail, type CloudItem, type CloudThumb } from '../../engine/cloud';
-import { Spinner } from '../../ui/Spinner';
 import { kindIcon } from './support';
 
 export function CloudThumbView({ item, compact = false }: { item: CloudItem; compact?: boolean }) {
@@ -57,11 +56,7 @@ export function CloudThumbView({ item, compact = false }: { item: CloudItem; com
       </button>
     );
   } else {
-    body = (
-      <span className="cloud-thumb-state">
-        <Spinner size={14} />
-      </span>
-    );
+    body = <span className="cloud-skeleton" aria-label="Đang tải" />;
   }
   return <div className="cloud-thumb">{body}</div>;
 }

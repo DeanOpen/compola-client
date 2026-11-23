@@ -61,7 +61,7 @@ export function CloudPreviewSheet({ item, onClose }: { item: CloudItem; onClose:
           <X size={18} />
         </button>
       </div>
-      <div className="cloud-preview-content">
+      <div className={`cloud-preview-content ${item.kind === 'photo' || item.kind === 'video' ? 'is-stage' : ''}`}>
         <PreviewContent item={item} phase={phase} onRetry={() => setAttempt((a) => a + 1)} />
       </div>
       <div className="cloud-preview-footer">
