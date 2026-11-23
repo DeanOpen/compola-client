@@ -20,6 +20,7 @@ export type Destination =
   | 'groups'
   | 'requests'
   | 'addFriend'
+  | 'groupInvites'
   | `label:${string}`;
 
 export const isLabel = (d: Destination): d is `label:${string}` => d.startsWith('label:');
@@ -29,7 +30,8 @@ export const labelIdOf = (d: Destination): string | null => (isLabel(d) ? d.slic
 export const isConversationList = (d: Destination) =>
   d === 'inbox' || d === 'other' || d === 'unread' || d === 'strangers' || d === 'hidden' || d === 'myCloud' || isLabel(d);
 
-export const isContacts = (d: Destination) => d === 'friends' || d === 'groups' || d === 'requests' || d === 'addFriend';
+export const isContacts = (d: Destination) =>
+  d === 'friends' || d === 'groups' || d === 'requests' || d === 'addFriend' || d === 'groupInvites';
 
 /** The sidebar row this destination belongs to: a label filter is a view of the inbox. */
 export const sidebarRow = (d: Destination): Destination => (isLabel(d) ? 'inbox' : d);
