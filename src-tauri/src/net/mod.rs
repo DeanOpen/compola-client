@@ -40,7 +40,11 @@ pub mod fp {
 
     /// Chromium's Accept-Language from the system's preferred languages (`en-US`, then descending q-values).
     pub fn accept_language() -> String {
-        let langs: Vec<String> = sys_locale_list();
+        accept_language_from(&sys_locale_list())
+    }
+
+    /// `accept_language` for an explicit preferred-language list.
+    pub fn accept_language_from(langs: &[String]) -> String {
         if langs.is_empty() {
             return "en-US".into();
         }
@@ -185,8 +189,7 @@ impl NetworkProxy {
                 })
             }
             Err(e) => {
-                let timed_out = e.to_ascii_lowercase().contains("timed out") || e.to_ascii_lowercase().contains("timeout");
-                json!({ "error": e, "timedOut": timed_out })
+                json!({ "error": e, "timedOut": is_timeout_message(&e) })
             }
         }
     }
@@ -201,22 +204,28 @@ impl NetworkProxy {
         timeout: Option<Duration>,
     ) -> Result<HttpResponse, String> {
         let jar = self.jar();
-        if let Some(cookie) = jar.header_for(url) {
-            headers.push(("cookie".into(), cookie));
-        }
-        if !headers.iter().any(|(k, _)| k.eq_ignore_ascii_case("user-agent")) {
-            headers.push(("User-Agent".into(), self.user_agent.clone()));
-        }
+        let cookie = jar.header_for(url);
 
+        // The fingerprint helper first: Chromium 108's TLS + HTTP/2 instead of rustls'. Only helper
+        // unavailability falls through to reqwest; an upstream failure is a real answer (retrying it on the
+        // other stack would change the fingerprint).
         if let Some(helper) = fingerprint::FingerprintProxy::shared().ready(Duration::from_secs(3)).await {
-            match helper.perform(method, url.as_str(), &headers, &body, timeout).await {
+            let helper_headers = helper_request_headers(&headers, &self.user_agent, cookie.as_deref());
+            match helper.perform(method, url.as_str(), &helper_headers, &body, timeout).await {
                 Ok(r) => {
                     jar.store_from_headers(url, &r.headers);
                     return Ok(r);
                 }
-                Err(fingerprint::Error::Unavailable) => log::warn!("fingerprint helper unavailable — reqwest fallback"),
-                Err(fingerprint::Error::Failed(msg)) => return Err(msg),
+                Err(fingerprint::Error::Unavailable) => log::warn!("fingerprint helper unavailable — this request uses reqwest"),
+                Err(e @ (fingerprint::Error::Failed(_) | fingerprint::Error::TooLarge)) => return Err(e.to_string()),
             }
+        }
+
+        if let Some(cookie) = cookie {
+            headers.push(("cookie".into(), cookie));
+        }
+        if !headers.iter().any(|(k, _)| k.eq_ignore_ascii_case("user-agent")) {
+            headers.push(("User-Agent".into(), self.user_agent.clone()));
         }
 
         let mut map = HeaderMap::new();
@@ -271,6 +280,14 @@ impl NetworkProxy {
                     ));
                 }
             };
+            // The fingerprint helper (Chromium's ClientHello on the upgrade) when it is up; the short wait covers
+            // the engine-boot race where the page's first socket opens while the helper starts.
+            if let Some(helper) = fingerprint::FingerprintProxy::shared().ready(Duration::from_secs(3)).await {
+                if this.run_helper_socket(helper, id, &url, &protocols, &mut rx, &emit).await {
+                    return;
+                }
+                log::warn!("[{}] ws#{id} fingerprint helper unavailable at open — tokio-tungstenite", this.label);
+            }
             let mut request = match url.as_str().into_client_request() {
                 Ok(r) => r,
                 Err(e) => {
@@ -362,6 +379,107 @@ impl NetworkProxy {
         });
     }
 
+    /// Upgrade headers of the helper path (`webSocketUpgradeHeaders`): User-Agent, `Origin: file://` (browsers
+    /// always send Origin on the upgrade; Electron serialises the file origin like this), and the session
+    /// cookies, which match on the http(s) form of the URL.
+    fn websocket_upgrade_headers(&self, url: &str) -> Vec<(String, String)> {
+        let mut headers =
+            vec![("User-Agent".to_owned(), self.user_agent.clone()), ("Origin".to_owned(), fp::WEBSOCKET_ORIGIN.to_owned())];
+        if let Ok(mut http_url) = url::Url::parse(url) {
+            let _ = http_url.set_scheme(if http_url.scheme() == "ws" { "http" } else { "https" });
+            if let Some(cookie) = self.jar().header_for(&http_url) {
+                headers.push(("Cookie".to_owned(), cookie));
+            }
+        }
+        headers
+    }
+
+    /// One websocket through the fingerprint helper (`openSocketViaHelper`). Returns false only when the helper
+    /// was unavailable at open, so the caller opens it with tokio-tungstenite instead; a refused upgrade is a
+    /// real result (error + close 1006), like a failed handshake on the fallback.
+    async fn run_helper_socket(
+        &self,
+        helper: &'static fingerprint::FingerprintProxy,
+        id: i64,
+        url: &str,
+        protocols: &[String],
+        rx: &mut mpsc::UnboundedReceiver<WsCmd>,
+        emit: &impl Fn(&str, Value),
+    ) -> bool {
+        let headers = self.websocket_upgrade_headers(url);
+        let mut socket = match helper.ws_open(url, &headers, protocols).await {
+            Ok(socket) => socket,
+            Err(fingerprint::Error::Unavailable) => return false,
+            Err(e) => {
+                log::warn!("[{}] ws#{id} helper open failed: {}", self.label, e.to_string().chars().take(160).collect::<String>());
+                self.sockets.lock().remove(&id);
+                emit("error", json!({}));
+                emit("close", json!({ "code": 1006, "reason": "", "wasClean": false }));
+                return true;
+            }
+        };
+        // Closed by the page while the handshake ran: never report it open, just close it.
+        if !self.sockets.lock().contains_key(&id) {
+            loop {
+                match rx.try_recv() {
+                    Ok(WsCmd::Close(code, reason)) => {
+                        socket.close(code);
+                        emit("close", json!({ "code": code, "reason": reason, "wasClean": true }));
+                        return true;
+                    }
+                    Ok(WsCmd::Send(_)) => continue,
+                    Err(_) => {
+                        socket.close(1000);
+                        return true;
+                    }
+                }
+            }
+        }
+        log::info!("[{}] ws#{id} helper handshake ok (protocol {:?})", self.label, socket.protocol);
+        emit("open", json!({ "protocol": socket.protocol }));
+        loop {
+            tokio::select! {
+                cmd = rx.recv() => match cmd {
+                    Some(WsCmd::Send(Message::Text(text))) => socket.send_text(text.as_str()),
+                    Some(WsCmd::Send(Message::Binary(data))) => socket.send_binary(&data),
+                    Some(WsCmd::Send(_)) => {}
+                    Some(WsCmd::Close(code, reason)) => {
+                        socket.close(code);
+                        emit("close", json!({ "code": code, "reason": reason, "wasClean": true }));
+                        return true;
+                    }
+                    None => {
+                        socket.close(1001);
+                        return true;
+                    }
+                },
+                event = socket.next_event() => match event {
+                    Some(fingerprint::WsEvent::Text(text)) => emit("text", json!({ "text": text })),
+                    Some(fingerprint::WsEvent::Binary(data)) => emit("binary", json!({ "data": b64(&data) })),
+                    Some(fingerprint::WsEvent::Closed { code, reason }) => {
+                        log::info!("[{}] ws#{id} closed by server code={code}", self.label);
+                        self.sockets.lock().remove(&id);
+                        emit("close", json!({ "code": code, "reason": reason, "wasClean": code != 1006 }));
+                        return true;
+                    }
+                    Some(fingerprint::WsEvent::Error(message)) => {
+                        log::warn!("[{}] ws#{id} helper error: {message}", self.label);
+                        self.sockets.lock().remove(&id);
+                        emit("error", json!({}));
+                        emit("close", json!({ "code": 1006, "reason": "", "wasClean": false }));
+                        return true;
+                    }
+                    None => {
+                        self.sockets.lock().remove(&id);
+                        emit("error", json!({}));
+                        emit("close", json!({ "code": 1006, "reason": "", "wasClean": false }));
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+
     fn send_socket(&self, body: &Value) {
         let Some(id) = body.get("id").and_then(Value::as_i64) else { return };
         let msg = if let Some(t) = body.get("text").and_then(Value::as_str) {
@@ -383,6 +501,13 @@ impl NetworkProxy {
     }
 }
 
+/// Transport-error text that means the request timed out (reqwest: "operation timed out"; the helper's Go stack:
+/// "context deadline exceeded" / "Client.Timeout exceeded").
+pub fn is_timeout_message(message: &str) -> bool {
+    let message = message.to_ascii_lowercase();
+    message.contains("timed out") || message.contains("timeout") || message.contains("deadline exceeded")
+}
+
 /// Headers Chromium 108 adds to every renderer request (notably **no** `Origin`/`Referer`).
 pub fn apply_client_headers(headers: &mut Vec<(String, String)>) {
     let mut set_default = |name: &str, value: String| {
@@ -397,6 +522,45 @@ pub fn apply_client_headers(headers: &mut Vec<(String, String)>) {
     set_default("sec-fetch-mode", "cors".into());
     set_default("sec-fetch-site", "cross-site".into());
     set_default("accept-language", fp::accept_language());
+}
+
+/// The header list for a helper request, in Chromium's order (`performViaHelper`): the page's headers (with
+/// the client defaults `apply_client_headers` added), then the browser defaults still missing, then cookies.
+/// fhttp sends exactly these, in this order (`HeaderOrderKey`) — nothing is added on the way.
+pub fn helper_request_headers(headers: &[(String, String)], user_agent: &str, cookie: Option<&str>) -> Vec<(String, String)> {
+    // A page cannot set Cookie (forbidden header name); the jar's is the one Chromium sends.
+    let mut out: Vec<(String, String)> =
+        headers.iter().filter(|(k, _)| cookie.is_none() || !k.eq_ignore_ascii_case("cookie")).cloned().collect();
+    for name in [
+        "User-Agent",
+        "sec-ch-ua",
+        "sec-ch-ua-mobile",
+        "sec-ch-ua-platform",
+        "sec-fetch-dest",
+        "sec-fetch-mode",
+        "sec-fetch-site",
+        "accept-language",
+        "accept-encoding",
+    ] {
+        if !out.iter().any(|(k, _)| k.eq_ignore_ascii_case(name)) {
+            let value = match name {
+                "User-Agent" => user_agent.to_owned(),
+                "sec-ch-ua" => fp::SEC_CH_UA.into(),
+                "sec-ch-ua-mobile" => fp::SEC_CH_UA_MOBILE.into(),
+                "sec-ch-ua-platform" => fp::SEC_CH_UA_PLATFORM.into(),
+                "sec-fetch-dest" => "empty".into(),
+                "sec-fetch-mode" => "cors".into(),
+                "sec-fetch-site" => "cross-site".into(),
+                "accept-language" => fp::accept_language(),
+                _ => fp::ACCEPT_ENCODING.into(), // the helper decodes gzip/deflate/br itself
+            };
+            out.push((name.to_owned(), value));
+        }
+    }
+    if let Some(cookie) = cookie {
+        out.push(("Cookie".into(), cookie.to_owned()));
+    }
+    out
 }
 
 /// The shim's body description → bytes (and Content-Type).

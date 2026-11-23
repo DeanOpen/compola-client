@@ -23,3 +23,6 @@ src-tauri/gen
 src-tauri/target
 yarn-debug.log*
 yarn-error.log*
+
+# Fingerprint helper sidecar (built by scripts/build-fingerprint-helper.sh)
+src-tauri/binaries/compola-fingerprint-helper-*

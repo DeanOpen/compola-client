@@ -85,6 +85,11 @@ pub fn run() {
             engine::engine_show_renderer,
             engine::engine_switch_to_sqlite,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while running tauri application")
+        .run(|_app, event| {
+            if let tauri::RunEvent::Exit = event {
+                net::fingerprint::FingerprintProxy::shared().shutdown();
+            }
+        });
 }
