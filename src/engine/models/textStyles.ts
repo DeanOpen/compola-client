@@ -49,6 +49,12 @@ export const parseTextStyles = (v: unknown, length: number): TextStyleRange[] =>
 
 // MARK: Per-character marks (editing)
 
+/** [start, end) kept inside a text of `length`. */
+const clampSel = (length: number, start: number, end: number): [number, number] => {
+  const a = Math.max(0, Math.min(start, length));
+  return [a, Math.max(a, Math.min(end, length))];
+};
+
 const marksOf = (length: number, ranges: TextStyleRange[]): string[][] => {
   const marks: string[][] = Array.from({ length }, () => []);
   for (const r of ranges)
@@ -72,6 +78,9 @@ const rangesOf = (marks: string[][]): TextStyleRange[] => {
 
 /** The tokens every character of [start, end) carries (for the toolbar's active state). */
 export const commonTokens = (length: number, ranges: TextStyleRange[], start: number, end: number): Set<string> => {
+  // The selection may be stale (the text was just sent or replaced): stay inside the text.
+  start = Math.max(0, Math.min(start, length));
+  end = Math.max(start, Math.min(end, length));
   const marks = marksOf(length, ranges);
   if (end <= start) {
     // A caret: the style of the character before it.
@@ -87,6 +96,7 @@ export const commonTokens = (length: number, ranges: TextStyleRange[], start: nu
 
 /** B / I / U / S on the selection: removed when every character has it, added otherwise. */
 export const toggleToken = (length: number, ranges: TextStyleRange[], start: number, end: number, token: 'b' | 'i' | 'u' | 's') => {
+  [start, end] = clampSel(length, start, end);
   if (end <= start) return ranges;
   const marks = marksOf(length, ranges);
   const all = marks.slice(start, end).every((m) => m.includes(token));
@@ -96,6 +106,7 @@ export const toggleToken = (length: number, ranges: TextStyleRange[], start: num
 
 /** Size / colour on the selection: the group's token replaced (null = the default, no token). */
 export const setGroupToken = (length: number, ranges: TextStyleRange[], start: number, end: number, prefix: 'f_' | 'c_', token: string | null) => {
+  [start, end] = clampSel(length, start, end);
   if (end <= start) return ranges;
   const marks = marksOf(length, ranges);
   for (let i = start; i < end; i += 1) marks[i] = [...marks[i].filter((t) => !t.startsWith(prefix)), ...(token ? [token] : [])];
@@ -104,6 +115,7 @@ export const setGroupToken = (length: number, ranges: TextStyleRange[], start: n
 
 /** "Bỏ định dạng nội dung đã chọn" / "Bỏ tất cả định dạng". */
 export const clearTokens = (length: number, ranges: TextStyleRange[], start: number, end: number) => {
+  [start, end] = clampSel(length, start, end);
   if (end <= start) return [];
   const marks = marksOf(length, ranges);
   for (let i = start; i < end; i += 1) marks[i] = [];
