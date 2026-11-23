@@ -1,10 +1,11 @@
 // Window shortcuts of the signed-in shell (Swift `CompolaCommands` + view shortcuts):
-// ⌘K quick switcher · ⌥⌘I inspector · ⌥⌘F / ⌘F search · ⌃⌘S sidebar · ⌘R reply to the newest message ·
+// ⌘K quick switcher · ⌥⌘I inspector · ⌥⌘F / ⌘F search · ⌃⌘S sidebar · ⌘R reply to the newest message · ⌘, Settings ·
 // ⌥⌘1/2/3/4 mailboxes, ⌥⌘5 Danh bạ, ⌥⌘6 zCloud.
 
 import { useEffect } from 'react';
 import { getEngine } from '../engine/store';
 import { escapeStackDepth } from '../ui/escape';
+import { openSettings } from '../features/settings/hosts';
 import { shell, useShell, type Destination } from './shellStore';
 
 const destinations: Record<string, Destination> = {
@@ -30,6 +31,11 @@ export const useShellShortcuts = () => {
         return;
       }
       if (escapeStackDepth() > 0) return;
+      if (code === 'Comma' && !e.altKey && !e.shiftKey) {
+        e.preventDefault();
+        openSettings();
+        return;
+      }
       if (e.altKey && code === 'KeyI') {
         e.preventDefault();
         shell.toggleInspector();
