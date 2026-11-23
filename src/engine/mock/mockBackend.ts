@@ -18,7 +18,7 @@ import {
   type MockConversation,
 } from './mockData';
 
-import { mockAdapters, mockCommands, runMockBootHooks, setMockAccountBoot, setMockContext } from './registry';
+import { mockAdapters, mockCommands, mockPass, runMockBootHooks, setMockAccountBoot, setMockContext } from './registry';
 
 // Feature mocks of the later waves register themselves (mock/registry.ts).
 import.meta.glob('./features/*.ts', { eager: true });
@@ -606,7 +606,10 @@ export const createMockBackend = (): Backend => {
     isMock: true,
     async invoke<T>(command: string, args: Record<string, unknown> = {}): Promise<T> {
       const extra = mockCommands[command];
-      if (extra) return (await extra(args)) as T;
+      if (extra) {
+        const r = await extra(args);
+        if (r !== mockPass) return r as T;
+      }
       switch (command) {
         case 'engine_phase':
           return phase as T;

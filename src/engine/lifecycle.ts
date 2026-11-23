@@ -15,6 +15,7 @@ import { handlePins, resetMessageActions, rewatchPins } from './messageActions';
 import type { Phase } from './models/phase';
 import { initRemote, remote, useRemote } from './remote';
 import { getEngine, resetAccount, setEngine } from './store';
+import { isForActiveAccount, setAccountResync } from './accounts';
 import './features';
 
 registerStateHandler('convActions', handleConversationActions);
@@ -51,10 +52,19 @@ export const startEngine = (): Promise<void> => {
     const joined = await isJoined();
     await initRemote();
     await Promise.all([
-      b.listen('compola://phase', (p) => setPhase(p as Phase)),
-      b.listen('compola://state', dispatchState),
-      b.listen('compola://badge', (n) => setEngine({ badge: typeof n === 'number' ? n : 0 })),
+      // Multi-account hosts tag events with their account; one for another account than the one on screen (a race
+      // right after a switch) is dropped.
+      b.listen('compola://phase', (p) => isForActiveAccount(p) && setPhase(p as Phase)),
+      b.listen('compola://state', (s) => isForActiveAccount(s) && dispatchState(s)),
+      // `n`, or `{account, count}` per account (the rail shows the others' from the account list).
+      b.listen('compola://badge', (n) => {
+        if (typeof n === 'number') return setEngine({ badge: n });
+        const r = obj(n);
+        if (r && isForActiveAccount(r)) setEngine({ badge: typeof r.count === 'number' ? r.count : 0 });
+      }),
       b.listen('compola://page', (page) => {
+        if (!isForActiveAccount(page)) return;
+        if (page && typeof page === 'object') page = str(obj(page)?.page ?? obj(page)?.kind);
         // The main page (re)loaded: watch the open conversation's pins again; its unanswered confirms are gone.
         dropComposerConfirms();
         if (page === 'main' || page === 'Main') {
@@ -95,24 +105,31 @@ export const startEngine = (): Promise<void> => {
       // app runs none: they act on the account, which lives on the host.
       void startAddonRuntime().catch((e) => console.warn('[addons] runtime failed to start', e));
     }
-    try {
-      setPhase(await commands.phase());
-    } catch {
-      /* the phase event follows */
-    }
-    // A UI that (re)loaded after the main page catches up: the host scripts post changes, not full state, so replay
-    // what the page posted since it loaded (Rust keeps it compacted). Merges are idempotent, so overlap with live
-    // events is harmless.
-    if (!b.isMock) {
-      try {
-        const events = await b.invoke<unknown[]>('engine_replay');
-        for (const event of events) dispatchState(event);
-      } catch {
-        /* older engine */
-      }
-    }
+    await catchUp();
+    // Another account became active (docs/multi-account.md §6): its stores were swapped in; catch up the same way.
+    setAccountResync(catchUp);
   })();
   return started;
+};
+
+/**
+ * The active account's phase, then what its main page posted since it loaded (Rust keeps it compacted): a UI that
+ * (re)loaded, or switched to another account, catches up. Merges are idempotent, so overlap with live events is harmless.
+ */
+const catchUp = async () => {
+  const b = await backend();
+  try {
+    setPhase(await commands.phase());
+  } catch {
+    /* the phase event follows */
+  }
+  if (b.isMock) return;
+  try {
+    const events = await b.invoke<unknown[]>('engine_replay');
+    for (const event of events) dispatchState(event);
+  } catch {
+    /* older engine */
+  }
 };
 
 /**

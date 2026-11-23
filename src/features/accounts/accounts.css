@@ -179,3 +179,19 @@
 .accounts-add:disabled {
   color: var(--text-tertiary);
 }
+
+.accounts-row.is-off .avatar {
+  opacity: 0.45;
+}
+
+.accounts-rename {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 20px;
+}
+
+.accounts-rename .text-field {
+  height: 32px;
+  font-size: 14px;
+}
