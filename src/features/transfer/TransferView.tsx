@@ -3,12 +3,13 @@
 // confirmation, progress, result) is the official client's (`engine/transfer.ts`); this only renders it. Modal: the
 // window behind is covered while it is up.
 
+import { Check, Clock, Info, Smartphone, Wifi, type LucideIcon } from 'lucide-react';
 import { useEffect } from 'react';
 import { useEngine } from '../../engine/store';
-import { dismissTransfer, respondToTransfer, stageTitle, waitingDetail, type MessageTransferState } from '../../engine/transfer';
+import { dismissTransfer, respondToTransfer, stageTitle, transferCountText, waitingDetail, type MessageTransferState } from '../../engine/transfer';
 import { Spinner } from '../../ui/Spinner';
 import { ZaloDialog } from '../calls/ZaloDialog';
-import { FailedMark, FinishedMark, ProgressRing, TransferRoute } from './TransferParts';
+import { FailedMark, FinishedMark, TransferRoute } from './TransferParts';
 import './transfer.css';
 
 export function TransferOverlay() {
@@ -62,7 +63,7 @@ function TransferDialog({ state }: { state: MessageTransferState }) {
       );
       break;
     case 'finished':
-      body = <Finished />;
+      body = <Finished state={state} />;
       footer = (
         <>
           <span style={{ flex: 1 }} />
@@ -92,11 +93,33 @@ function TransferDialog({ state }: { state: MessageTransferState }) {
   }
 
   return (
-    <ZaloDialog title="Đồng bộ tin nhắn" onClose={close} width={440} footer={footer}>
+    <ZaloDialog title="Đồng bộ tin nhắn" onClose={close} width={480} footer={footer}>
+      {kind !== 'offer' && <TransferStepper state={state} />}
       <div key={kind} className="transfer-body fade-in">
         {body}
       </div>
     </ZaloDialog>
+  );
+}
+
+/** PandaDoc / Podia: where the sync is (phone confirmation → receiving → done) as a stepper under the title bar. */
+function TransferStepper({ state }: { state: MessageTransferState }) {
+  const steps = ['Xác nhận trên điện thoại', 'Đồng bộ', 'Hoàn tất'];
+  const current = state.phase === 'waitingForPhone' ? 0 : state.phase === 'transferring' ? 1 : 2;
+  const failed = state.phase === 'failed';
+  return (
+    <ol className="transfer-stepper" aria-label="Tiến trình đồng bộ">
+      {steps.map((title, i) => {
+        const done = !failed && (i < current || state.phase === 'finished');
+        const active = !failed && i === current && state.phase !== 'finished';
+        return (
+          <li key={title} className={`transfer-step ${done ? 'is-done' : ''} ${active ? 'is-active' : ''}`} aria-current={active ? 'step' : undefined}>
+            <span className="transfer-step-dot">{done ? <Check size={12} strokeWidth={3} /> : i + 1}</span>
+            <span className="transfer-step-title">{title}</span>
+          </li>
+        );
+      })}
+    </ol>
   );
 }
 
@@ -109,17 +132,40 @@ function Offer({ state }: { state: MessageTransferState }) {
         {state.message ??
           'Để đảm bảo tính bảo mật, Zalo chỉ hiển thị tin nhắn từ sau lần đăng nhập đầu tiên trên thiết bị này.'}
       </p>
-      <p className="transfer-text">Đồng bộ từ điện thoại để xem đầy đủ nội dung các cuộc trò chuyện.</p>
+      <div className="transfer-bullets">
+        <Bullet icon={Smartphone} text="Chỉ bắt đầu khi bạn chọn Đồng ý trên điện thoại." />
+        <Bullet icon={Clock} text="Thường mất vài phút, tuỳ số lượng tin nhắn." />
+        <Bullet icon={Wifi} text="Giữ Zalo mở và có mạng cho đến khi xong." />
+      </div>
     </>
   );
 }
 
+function Bullet({ icon: Icon, text }: { icon: LucideIcon; text: string }) {
+  return (
+    <div className="transfer-bullet">
+      <span className="transfer-bullet-icon">
+        <Icon size={15} />
+      </span>
+      <span>{text}</span>
+    </div>
+  );
+}
+
+/** Care.com "Follow the link sent to your phone": the device picture, then numbered steps of what to do there. */
 function Waiting({ state }: { state: MessageTransferState }) {
   return (
     <>
       <TransferRoute animated />
       <div className="transfer-title">Mở Zalo trên điện thoại để xác nhận</div>
       <p className="transfer-text">{waitingDetail(state)}</p>
+      <ol className="transfer-howto">
+        <li>Mở ứng dụng Zalo trên điện thoại</li>
+        <li>Chạm vào thông báo yêu cầu đồng bộ tin nhắn</li>
+        <li>
+          Chọn <b>Đồng ý</b> và giữ Zalo mở
+        </li>
+      </ol>
       <WaitingPill />
     </>
   );
@@ -133,35 +179,63 @@ export function WaitingPill() {
   );
 }
 
-const transferDetail = (state: MessageTransferState): string => {
-  if (state.receivedMessages && state.receivedMessages > 0) return `Đã nhận ${state.receivedMessages.toLocaleString('vi-VN')} tin nhắn`;
-  if (state.totalConversations && state.totalConversations > 0) return `Đã đồng bộ ${state.syncedConversations}/${state.totalConversations} hội thoại`;
-  if (state.syncedConversations > 0) return `Đã đồng bộ ${state.syncedConversations} hội thoại`;
-  return stageTitle(state);
-};
+/** Names of the official sync-v2 stages, in order (the client reports `stageIndex` / `stageCount`). */
+const stageNames = ['Danh sách hội thoại', 'Tin nhắn gần đây', 'Tin nhắn cũ hơn'];
 
+/** Confluence: label + percentage over a linear bar; PandaDoc: one row per stage with ✓ / spinner / pending. */
 function Transferring({ state }: { state: MessageTransferState }) {
+  const percent = state.progress === null ? null : Math.round(state.progress * 100);
+  const count = transferCountText(state);
+  const stages = state.stageCount && state.stageCount > 0 ? state.stageCount : null;
   return (
     <>
-      <ProgressRing progress={state.progress} />
-      <div className="transfer-title">Đang đồng bộ tin nhắn</div>
-      <div className="transfer-detail nums">{transferDetail(state)}</div>
-      {state.stageIndex !== null && state.stageCount !== null && (
-        <div className="transfer-small">
-          Bước {state.stageIndex}/{state.stageCount} · {stageTitle(state)}
+      <TransferRoute animated />
+      <div className="transfer-progress">
+        <div className="transfer-progress-head">
+          <span className="transfer-progress-title">Đang đồng bộ tin nhắn…</span>
+          {percent !== null && <span className="transfer-progress-pct nums">{percent}%</span>}
         </div>
+        <div className={`transfer-bar ${percent === null ? 'is-indeterminate' : ''}`} role="progressbar" aria-valuenow={percent ?? undefined} aria-valuemin={0} aria-valuemax={100}>
+          <span style={percent === null ? undefined : { width: `${Math.max(2, percent)}%` }} />
+        </div>
+        {count && <div className="transfer-progress-count nums">{count}</div>}
+      </div>
+      {stages !== null && state.stageIndex !== null && (
+        <ul className="transfer-stages">
+          {Array.from({ length: stages }, (_, i) => {
+            const n = i + 1;
+            const done = n < state.stageIndex!;
+            const active = n === state.stageIndex;
+            const name = stages === stageNames.length ? stageNames[i] : `Bước ${n}`;
+            return (
+              <li key={n} className={`transfer-stage ${done ? 'is-done' : ''} ${active ? 'is-active' : ''}`}>
+                <span className="transfer-stage-mark">{done ? <Check size={13} strokeWidth={3} /> : active ? <Spinner size={13} /> : <span className="transfer-stage-dot" />}</span>
+                <span className="transfer-stage-text">
+                  <span className="transfer-stage-name">{name}</span>
+                  <span className="transfer-stage-detail">{done ? 'Xong' : active ? stageTitle(state) : 'Đang chờ'}</span>
+                </span>
+                {active && state.stageProgress !== null && <span className="transfer-stage-pct nums">{Math.round(state.stageProgress * 100)}%</span>}
+              </li>
+            );
+          })}
+        </ul>
       )}
-      <div className="transfer-small">Giữ Zalo mở trên điện thoại cho đến khi hoàn tất.</div>
+      <div className="transfer-note">
+        <Info size={14} />
+        <span>Có thể ẩn cửa sổ này, đồng bộ vẫn tiếp tục. Giữ Zalo mở trên điện thoại cho đến khi hoàn tất.</span>
+      </div>
     </>
   );
 }
 
-function Finished() {
+function Finished({ state }: { state: MessageTransferState }) {
+  const count = transferCountText(state);
   return (
     <>
       <FinishedMark />
       <div className="transfer-title">Hoàn tất</div>
       <p className="transfer-text">Tin nhắn từ điện thoại đã được đồng bộ sang máy tính.</p>
+      {count && <div className="transfer-summary nums">{count}</div>}
     </>
   );
 }
@@ -172,6 +246,12 @@ function Failed({ state, reason }: { state: MessageTransferState; reason: string
       <FailedMark />
       <div className="transfer-title">Đồng bộ không thành công</div>
       <p className="transfer-text">{state.message ?? reason}</p>
+      <div className="transfer-tips">
+        <div className="transfer-tips-title">Trước khi thử lại</div>
+        <Bullet icon={Smartphone} text="Mở Zalo trên điện thoại và giữ ứng dụng ở màn hình chính." />
+        <Bullet icon={Wifi} text="Kiểm tra cả hai thiết bị đều có kết nối mạng." />
+      </div>
+      {state.errorCode !== null && <div className="transfer-small nums">Mã lỗi {state.errorCode}</div>}
     </>
   );
 }

@@ -41,7 +41,7 @@ const fixed: Record<string, Json> = {
   offer: base('offer', { stage: 'modal' }),
   waiting: base('waitingForPhone', { stage: 'confirmMobile' }),
   transferring: base('transferring', { stage: 'otherMessages', stageIndex: 3, stageCount: 3, progress: 0.72, stageProgress: 0.16, receivedMessages: 18_432 }),
-  finished: base('finished'),
+  finished: base('finished', { progress: 1, receivedMessages: 24_816 }),
   failed: base('failed', { errorCode: 1003, errorName: 'MOBILE_BUSY', canRetry: true }),
 };
 
