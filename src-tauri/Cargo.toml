@@ -57,6 +57,9 @@ ctr = "0.9"
 ghash = "0.5"
 png = "0.18"
 tauri-plugin-notification = "2"
+argon2 = "0.5"
+include_dir = "0.7"
+ldap3 = { version = "0.11", default-features = false, features = ["tls-rustls"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 mac-notification-sys = "0.6"

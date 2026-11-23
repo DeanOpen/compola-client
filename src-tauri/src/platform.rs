@@ -12,8 +12,12 @@ pub struct Platform {
     pub user_data: PathBuf,
 }
 
-/// `~/Library/Application Support/Compola`.
+/// `~/Library/Application Support/Compola`, or `COMPOLA_DATA_DIR` (a second instance on the same Mac, e.g. a Compola
+/// Server host and a joined app side by side while developing).
 pub fn app_support() -> PathBuf {
+    if let Some(dir) = std::env::var_os("COMPOLA_DATA_DIR").filter(|d| !d.is_empty()) {
+        return PathBuf::from(dir);
+    }
     dirs::data_dir().unwrap_or_else(|| PathBuf::from(".")).join("Compola")
 }
 

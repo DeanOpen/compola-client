@@ -849,9 +849,21 @@ pub async fn automation_search(
 
 #[tauri::command]
 pub fn automation_search_status(automation: AutomationState<'_>) -> Value {
-    let cfg = automation.config.lock().search.clone();
-    let stats = automation.index.as_ref().map(|ix| ix.stats());
-    json!({ "config": cfg, "stats": stats, "embedError": automation.embed_error.lock().clone(), "path": search::Index::path() })
+    automation.search_status_json()
+}
+
+impl Automation {
+    /// `automation_search_status` (also served to Compola Server's joined apps, `crate::remote`).
+    pub(crate) fn search_status_json(&self) -> Value {
+        let cfg = self.config.lock().search.clone();
+        let stats = self.index.as_ref().map(|ix| ix.stats());
+        json!({ "config": cfg, "stats": stats, "embedError": self.embed_error.lock().clone(), "path": search::Index::path() })
+    }
+
+    /// `automation_messages` without the Tauri state (`crate::remote`).
+    pub(crate) fn recent_messages(&self, conversation_id: Option<&str>, limit: usize) -> Vec<mirror::Message> {
+        self.mirror.lock().messages(conversation_id, limit.min(500))
+    }
 }
 
 #[tauri::command]

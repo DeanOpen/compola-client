@@ -26,3 +26,7 @@ yarn-error.log*
 
 # Fingerprint helper sidecar (built by scripts/build-fingerprint-helper.sh)
 src-tauri/binaries/compola-fingerprint-helper-*
+
+# Compola Server admin console (npm run build:admin)
+src-tauri/admin-dist/*
+!src-tauri/admin-dist/.gitkeep
