@@ -511,3 +511,62 @@ pub fn ui_set_open_conversation(app: AppHandle, id: Option<String>) {
 pub fn ui_set_shows_preview(app: AppHandle, shows: bool) {
     crate::notifications::set_shows_preview(&app, shows);
 }
+
+/// `engine_call` whose adapter clicks a hidden `<input type=file>` (composer "Ảnh hoặc Video" / "Tệp"): the input receives
+/// `files`, or — when `files` is null — what the user picks in the native open panel (`pick`: `media` = images + movies,
+/// `files` = anything). Swift: `OfficialClientHost.evaluate(_:providingFiles:)`. Returns null when the user cancelled.
+#[tauri::command]
+pub async fn engine_call_with_files(
+    app: AppHandle,
+    engine: EngineState<'_>,
+    target: String,
+    method: String,
+    args: Vec<Value>,
+    files: Option<Vec<String>>,
+    pick: Option<String>,
+) -> Result<Value, String> {
+    if !target.starts_with("__zalo") {
+        return Err("unknown target".into());
+    }
+    let paths = match files {
+        Some(f) => f,
+        None => {
+            use tauri_plugin_dialog::DialogExt;
+            let mut dialog = app.dialog().file();
+            if pick.as_deref() == Some("media") {
+                dialog = dialog.add_filter("Ảnh hoặc Video", &["jpg", "jpeg", "png", "gif", "webp", "heic", "mp4", "mov", "m4v", "webm"]);
+            }
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            dialog.pick_files(move |picked| {
+                let _ = tx.send(picked);
+            });
+            match rx.await.ok().flatten() {
+                Some(list) => list.into_iter().filter_map(|p| p.into_path().ok()).map(|p| p.to_string_lossy().into_owned()).collect(),
+                None => return Ok(Value::Null),
+            }
+        }
+    };
+    if paths.is_empty() {
+        return Ok(Value::Null);
+    }
+    main_host(&engine)?
+        .call_js(&format!(
+            "window.__compolaPendingFiles = await window.__compolaLoadFiles({}); const t = window[{}]; return await t[{}](...{});",
+            js_literal(&json!(paths)),
+            js_literal(&json!(target)),
+            js_literal(&json!(method)),
+            js_literal(&Value::Array(args)),
+        ))
+        .await
+}
+
+/// Widens (or narrows back) the main window when the inspector opens, so the chat keeps its width (Swift InspectorRoom).
+#[tauri::command]
+pub fn ui_widen_window(app: AppHandle, delta: f64) -> Result<(), String> {
+    let w = app.get_webview_window("main").ok_or("no window")?;
+    let scale = w.scale_factor().map_err(|e| e.to_string())?;
+    let size = w.inner_size().map_err(|e| e.to_string())?.to_logical::<f64>(scale);
+    let monitor_w = w.current_monitor().ok().flatten().map(|m| m.size().to_logical::<f64>(m.scale_factor()).width).unwrap_or(f64::MAX);
+    let width = (size.width + delta).clamp(960.0, monitor_w);
+    w.set_size(tauri::LogicalSize::new(width, size.height)).map_err(|e| e.to_string())
+}

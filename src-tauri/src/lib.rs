@@ -66,6 +66,7 @@ pub fn run() {
     let _ = rustls::crypto::ring::default_provider().install_default();
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .register_asynchronous_uri_scheme_protocol(host::SCHEME, host::protocol::handle)
         .register_asynchronous_uri_scheme_protocol(media::protocol::SCHEME, media::protocol::handle)
@@ -90,6 +91,8 @@ pub fn run() {
             engine::engine_switch_to_sqlite,
             engine::ui_set_open_conversation,
             engine::ui_set_shows_preview,
+            engine::engine_call_with_files,
+            engine::ui_widen_window,
             media::media_save,
             screen_capture::screen_capture_start,
         ])
