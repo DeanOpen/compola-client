@@ -1,11 +1,13 @@
-// Quản trị máy chủ › Phân quyền: who may use the Zalo account and how. A grant = a subject (user or group), a role
-// (Plain role cards: Người xem / Nhân viên; Quản trị is the user's admin flag) and a scope (everything, or chosen
-// conversations and labels from GET admin/conversations). "Ai thấy gì": a user's effective access.
+// Quản trị máy chủ › Phân quyền: who may use which Zalo account and how. A grant = a subject (user or group), an
+// account (one of the host's, or "*" = every account, present and future, which forces scope "all"), a role (Plain
+// role cards: Người xem / Nhân viên; Quản trị is the user's admin flag) and a scope (everything, or chosen
+// conversations and labels from GET admin/conversations?account=). "Ai thấy gì": a user's access, per account.
 
 import { Eye, MessageSquare, MoreHorizontal, Pencil, Plus, Search, Trash2, User as UserIcon, Users } from 'lucide-react';
-import { useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { cssColor } from '../../../engine/models/conversations';
 import {
+  everyAccount,
   personText,
   roleHints,
   roleNames,
@@ -19,6 +21,8 @@ import {
   type Role,
   type Subject,
   type User,
+  type ZaloAccount,
+  zaloAccountTitle,
 } from '../../../engine/serverAdmin';
 import { Avatar } from '../../../ui/Avatar';
 import { openMenuBelow } from '../../../ui/Menu';
@@ -31,18 +35,26 @@ interface Data {
   grants: Grant[];
   users: User[];
   groups: Group[];
-  account: AccountData;
+  /** The host's Zalo accounts (one "default" on a single-account server). */
+  accounts: ZaloAccount[];
 }
 
 const loadData = async (): Promise<Data> => {
-  const [grants, users, groups, account] = await Promise.all([
+  const [grants, users, groups, accounts] = await Promise.all([
     serverAdmin.grants(),
     serverAdmin.users(),
     serverAdmin.groups(),
-    serverAdmin.accountData().catch(() => ({ conversations: [], labels: [] })),
+    serverAdmin
+      .accounts()
+      .then((r) => r.accounts)
+      .catch(() => []),
   ]);
-  return { grants, users, groups, account };
+  return { grants, users, groups, accounts };
 };
+
+/** "Mọi tài khoản" for "*", the account's label / name otherwise. */
+const accountName = (id: string | undefined, accounts: ZaloAccount[]) =>
+  id === everyAccount ? 'Mọi tài khoản' : zaloAccountTitle(accounts.find((a) => a.id === (id || 'default')) ?? (id === 'default' || !id ? { id: 'default', label: '', name: '' } : null));
 
 const subjectName = (s: Subject, data: Pick<Data, 'users' | 'groups'>) => {
   if (s.type === 'group') return data.groups.find((g) => g.id === s.id)?.name ?? 'Nhóm đã xoá';
@@ -92,6 +104,7 @@ export function GrantsPage() {
                 <div className="st-row-label sa-member-name">
                   <span className="truncate">{subjectName(g.subject, data)}</span>
                   <span className={`st-chip ${g.role === 'agent' ? 'is-tool' : ''}`}>{roleNames[g.role]}</span>
+                  {(data.accounts.length > 1 || (g.account && g.account !== 'default')) && <span className="st-chip">{accountName(g.account, data.accounts)}</span>}
                 </div>
                 <div className="st-row-detail truncate">
                   {scopeText(g.scope)}
@@ -109,7 +122,7 @@ export function GrantsPage() {
       {deleting && (
         <Alert
           title="Thu hồi quyền này?"
-          message={`${subjectName(deleting.subject, data)} mất quyền ${roleNames[deleting.role].toLowerCase()} với ${scopeText(deleting.scope).toLowerCase()}.`}
+          message={`${subjectName(deleting.subject, data)} mất quyền ${roleNames[deleting.role].toLowerCase()} trên ${accountName(deleting.account, data.accounts)} (${scopeText(deleting.scope).toLowerCase()}).`}
           buttons={[
             {
               label: 'Thu hồi',
@@ -139,11 +152,37 @@ function GrantForm({ grant, data, onCancel, onSaved }: { grant?: Grant; data: Da
   const [labels, setLabels] = useState(() => new Set(grant?.scope.labels ?? []));
   const [note, setNote] = useState(grant?.note ?? '');
   const [query, setQuery] = useState('');
+  const [account, setAccount] = useState(grant?.account || data.accounts[0]?.id || 'default');
+  // The chosen account's conversations and labels (none for "*", which covers everything).
+  const [accountData, setAccountData] = useState<AccountData | null>(null);
   const { problem, setProblem, busy, run } = useAction();
+  const every = account === everyAccount;
+  const scopeAll = all || every;
+
+  useEffect(() => {
+    if (every) return;
+    let alive = true;
+    setAccountData(null);
+    serverAdmin
+      .accountData(account)
+      .then((d) => alive && setAccountData(d))
+      .catch(() => alive && setAccountData({ conversations: [], labels: [] }));
+    return () => {
+      alive = false;
+    };
+  }, [account, every]);
+
+  const pickAccount = (id: string) => {
+    if (id === account) return;
+    // Conversations and labels belong to one account: a new account starts from an empty pick.
+    setConversations(new Set());
+    setLabels(new Set());
+    setAccount(id);
+  };
 
   const subjects = subjectType === 'user' ? data.users.map((u) => ({ id: u.id, name: personText(u), admin: u.isAdmin })) : data.groups.map((g) => ({ id: g.id, name: g.name, admin: false }));
   const pickedAdmin = subjectType === 'user' && data.users.find((u) => u.id === subjectId)?.isAdmin;
-  const shown = useMemo(() => data.account.conversations.filter((c) => matches(query, c.name)), [data.account.conversations, query]);
+  const shown = useMemo(() => (accountData?.conversations ?? []).filter((c) => matches(query, c.name)), [accountData, query]);
 
   const toggle = (set: Set<string>, id: string, apply: (s: Set<string>) => void) => {
     const next = new Set(set);
@@ -155,11 +194,12 @@ function GrantForm({ grant, data, onCancel, onSaved }: { grant?: Grant; data: Da
   const submit = (e: FormEvent) => {
     e.preventDefault();
     if (!subjectId) return setProblem(subjectType === 'user' ? 'Chọn người dùng.' : 'Chọn nhóm.');
-    if (!all && !conversations.size && !labels.size) return setProblem('Chọn ít nhất một cuộc trò chuyện hoặc nhãn, hoặc chọn Tất cả.');
+    if (!scopeAll && !conversations.size && !labels.size) return setProblem('Chọn ít nhất một cuộc trò chuyện hoặc nhãn, hoặc chọn Tất cả.');
     const input: GrantInput = {
       subject: { type: subjectType, id: subjectId },
+      account,
       role,
-      scope: { all, conversations: all ? [] : [...conversations], labels: all ? [] : [...labels] },
+      scope: { all: scopeAll, conversations: scopeAll ? [] : [...conversations], labels: scopeAll ? [] : [...labels] },
       note: note.trim(),
     };
     void run(() => (grant ? serverAdmin.updateGrant(grant.id, input) : serverAdmin.createGrant(input)), onSaved);
@@ -198,6 +238,20 @@ function GrantForm({ grant, data, onCancel, onSaved }: { grant?: Grant; data: Da
       </div>
 
       <div className="st-field">
+        <span>Tài khoản Zalo</span>
+        <select className="st-input" value={account} onChange={(e) => pickAccount(e.target.value)}>
+          {data.accounts.map((a) => (
+            <option key={a.id} value={a.id}>
+              {zaloAccountTitle(a)}
+            </option>
+          ))}
+          {!data.accounts.some((a) => a.id === account) && account !== everyAccount && <option value={account}>{accountName(account, data.accounts)}</option>}
+          <option value={everyAccount}>Mọi tài khoản (cả tài khoản thêm sau này)</option>
+        </select>
+        {every && <span className="sa-hint">Quyền trên mọi tài khoản luôn có phạm vi “Tất cả cuộc trò chuyện”.</span>}
+      </div>
+
+      <div className="st-field">
         <span>Vai trò</span>
         <div className="sa-role-cards" role="radiogroup" aria-label="Vai trò">
           {(['viewer', 'agent'] as Role[]).map((r) => (
@@ -216,17 +270,22 @@ function GrantForm({ grant, data, onCancel, onSaved }: { grant?: Grant; data: Da
         <span>Phạm vi</span>
         <div className="sa-scope-choice" role="radiogroup" aria-label="Phạm vi">
           <label className="sa-radio">
-            <input type="radio" checked={all} onChange={() => setAll(true)} /> Tất cả cuộc trò chuyện
+            <input type="radio" checked={scopeAll} onChange={() => setAll(true)} /> Tất cả cuộc trò chuyện
           </label>
-          <label className="sa-radio">
-            <input type="radio" checked={!all} onChange={() => setAll(false)} /> Chọn cuộc trò chuyện và nhãn
+          <label className={`sa-radio ${every ? 'is-disabled' : ''}`}>
+            <input type="radio" checked={!scopeAll} disabled={every} onChange={() => setAll(false)} /> Chọn cuộc trò chuyện và nhãn
           </label>
         </div>
-        {!all && (
+        {!scopeAll && !accountData && (
           <div className="sa-scope">
-            {data.account.labels.length > 0 && (
+            <Spinner size={14} />
+          </div>
+        )}
+        {!scopeAll && accountData && (
+          <div className="sa-scope">
+            {accountData.labels.length > 0 && (
               <div className="sa-label-chips" aria-label="Nhãn">
-                {data.account.labels.map((l) => (
+                {accountData.labels.map((l) => (
                   <button
                     key={l.id}
                     type="button"
@@ -255,7 +314,7 @@ function GrantForm({ grant, data, onCancel, onSaved }: { grant?: Grant; data: Da
                   {c.isGroup && <Users size={13} className="sa-meta-text" aria-label="Nhóm" />}
                   <span className="sa-pick-labels">
                     {c.labels.map((id) => {
-                      const l = data.account.labels.find((x) => x.id === id);
+                      const l = accountData.labels.find((x) => x.id === id);
                       return l ? <span key={id} className="sa-label-dot" style={{ ['--label-color' as string]: cssColor(l.color) ?? 'var(--accent)' }} title={l.name} /> : null;
                     })}
                   </span>
@@ -298,9 +357,11 @@ function WhoSeesWhat({ data }: { data: Data }) {
     setAccess(null);
     if (id) void run(() => serverAdmin.access(id).then(setAccess));
   };
-  const roleText = (r: EffectiveAccess['role']) => (r === 'admin' ? 'Quản trị viên' : r ? roleNames[r] : 'Chưa có quyền');
+  const roleText = (r: Role | 'admin' | null | undefined) => (r === 'admin' ? 'Quản trị viên' : r ? roleNames[r] : 'Chưa có quyền');
+  // Per account (M5); no entry = no access there.
+  const entries = access ? Object.entries(access.accounts ?? {}) : [];
   return (
-    <Section title="Ai thấy gì" description="Chọn một người để xem quyền thực tế của họ (gộp từ quyền riêng và quyền của nhóm).">
+    <Section title="Ai thấy gì" description="Chọn một người để xem quyền thực tế của họ trên từng tài khoản Zalo (gộp từ quyền riêng và quyền của nhóm).">
       <Row label="Người dùng">
         <select className="st-input is-narrow" value={userId} onChange={(e) => pick(e.target.value)}>
           <option value="">Chọn người dùng…</option>
@@ -316,21 +377,28 @@ function WhoSeesWhat({ data }: { data: Data }) {
           <Spinner size={14} />
         </div>
       )}
-      {access && (
-        <>
-          <Row label="Vai trò" detail={access.role ? roleHints[access.role] : 'Không thấy cuộc trò chuyện nào.'}>
-            <span className="st-value">{roleText(access.role)}</span>
+      {access && access.admin && (
+        <Row label="Quản trị viên" detail={roleHints.admin}>
+          <span className="st-value">Mọi tài khoản · Tất cả cuộc trò chuyện</span>
+        </Row>
+      )}
+      {access && !access.admin && entries.length === 0 && <Row label="Chưa có quyền" detail="Người này không thấy tài khoản Zalo nào." />}
+      {access &&
+        !access.admin &&
+        entries.map(([id, a]) => (
+          <Row key={id} label={accountName(id, data.accounts)} detail={roleHints[a.role]}>
+            <span className="st-value">
+              {roleText(a.role)} · {scopeText(a.scope)}
+            </span>
           </Row>
-          <Row label="Phạm vi">
-            <span className="st-value">{access.role === 'admin' ? 'Tất cả cuộc trò chuyện' : scopeText(access.scope)}</span>
-          </Row>
-          {access.via.length > 0 && (
-            <Row
-              label="Từ các quyền"
-              detail={access.via.map((v) => `${v.subject.type === 'group' ? 'Nhóm ' : ''}${subjectName(v.subject, data)}: ${roleNames[v.role]}`).join(' · ')}
-            />
-          )}
-        </>
+        ))}
+      {access && (access.via ?? []).length > 0 && (
+        <Row
+          label="Từ các quyền"
+          detail={access.via
+            .map((v) => `${v.subject.type === 'group' ? 'Nhóm ' : ''}${subjectName(v.subject, data)}: ${roleNames[v.role]} trên ${accountName(v.account, data.accounts)}`)
+            .join(' · ')}
+        />
       )}
       {problem && <Problem text={problem} />}
     </Section>

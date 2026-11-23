@@ -3,6 +3,9 @@
 // (src-tauri/src/remote/client.rs) speaks: server → `hello`, `event`, `result`, `access`, `bye`; app → `invoke`. The UI
 // treats it as a joined app: commands go through the same routing (`routeJoined`), and the `remote_*` commands the
 // joined desktop UI uses are answered here (connection state, files, media, the REST API, sign-out).
+// Multiple Zalo accounts (M5): `hello` / `access` list the accounts the user may see; the one on screen is chosen here
+// (remembered per browser), events of other accounts are dropped unless the scope is "all", and every engine command
+// without an `account` gets the active one.
 
 import { routeJoined, type Backend, type EngineEvent, type RawInvoke } from '../backend';
 import { mediaUrl } from '../media';
@@ -67,6 +70,59 @@ export const createWebBackend = (): Backend => {
     emit('compola://remote', { kind: 'connection', ...connection });
   };
 
+  // MARK: Accounts
+
+  const activeKey = 'compola.web.activeAccount';
+  let accounts: Json[] = [];
+  let active: string | null = (() => {
+    try {
+      return localStorage.getItem(activeKey);
+    } catch {
+      return null;
+    }
+  })();
+  let eventScope: 'active' | 'all' = 'active';
+  let maxAccounts = 1;
+  const accountList = () => ({
+    active: active ?? '',
+    maxAccounts: Math.max(maxAccounts, accounts.length, 1),
+    accounts: accounts.map((a) => ({ ...a, active: a.id === active })),
+  });
+  const setActive = (id: string, announce: boolean) => {
+    if (id === active) return;
+    active = id;
+    try {
+      localStorage.setItem(activeKey, id);
+    } catch {
+      /* private mode */
+    }
+    if (announce) emit('compola://accounts', { kind: 'active', account: id });
+  };
+  /**
+   * The accounts of `hello`, `accounts` and `access` messages: `{active, maxAccounts, accounts: [summary…]}` (the ones
+   * this user may see; `active` = the server's default for them) or a bare list. The account on screen stays this
+   * browser's choice while it is in the list.
+   */
+  const applyAccounts = (value: unknown) => {
+    const wrapped = value && typeof value === 'object' && !Array.isArray(value) ? (value as Json) : null;
+    const list = Array.isArray(value) ? value : Array.isArray(wrapped?.accounts) ? (wrapped.accounts as unknown[]) : null;
+    if (!list) return;
+    if (typeof wrapped?.maxAccounts === 'number') maxAccounts = wrapped.maxAccounts;
+    accounts = (list.filter((a) => a && typeof a === 'object' && typeof (a as Json).id === 'string') as Json[]).sort(
+      (a, b) => Number(a.order ?? 0) - Number(b.order ?? 0),
+    );
+    const keep = accounts.some((a) => a.id === active);
+    const serverActive = typeof wrapped?.active === 'string' && accounts.some((a) => a.id === wrapped.active) ? String(wrapped.active) : null;
+    if (!keep && accounts.length) setActive(serverActive ?? String(accounts[0].id), true);
+    emit('compola://accounts', { kind: 'changed', list: accountList() });
+  };
+  /** Events that reach the UI whatever account they belong to (docs/multi-account.md §6). */
+  const everyAccount = new Set(['compola://badge', 'compola://call-event', 'compola://accounts', 'compola://notification-click', 'compola://remote']);
+  const delivers = (event: string, account: unknown, payload: unknown) => {
+    const id = typeof account === 'string' && account ? account : typeof (payload as Json | null)?.account === 'string' ? String((payload as Json).account) : '';
+    return !id || !active || id === active || eventScope === 'all' || everyAccount.has(event);
+  };
+
   let ws: WebSocket | null = null;
   let attempt = 0;
   let retryTimer: ReturnType<typeof setTimeout> | undefined;
@@ -95,7 +151,9 @@ export const createWebBackend = (): Backend => {
       if (res.ok) {
         const me = (await res.json()) as { user?: Json; access?: Json | null };
         if (me.user) connection.user = { username: me.user.username, displayName: me.user.displayName };
-        if (!me.access?.role) {
+        // `{admin, accounts}` (multi-account servers) or `{role, scope}`.
+        const access = me.access as { role?: unknown; admin?: unknown; accounts?: Record<string, unknown> } | null | undefined;
+        if (!access || (!access.role && !access.admin && !Object.keys(access.accounts ?? {}).length)) {
           update({ error: 'Tài khoản của bạn chưa được cấp quyền dùng tài khoản Zalo này. Hãy liên hệ quản trị viên.' });
           return false;
         }
@@ -143,6 +201,7 @@ export const createWebBackend = (): Backend => {
             user: msg.user ?? connection.user,
             access: msg.access ?? null,
           });
+          applyAccounts(msg.accounts);
           waiters.splice(0).forEach((w) => w());
           break;
         }
@@ -157,11 +216,15 @@ export const createWebBackend = (): Backend => {
         }
         case 'event': {
           const event = String(msg.event ?? '');
-          if (event === notificationEvent) showNotification((msg.payload ?? {}) as Json);
-          else if (event.startsWith('compola://')) emit(event, msg.payload ?? null);
+          if (event === notificationEvent) showNotification((msg.payload ?? {}) as Json, msg.account);
+          else if (event.startsWith('compola://') && delivers(event, msg.account, msg.payload)) emit(event, msg.payload ?? null);
           break;
         }
+        case 'accounts':
+          applyAccounts(msg.accounts);
+          break;
         case 'access':
+          if (msg.accounts) applyAccounts(msg.accounts);
           if (msg.access) {
             update({ access: msg.access });
             emit('compola://remote', { kind: 'access', access: msg.access });
@@ -203,6 +266,11 @@ export const createWebBackend = (): Backend => {
   /** One of the engine's commands, run by the host (`remote_invoke` of the desktop). */
   const invokeRemote = async (cmd: string, args: unknown): Promise<unknown> => {
     await waitConnected(20_000);
+    // Engine commands act on the account on screen unless they name one.
+    if (cmd.startsWith('engine_') && active) {
+      const a = (args && typeof args === 'object' ? args : {}) as Json;
+      if (!a.account) args = { ...a, account: active };
+    }
     const id = nextId++;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -230,11 +298,12 @@ export const createWebBackend = (): Backend => {
     return p === 'granted' ? 'authorized' : p === 'denied' ? 'denied' : p === 'default' ? 'notDetermined' : 'unavailable';
   };
 
-  function showNotification(payload: Json) {
+  function showNotification(payload: Json, wireAccount: unknown) {
     if (permission() !== 'granted') return;
     const tag = typeof payload.tag === 'string' ? payload.tag : '';
+    const account = typeof payload.account === 'string' ? payload.account : typeof wireAccount === 'string' ? wireAccount : '';
     // The chat on screen does not notify (the desktop suppresses it the same way).
-    if (document.hasFocus() && tag && tag === openConversation) return;
+    if (document.hasFocus() && tag && tag === openConversation && (!account || account === active)) return;
     const image = typeof payload.image === 'string' && payload.image ? `data:image/png;base64,${payload.image}` : undefined;
     try {
       const n = new Notification(showsPreview ? String(payload.title ?? 'Compola') : 'Compola', {
@@ -246,7 +315,8 @@ export const createWebBackend = (): Backend => {
       n.onclick = () => {
         window.focus();
         n.close();
-        if (tag) emit('compola://notification-click', { id: tag, convId: tag });
+        // With the account: lifecycle switches to it first when it is not the one on screen.
+        if (tag) emit('compola://notification-click', { id: tag, convId: tag, ...(account ? { account } : {}) });
       };
     } catch {
       /* some browsers only allow notifications from a service worker */
@@ -329,7 +399,7 @@ export const createWebBackend = (): Backend => {
           const refs = Array.isArray(a.files) ? (a.files as string[]) : await pickFiles(typeof a.pick === 'string' ? a.pick : null);
           if (!refs.length) return null;
           const files = await uploadRefs(refs);
-          return invokeRemote('engine_call_with_files', { target: a.target, method: a.method, args: a.args, files });
+          return invokeRemote('engine_call_with_files', { target: a.target, method: a.method, args: a.args, files, ...(a.account ? { account: a.account } : {}) });
         }
         case 'remote_media_save': {
           const dest = String(a.destPath ?? '');
@@ -347,6 +417,19 @@ export const createWebBackend = (): Backend => {
           return `${location.origin}${next}`;
         }
         case 'remote_join_cancel':
+          return null;
+        // Multiple Zalo accounts
+        case 'remote_accounts_list':
+          return accountList();
+        case 'remote_account_set_active': {
+          const id = String(a.account ?? '');
+          if (!accounts.some((x) => x.id === id)) throw 'Tài khoản không tồn tại';
+          setActive(id, true);
+          emit('compola://accounts', { kind: 'changed', list: accountList() });
+          return null;
+        }
+        case 'remote_set_event_scope':
+          eventScope = a.scope === 'all' ? 'all' : 'active';
           return null;
         // Kept local by the joined routing
         case 'ui_set_open_conversation':

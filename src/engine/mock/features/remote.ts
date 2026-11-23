@@ -6,12 +6,12 @@
 //   bằng trình duyệt" is approved after 6 s. A joined mock is remembered for the tab (sessionStorage) until
 //   "Rời máy chủ".
 // * `&remote=agent|viewer|admin` starts joined right away (admin: Settings › Compola Server › Quản trị máy chủ); `&remote=offline` cannot connect until "Thử lại";
+//   `&accounts=3` with `&remote=…`: per-account access (M5) over the mock's three Zalo accounts.
 //   `&providers=many` lists five SSO providers (tiles instead of buttons).
 //   `&remote=drop` loses the connection 6 s after connecting and gets it back 4 s later (the page then reloads; once
 //   per tab).
 
 import type { Json } from '../../models/json';
-import { fakeQr } from '../mockData';
 import { mockContext, registerMockCommand } from '../registry';
 
 const storageKey = 'compola.mockRemote';
@@ -46,6 +46,21 @@ const readJoin = (): MockJoin | null => {
 };
 
 const join = readJoin();
+
+/**
+ * The user's access. `&accounts=3`: the M5 shape over the mock's three Zalo accounts (mock/features/accounts.ts), the
+ * agent being a viewer on the second one (switch accounts to see the composer lock); otherwise the older single shape.
+ */
+const mockAccess = (role: MockJoin['role']): Json => {
+  const scoped = { all: false, conversations: ['g-k15', 'u-tuan', 'u-minh'], labels: ['l1'] };
+  const all = { all: true, conversations: [], labels: [] };
+  if (!new URLSearchParams(location.search).has('accounts')) return { role, scope: role === 'viewer' ? scoped : all };
+  if (role === 'admin') return { admin: true, accounts: {} };
+  return {
+    admin: false,
+    accounts: role === 'viewer' ? { default: { role: 'viewer', scope: scoped } } : { default: { role: 'agent', scope: all }, a1b2c3d4e: { role: 'viewer', scope: all } },
+  };
+};
 const scenario = new URLSearchParams(location.search).get('remote');
 const computerName = 'MacBook Pro của Lan';
 
@@ -65,7 +80,7 @@ let connection: Json | null = join
       everConnected: false,
       retryAt: null,
       user: { username: join.username, displayName: join.displayName },
-      access: { role: join.role, scope: join.role === 'viewer' ? { all: false, conversations: ['g-k15', 'u-tuan', 'u-minh'], labels: ['l1'] } : { all: true, conversations: [], labels: [] } },
+      access: mockAccess(join.role),
     }
   : null;
 let offline = scenario === 'offline';
@@ -296,8 +311,7 @@ registerMockCommand('remote_kick', (args) => {
 // MARK: - remote_api (native admin screens)
 //
 // Everything below `admin/` is served by the admin console's own in-memory server (admin/src/mock.ts, the same data
-// and rules as `npm run dev:admin`), signed in as its admin. `admin/zalo*` (the host's Zalo account) is simulated
-// here: `&zalo=login|preparing` starts signed out / preparing; a shown QR is "scanned" after 8 s.
+// and rules as `npm run dev:admin`, including the host's Zalo accounts and their QR cycle), signed in as its admin.
 
 type AdminMockHandler = (method: string, path: string, body: unknown) => Promise<{ status: number; body: unknown }>;
 let adminMock: Promise<AdminMockHandler> | null = null;
@@ -313,54 +327,9 @@ const adminHandler = () => {
   return adminMock;
 };
 
-const zaloAccount = { name: 'Shop Compola', avatar: '' };
-const zaloStart = new URLSearchParams(location.search).get('zalo');
-let zaloPhase: Json =
-  zaloStart === 'preparing'
-    ? { kind: 'preparing', setup: { step: 'downloading', received: 0, total: 0, failure: 'Không tải được Zalo PC (timeout).' } }
-    : zaloStart === 'login'
-      ? { kind: 'login', login: { step: { kind: 'waitingScan' }, qr: fakeQr(7), isSecondQr: false } }
-      : { kind: 'ready' };
-let zaloTimers: ReturnType<typeof setTimeout>[] = [];
-const zaloLater = (ms: number, fn: () => void) => zaloTimers.push(setTimeout(fn, ms));
-const zaloClear = () => {
-  zaloTimers.forEach(clearTimeout);
-  zaloTimers = [];
-};
-
-/** A fresh QR, "scanned" on a phone after 8 s, confirmed 3 s later. */
-const zaloShowQr = () => {
-  zaloClear();
-  zaloPhase = { kind: 'login', login: { step: { kind: 'generating' }, qr: null, isSecondQr: false } };
-  zaloLater(600, () => (zaloPhase = { kind: 'login', login: { step: { kind: 'waitingScan' }, qr: fakeQr(Date.now() % 97), isSecondQr: false } }));
-  zaloLater(8600, () => (zaloPhase = { kind: 'login', login: { step: { kind: 'waitingConfirm', name: zaloAccount.name, avatar: null }, qr: null, isSecondQr: false } }));
-  zaloLater(11600, () => (zaloPhase = { kind: 'signingIn' }));
-  zaloLater(13000, () => (zaloPhase = { kind: 'ready' }));
-};
-if (zaloStart === 'login') zaloLater(8000, () => zaloShowQr());
-
-const zaloApi = (method: string, path: string): unknown => {
-  if (method === 'GET' && path === 'admin/zalo')
-    return { phase: zaloPhase, account: zaloPhase.kind === 'ready' ? { ...zaloAccount, phase: 'ready' } : null };
-  if (method === 'POST' && path === 'admin/zalo/qr') return zaloShowQr(), { ok: true };
-  if (method === 'POST' && path === 'admin/zalo/logout') return zaloShowQr(), { ok: true };
-  if (method === 'POST' && path === 'admin/zalo/retry') {
-    zaloClear();
-    zaloPhase = { kind: 'preparing', setup: { step: 'downloading', received: 0, total: 100, failure: null } };
-    for (let i = 1; i <= 10; i++) zaloLater(i * 300, () => (zaloPhase = { kind: 'preparing', setup: { step: 'downloading', received: i * 10, total: 100, failure: null } }));
-    zaloLater(3600, () => zaloShowQr());
-    return { ok: true };
-  }
-  throw 'Không tìm thấy.';
-};
-
 registerMockCommand('remote_api', async (args) => {
   const method = String(args.method ?? 'GET').toUpperCase();
   const path = String(args.path ?? '').replace(/^\/+/, '');
-  if (path.startsWith('admin/zalo')) {
-    await delay(150);
-    return zaloApi(method, path);
-  }
   const handle = await adminHandler();
   const res = await handle(method, `/api/${path}`, args.body ?? undefined);
   if (res.status >= 200 && res.status < 300) return res.body;

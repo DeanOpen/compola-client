@@ -6,7 +6,8 @@
 // `audio` / `file` for `cors`. `retry=1` only for a user's retry click (a failed image URL is otherwise not fetched again
 // for 20 s). Errors come back as an HTTP status plus `X-Compola-Error`: an <img> just gets `onerror`.
 
-import { usesMock, usesWeb } from './backend';
+import { activeAccountId } from './activeAccount';
+import { joinedSync, usesMock, usesWeb } from './backend';
 import { isWebFile, webPreviewUrl } from './web/webFiles';
 
 export type MediaFlavour = 'image' | 'cors' | 'video' | 'audio' | 'file';
@@ -17,12 +18,22 @@ const isWindows = typeof navigator !== 'undefined' && /Windows/i.test(navigator.
 // The web client loads the same queries from the server's `/media/load` (the cookie authenticates them).
 const origin = usesWeb ? '/media' : isWindows ? 'http://compola-media.localhost' : 'compola-media:/';
 
+/**
+ * `&account=<id>` for a Compola Server (joined app, web client): the server serves the media of that Zalo account and
+ * checks it against the user's access (docs/compola-server.md, M5). The local host uses its active account.
+ */
+const accountParam = () => {
+  if (!usesWeb && !joinedSync()) return '';
+  const id = activeAccountId();
+  return id ? `&account=${encodeURIComponent(id)}` : '';
+};
+
 /** URL for an `<img>` / `<video>` / `<audio>` src. */
 export const mediaUrl = (url: string | null | undefined, flavour: MediaFlavour = 'image', retry = false): string | null => {
   if (!url) return null;
   if (url.startsWith('data:') || url.startsWith('blob:')) return url;
   if (usesMock) return url;
-  return `${origin}/load?url=${encodeURIComponent(url)}&flavour=${schemeFlavour(flavour)}${retry ? '&retry=1' : ''}`;
+  return `${origin}/load?url=${encodeURIComponent(url)}&flavour=${schemeFlavour(flavour)}${retry ? '&retry=1' : ''}${accountParam()}`;
 };
 
 /**
@@ -31,7 +42,7 @@ export const mediaUrl = (url: string | null | undefined, flavour: MediaFlavour =
  */
 export const mediaFileUrl = (path: string, flavour: MediaFlavour = 'image', retry = false): string | null => {
   if (!path.startsWith('/') || usesMock) return null;
-  return `${origin}/load?file=${encodeURIComponent(path)}&flavour=${schemeFlavour(flavour)}${retry ? '&retry=1' : ''}`;
+  return `${origin}/load?file=${encodeURIComponent(path)}&flavour=${schemeFlavour(flavour)}${retry ? '&retry=1' : ''}${accountParam()}`;
 };
 
 /**

@@ -4,6 +4,7 @@
 // against the real server), imported as types only.
 
 import type {
+  AccountAccess,
   AccountData,
   EffectiveAccess,
   Grant,
@@ -15,17 +16,22 @@ import type {
   Timestamp,
   User,
   UserBrief,
+  ZaloAccount,
+  ZaloAccounts,
 } from '../../admin/src/types';
 import { backend } from './backend';
 import type { Phase } from './models/phase';
 
-export type { AccountData, EffectiveAccess, Grant, Group, Role, Scope, Session, Subject, Timestamp, User, UserBrief };
+export type { AccountAccess, AccountData, EffectiveAccess, Grant, Group, Role, Scope, Session, Subject, Timestamp, User, UserBrief, ZaloAccount, ZaloAccounts };
 
-/** `GET admin/zalo`: the host's engine phase and its signed-in account. */
-export interface ZaloStatus {
-  phase: Phase;
-  account: { name: string; avatar: string; phase: string } | null;
+/** `GET admin/accounts/<id>`: one Zalo account of the host and its engine phase (`phase.login.qr` while signing in). */
+export interface ZaloAccountDetail {
+  account: ZaloAccount;
+  phase: Phase | null;
 }
+
+/** A grant on every account of the host, present and future (requires `scope.all`). */
+export const everyAccount = '*';
 
 export interface UserInput {
   username: string;
@@ -66,11 +72,23 @@ const one = <T>(value: unknown, key: string): T => {
 const enc = encodeURIComponent;
 
 export const serverAdmin = {
-  // The host's Zalo account
-  zalo: () => api<ZaloStatus>('GET', 'admin/zalo'),
-  zaloNewQr: () => api('POST', 'admin/zalo/qr', {}),
-  zaloLogout: () => api('POST', 'admin/zalo/logout', {}),
+  // The host's Zalo accounts (M5). `admin/zalo*` is the alias of "default"; the runtime setup's retry is global.
   zaloRetry: () => api('POST', 'admin/zalo/retry', {}),
+  accounts: () =>
+    api<Partial<ZaloAccounts> | null>('GET', 'admin/accounts').then(
+      (r): ZaloAccounts => ({
+        active: r?.active ?? 'default',
+        maxAccounts: r?.maxAccounts ?? 1,
+        accounts: [...(r?.accounts ?? [])].sort((a, b) => a.order - b.order),
+      }),
+    ),
+  account: (id: string) => api<ZaloAccountDetail>('GET', `admin/accounts/${enc(id)}`),
+  addAccount: () => api<{ id: string }>('POST', 'admin/accounts', {}),
+  accountQr: (id: string) => api('POST', `admin/accounts/${enc(id)}/qr`, {}),
+  accountLogout: (id: string) => api('POST', `admin/accounts/${enc(id)}/logout`, {}),
+  deleteAccount: (id: string) => api('DELETE', `admin/accounts/${enc(id)}`),
+  updateAccount: (id: string, patch: { label?: string; enabled?: boolean }) => api('PATCH', `admin/accounts/${enc(id)}`, patch),
+  reorderAccounts: (ids: string[]) => api('PUT', 'admin/accounts/order', { ids }),
 
   // Users
   users: () => api('GET', 'admin/users').then((r) => list<User>(r, 'users')),
@@ -93,8 +111,12 @@ export const serverAdmin = {
   updateGrant: (id: string, patch: Partial<GrantInput>) => api('PATCH', `admin/grants/${enc(id)}`, patch),
   deleteGrant: (id: string) => api('DELETE', `admin/grants/${enc(id)}`),
   access: (userId: string) => api<EffectiveAccess>('GET', `admin/access/${enc(userId)}`),
-  accountData: () =>
-    api<Partial<AccountData> | null>('GET', 'admin/conversations').then((r) => ({ conversations: r?.conversations ?? [], labels: r?.labels ?? [] })),
+  /** Conversations and labels of one account, for the grant editor (default: "default"). */
+  accountData: (account?: string) =>
+    api<Partial<AccountData> | null>('GET', `admin/conversations${account ? `?account=${enc(account)}` : ''}`).then((r) => ({
+      conversations: r?.conversations ?? [],
+      labels: r?.labels ?? [],
+    })),
 
   // Sign-in providers (names for the user source picker)
   providers: () =>
@@ -158,5 +180,12 @@ export const scopeText = (scope: Scope | null | undefined) => {
 /** "Nguyễn Thị Lan (@lan)" — a person, never a device. */
 export const personText = (u: { username: string; displayName?: string } | null | undefined) =>
   !u ? 'Không rõ' : u.displayName && u.displayName !== u.username ? `${u.displayName} (@${u.username})` : `@${u.username}`;
+
+/** The phase kind of an account summary (the server sends the kind, or the phase object). */
+export const accountPhaseKind = (a: Pick<ZaloAccount, 'phase'>) => (typeof a.phase === 'string' ? a.phase : (a.phase?.kind ?? 'starting'));
+
+/** The admin's label, else the Zalo name, else a placeholder. */
+export const zaloAccountTitle = (a: Pick<ZaloAccount, 'id' | 'label' | 'name'> | null | undefined) =>
+  !a ? 'Tài khoản đã xoá' : a.label || a.name || (a.id === 'default' ? 'Tài khoản chính' : 'Chưa đăng nhập');
 
 export const errorText = (e: unknown) => (e instanceof Error ? e.message : typeof e === 'string' ? e : String(e));
