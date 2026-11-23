@@ -359,3 +359,38 @@
   background: var(--accent);
   transition: width 0.3s ease;
 }
+
+/* Zalo accounts list: the avatar and text open the account */
+.sa-account-open {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+}
+
+.sa-account-open .st-row-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.sa-toolbar-end {
+  margin-left: auto;
+}
+
+.sa-sub-back {
+  margin: -6px 0 10px -4px;
+}
+
+.sa-account-pick {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sa-radio.is-disabled {
+  opacity: 0.5;
+  cursor: default;
+}

@@ -3,6 +3,7 @@
 // src-tauri/src/remote/mod.rs; the store is fed by `compola://remote` plus the initial `remote_status`.
 
 import { create } from 'zustand';
+import { useAccounts } from './accounts';
 import { backend, usesWeb } from './backend';
 import { arr, bool, num, obj, optStr, str, strings, type Json } from './models/json';
 
@@ -17,10 +18,21 @@ export interface RemoteScope {
   labels: string[];
 }
 
-export interface RemoteAccess {
-  /** null: signed in but no grant (the host refuses everything). */
+/** Access to one Zalo account of the server. */
+export interface RemoteAccountAccess {
+  /** null: no grant on that account (the host refuses everything there). */
   role: RemoteRole | null;
   scope: RemoteScope;
+}
+
+/**
+ * The signed-in user's access. Multi-account servers (docs/compola-server.md, M5) send `{admin, accounts: {<id>:
+ * {role, scope}}}`; older ones a single `{role, scope}` (kept in `role` / `scope`, `accounts` empty). Read it for the
+ * account on screen with `accessFor`.
+ */
+export interface RemoteAccess extends RemoteAccountAccess {
+  admin: boolean;
+  accounts: Record<string, RemoteAccountAccess>;
 }
 
 export interface RemoteUser {
@@ -142,11 +154,38 @@ const parseUser = (v: unknown): RemoteUser | null => {
   return { username, displayName: str(o.displayName) || username };
 };
 
+const parseScope = (v: unknown): RemoteScope => {
+  const scope = obj(v);
+  return { all: bool(scope?.all), conversations: strings(scope?.conversations), labels: strings(scope?.labels) };
+};
+
+const allScope: RemoteScope = { all: true, conversations: [], labels: [] };
+const noScope: RemoteScope = { all: false, conversations: [], labels: [] };
+
 export const parseAccess = (v: unknown): RemoteAccess | null => {
   const o = obj(v);
   if (!o) return null;
-  const scope = obj(o.scope);
-  return { role: role(o.role), scope: { all: bool(scope?.all), conversations: strings(scope?.conversations), labels: strings(scope?.labels) } };
+  const perAccount = obj(o.accounts);
+  if (perAccount || typeof o.admin === 'boolean') {
+    const admin = bool(o.admin);
+    const accounts: Record<string, RemoteAccountAccess> = {};
+    for (const [id, a] of Object.entries(perAccount ?? {})) {
+      const r = obj(a);
+      if (r) accounts[id] = { role: role(r.role), scope: parseScope(r.scope) };
+    }
+    return { admin, accounts, role: admin ? 'admin' : null, scope: admin ? allScope : noScope };
+  }
+  const r = role(o.role);
+  return { admin: r === 'admin', accounts: {}, role: r, scope: parseScope(o.scope) };
+};
+
+/** The access on one Zalo account (the account on screen); admins are admins everywhere. */
+export const accessFor = (access: RemoteAccess | null | undefined, accountId: string | null | undefined): RemoteAccountAccess | null => {
+  if (!access) return null;
+  if (access.admin) return { role: 'admin', scope: allScope };
+  const ids = Object.keys(access.accounts);
+  if (!ids.length) return { role: access.role, scope: access.scope };
+  return access.accounts[accountId ?? ids[0]] ?? { role: null, scope: noScope };
 };
 
 export const parseConnection = (v: unknown): RemoteConnection | null => {
@@ -331,10 +370,17 @@ export const initRemote = (): Promise<void> => {
 
 // MARK: - Selectors
 
-export const isViewerState = (s: RemoteStore) => s.mode === 'joined' && s.connection?.access?.role === 'viewer';
+/** The role on the account on screen (joined; null otherwise or without a grant there). */
+export const activeRoleState = (s: RemoteStore, accountId: string | null) =>
+  s.mode === 'joined' ? (accessFor(s.connection?.access, accountId)?.role ?? null) : null;
 
-/** Joined with read-only access: the UI hides its write actions (the host refuses them anyway). */
-export const useIsViewer = () => useRemote(isViewerState);
+export const useActiveRole = () => {
+  const accountId = useAccounts((a) => a.activeId);
+  return useRemote((s) => activeRoleState(s, accountId));
+};
+
+/** Joined with read-only access to the account on screen: the UI hides its write actions (the host refuses them). */
+export const useIsViewer = () => useActiveRole() === 'viewer';
 
 export const useIsJoinedUi = () => useRemote((s) => s.mode === 'joined');
 
@@ -342,9 +388,12 @@ export const useIsJoinedUi = () => useRemote((s) => s.mode === 'joined');
  * Joined without the admin role: the account's own settings (notifications, sticker suggestions, the hidden-chat PIN,
  * Zalo labels) belong to the host's admins, so the UI disables them with `adminOnlyHint` instead of letting them fail.
  */
-export const hostSettingsLockedState = (s: RemoteStore) => s.mode === 'joined' && s.connection?.access?.role !== 'admin';
+export const hostSettingsLockedState = (s: RemoteStore) => s.mode === 'joined' && !s.connection?.access?.admin;
 export const useHostSettingsLocked = () => useRemote(hostSettingsLockedState);
 export const hostSettingsLocked = () => hostSettingsLockedState(useRemote.getState());
+
+/** A server admin (Quản trị máy chủ; every account). */
+export const useIsServerAdmin = () => useRemote((s) => s.mode === 'joined' && !!s.connection?.access?.admin);
 export const adminOnlyHint = 'Chỉ quản trị viên Compola Server đổi được cài đặt này.';
 
 /** "Nguyễn Thị Lan (@lan.nguyen)": the server account a joined app is signed in with (never the device). */

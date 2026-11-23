@@ -4,8 +4,10 @@
 
 import { Check, Copy, Globe, LogOut, Monitor } from 'lucide-react';
 import { useEffect, useState, type FormEvent } from 'react';
+import { accountTitle, useAccounts } from '../../engine/accounts';
 import { formatTime } from '../../engine/automation';
 import {
+  accessFor,
   errorText,
   remote,
   deviceTitle,
@@ -333,13 +335,21 @@ const connectionTitle = (state: string | undefined) => (state === 'connected' ? 
 function JoinedSettings({ onAdmin }: { onAdmin: (page: AdminPage) => void }) {
   const connection = useRemote((s) => s.connection);
   const [confirmLeave, setConfirmLeave] = useState(false);
-  const access = connection?.access;
+  // Multi-account servers: the role and scope on the Zalo account on screen.
+  const activeAccount = useAccounts((s) => s.accounts.find((a) => a.id === s.activeId) ?? null);
+  const access = accessFor(connection?.access, activeAccount?.id ?? null);
+  const admin = !!connection?.access?.admin;
   return (
     <>
       <Section title="Tài khoản" footer="Bạn dùng tài khoản Zalo của máy chủ theo quyền quản trị viên cấp cho tài khoản này.">
         <Row label="Đăng nhập với tư cách">
           <span className="st-value">{userTitle(connection?.user)}</span>
         </Row>
+        {activeAccount && (
+          <Row label="Tài khoản Zalo đang xem">
+            <span className="st-value">{accountTitle(activeAccount)}</span>
+          </Row>
+        )}
         <Row label="Vai trò" detail={access?.role === 'viewer' ? 'Chỉ đọc: không gửi, thả cảm xúc hay thu hồi tin nhắn.' : undefined}>
           <span className="st-value">{roleTitle(access?.role)}</span>
         </Row>
@@ -347,7 +357,7 @@ function JoinedSettings({ onAdmin }: { onAdmin: (page: AdminPage) => void }) {
           <span className="st-value">{access ? scopeSummary(access.scope) : '—'}</span>
         </Row>
       </Section>
-      {access?.role === 'admin' && <ServerAdminSection onOpen={onAdmin} />}
+      {admin && <ServerAdminSection onOpen={onAdmin} />}
       <Section title="Máy chủ">
         <Row label="Tên">
           <span className="st-value">{connection?.serverName || '—'}</span>

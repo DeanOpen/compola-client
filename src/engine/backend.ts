@@ -2,6 +2,7 @@
 // Compola Server at `/web/` (WebSocket to the server, src/engine/web/webBackend.ts); or the in-browser mock (`?mock=1`,
 // or any other page outside Tauri) so the UI can be developed in a plain browser.
 
+import { activeAccountId } from './activeAccount';
 import type { Phase } from './models/phase';
 
 export type EngineEvent =
@@ -70,7 +71,15 @@ const joinedRewritten: Record<string, string> = {
   media_save: 'remote_media_save',
   media_open_file: 'remote_media_open_file',
   engine_logout: 'remote_leave',
+  // Multiple Zalo accounts (docs/compola-server.md, M5): the server's accounts; choosing one is local to this UI.
+  accounts_list: 'remote_accounts_list',
+  account_set_active: 'remote_account_set_active',
+  ui_set_event_scope: 'remote_set_event_scope',
 };
+
+/** Managing the server's Zalo accounts is for its admins, in Quản trị máy chủ. */
+const joinedAccountCommands = new Set(['account_add', 'account_remove', 'account_set_enabled', 'account_rename', 'account_reorder']);
+export const joinedAccountsRefusal = 'Quản lý tài khoản Zalo trong Quản trị máy chủ.';
 
 /** Only make sense on the machine signed in to Zalo. */
 const joinedRefused = new Set(['screen_capture_start', 'call_show_window', 'engine_show_renderer', 'engine_switch_to_sqlite', 'engine_eval']);
@@ -83,6 +92,14 @@ export const joinedRefusal = 'Tính năng này chỉ dùng được trên máy c
 /** A joined UI's command (desktop joined mode and the web client): kept local, rewritten, refused, or run by the host. */
 export const routeJoined = <T>(raw: RawInvoke, command: string, args?: Record<string, unknown>): Promise<T> => {
   if (command.startsWith('remote_') || joinedLocal.has(command)) return raw<T>(command, args);
+  // Signing one Zalo account out (`engine_logout {account}`) is not leaving the server.
+  if (joinedAccountCommands.has(command) || (command === 'engine_logout' && args?.account)) return Promise.reject(joinedAccountsRefusal);
+  // Engine and media commands act on the account on screen unless they name one. Set here, not only by the
+  // transport: right after a switch the UI already reads the new account while `account_set_active` is in flight.
+  const account = activeAccountId();
+  if (account && !args?.account && (command.startsWith('engine_') || command === 'media_save' || command === 'media_open_file')) {
+    args = { ...(args ?? {}), account };
+  }
   const rewritten = joinedRewritten[command];
   if (rewritten) return raw<T>(rewritten, args);
   if (

@@ -8,6 +8,7 @@ import { useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import {
   accountTitle,
+  accountsManagedHere,
   beginAddAccount,
   canAddAccount,
   defaultAccountId,
@@ -41,6 +42,8 @@ export function AccountsSettings() {
   const max = useAccounts((s) => s.maxAccounts);
   const [removing, setRemoving] = useState<AccountInfo | null>(null);
   const [renaming, setRenaming] = useState<AccountInfo | null>(null);
+  // On a Compola Server the list is read-only here (switching stays).
+  const manage = accountsManagedHere();
   if (!accounts.length) return null;
   const move = (i: number, d: -1 | 1) => {
     const ids = accounts.map((a) => a.id);
@@ -49,7 +52,7 @@ export function AccountsSettings() {
   };
   return (
     <div className="st-section">
-      <div className="st-section-title">Tài khoản Zalo trên Compola</div>
+      <div className="st-section-title">{manage ? 'Tài khoản Zalo trên Compola' : 'Tài khoản Zalo trên Compola Server'}</div>
       <div className="st-group">
         {accounts.map((a, i) => {
           const active = a.id === activeId;
@@ -63,24 +66,28 @@ export function AccountsSettings() {
                 </div>
                 <div className="accounts-sub truncate">{stateText(a)}</div>
               </div>
-              <button className="icon-button accounts-icon" title="Đặt tên gợi nhớ" aria-label="Đặt tên gợi nhớ" onClick={() => setRenaming(a)}>
-                <Pencil size={13} />
-              </button>
-              <button className="icon-button accounts-icon" disabled={i === 0} title="Lên" aria-label="Lên" onClick={() => move(i, -1)}>
-                <ArrowUp size={14} />
-              </button>
-              <button className="icon-button accounts-icon" disabled={i === accounts.length - 1} title="Xuống" aria-label="Xuống" onClick={() => move(i, 1)}>
-                <ArrowDown size={14} />
-              </button>
-              <input
-                type="checkbox"
-                className="app-switch"
-                checked={a.enabled}
-                disabled={active}
-                title={active ? 'Không thể tắt tài khoản đang dùng' : a.enabled ? 'Tắt: giữ dữ liệu nhưng không nhận tin nhắn, không thông báo' : 'Bật tài khoản'}
-                aria-label={`Bật ${accountTitle(a)}`}
-                onChange={(e) => setAccountEnabled(a.id, e.target.checked)}
-              />
+              {manage && (
+                <>
+                  <button className="icon-button accounts-icon" title="Đặt tên gợi nhớ" aria-label="Đặt tên gợi nhớ" onClick={() => setRenaming(a)}>
+                    <Pencil size={13} />
+                  </button>
+                  <button className="icon-button accounts-icon" disabled={i === 0} title="Lên" aria-label="Lên" onClick={() => move(i, -1)}>
+                    <ArrowUp size={14} />
+                  </button>
+                  <button className="icon-button accounts-icon" disabled={i === accounts.length - 1} title="Xuống" aria-label="Xuống" onClick={() => move(i, 1)}>
+                    <ArrowDown size={14} />
+                  </button>
+                  <input
+                    type="checkbox"
+                    className="app-switch"
+                    checked={a.enabled}
+                    disabled={active}
+                    title={active ? 'Không thể tắt tài khoản đang dùng' : a.enabled ? 'Tắt: giữ dữ liệu nhưng không nhận tin nhắn, không thông báo' : 'Bật tài khoản'}
+                    aria-label={`Bật ${accountTitle(a)}`}
+                    onChange={(e) => setAccountEnabled(a.id, e.target.checked)}
+                  />
+                </>
+              )}
               {active ? (
                 <span className="accounts-current">Đang dùng</span>
               ) : (
@@ -88,26 +95,33 @@ export function AccountsSettings() {
                   Chuyển
                 </button>
               )}
-              <button className="icon-button accounts-icon" disabled={a.phase !== 'ready'} title="Đăng xuất" aria-label="Đăng xuất" onClick={() => signOutAccount(a.id)}>
-                <LogOut size={14} />
-              </button>
-              <button
-                className="icon-button accounts-icon is-danger"
-                disabled={active || a.id === defaultAccountId}
-                title={a.id === defaultAccountId ? 'Tài khoản chính chỉ có thể đăng xuất' : active ? 'Chuyển sang tài khoản khác để xóa' : 'Xóa khỏi Compola'}
-                aria-label="Xóa khỏi Compola"
-                onClick={() => setRemoving(a)}
-              >
-                <Trash2 size={14} />
-              </button>
+              {manage && (
+                <>
+                  <button className="icon-button accounts-icon" disabled={a.phase !== 'ready'} title="Đăng xuất" aria-label="Đăng xuất" onClick={() => signOutAccount(a.id)}>
+                    <LogOut size={14} />
+                  </button>
+                  <button
+                    className="icon-button accounts-icon is-danger"
+                    disabled={active || a.id === defaultAccountId}
+                    title={a.id === defaultAccountId ? 'Tài khoản chính chỉ có thể đăng xuất' : active ? 'Chuyển sang tài khoản khác để xóa' : 'Xóa khỏi Compola'}
+                    aria-label="Xóa khỏi Compola"
+                    onClick={() => setRemoving(a)}
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </>
+              )}
             </div>
           );
         })}
-        <button className="accounts-add" disabled={!canAddAccount()} onClick={() => void beginAddAccount()}>
-          <Plus size={15} /> {canAddAccount() ? 'Thêm tài khoản Zalo' : `Đã đủ ${max} tài khoản`}
-          <span className="accounts-key">⇧⌘N</span>
-        </button>
+        {manage && (
+          <button className="accounts-add" disabled={!canAddAccount()} onClick={() => void beginAddAccount()}>
+            <Plus size={15} /> {canAddAccount() ? 'Thêm tài khoản Zalo' : `Đã đủ ${max} tài khoản`}
+            <span className="accounts-key">⇧⌘N</span>
+          </button>
+        )}
       </div>
+      {!manage && <div className="st-footer">Các tài khoản Zalo của Compola Server mà bạn được cấp quyền. Quản trị viên thêm, đăng xuất hoặc xóa tài khoản trong Quản trị máy chủ.</div>}
       {removing && (
         <Alert
           title={`Xóa ${accountTitle(removing)} khỏi Compola?`}
