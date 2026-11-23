@@ -2,7 +2,7 @@
 // ("Đặt tên gợi nhớ", EDIT_ALIAS), group invite (GROUP_PREVIEW) and a sticker category. Opening a sheet only reads;
 // every write (alias, join, sticker) runs from the sheet's own confirm / click.
 
-import { KeyRound, Smile, X } from 'lucide-react';
+import { EyeOff, MousePointerClick, Smile, Users, X, XCircle } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import {
   contactProfile,
@@ -83,16 +83,30 @@ export function AliasSheet({ draft, conversationId, onClose }: { draft: AliasDra
     <Sheet onClose={() => !saving && onClose()} width={400}>
       <div className="zp-dialog card-sheet">
         <DialogHeader title="Đặt tên gợi nhớ" onClose={onClose} disabled={saving} />
-        <div className="card-sheet-body">
-          <Avatar url={avatar} name={draft.name} size={72} />
-          <div className="card-sheet-text">
-            <div>
-              Hãy đặt cho <b>{displayName}</b> một cái tên dễ nhớ.
+        <div className="card-sheet-body card-sheet-form">
+          <div className="card-sheet-person">
+            <Avatar url={avatar} name={draft.name} size={48} />
+            <div className="card-sheet-person-text">
+              <div className="card-sheet-person-name truncate">{draft.name || 'Người dùng Zalo'}</div>
+              <div className="card-sheet-muted">Hãy đặt cho {displayName} một cái tên dễ nhớ.</div>
             </div>
-            <div className="card-sheet-muted">Lưu ý: Tên gợi nhớ sẽ chỉ hiển thị riêng với bạn.</div>
+          </div>
+          <div className="card-sheet-callout">
+            <EyeOff size={15} />
+            <span>Lưu ý: Tên gợi nhớ sẽ chỉ hiển thị riêng với bạn.</span>
           </div>
           <div className="card-sheet-field">
+            <div className="card-sheet-label-row">
+              <label className="card-sheet-label" htmlFor="alias-input">
+                Tên gợi nhớ
+              </label>
+              <span className="card-sheet-count nums">
+                {utf16Length(text)}/{draft.max}
+              </span>
+            </div>
+            <div className="card-sheet-input-wrap">
             <input
+              id="alias-input"
               ref={input}
               className="zp-input"
               placeholder={draft.placeholder}
@@ -106,9 +120,21 @@ export function AliasSheet({ draft, conversationId, onClose }: { draft: AliasDra
                 }
               }}
             />
-            <div className="card-sheet-count nums">
-              {utf16Length(text)}/{draft.max}
+              {text && !saving && (
+                <button
+                  className="card-sheet-clear"
+                  onClick={() => {
+                    setText('');
+                    input.current?.focus();
+                  }}
+                  aria-label="Xoá nội dung"
+                  title="Xoá nội dung"
+                >
+                  <XCircle size={15} />
+                </button>
+              )}
             </div>
+            {removes && <div className="card-sheet-muted card-sheet-hint">Để trống và xác nhận để xoá tên gợi nhớ hiện tại.</div>}
           </div>
           {error && <div className="card-sheet-error">{error}</div>}
         </div>
@@ -129,6 +155,13 @@ export function AliasSheet({ draft, conversationId, onClose }: { draft: AliasDra
 }
 
 // MARK: - Group invite
+
+/** "Mai, Lan và 1.282 người khác" under the member faces. */
+const memberSummary = (p: GroupInvitePreview) => {
+  const names = p.members.slice(0, 2).map((m) => m.name || 'Người dùng Zalo');
+  const others = Math.max(0, p.totalMember - names.length);
+  return others > 0 ? `${names.join(', ')} và ${others.toLocaleString('vi-VN')} người khác` : names.join(', ');
+};
 
 export function GroupInviteSheet({ url, conversationId, seq, onClose }: { url: string; conversationId: string; seq: number; onClose: () => void }) {
   const [preview, setPreview] = useState<GroupInvitePreview | null>(null);
@@ -183,7 +216,7 @@ export function GroupInviteSheet({ url, conversationId, seq, onClose }: { url: s
     <Sheet onClose={() => !joining && onClose()} width={400}>
       <div className="zp-dialog card-sheet">
         <DialogHeader title={community ? 'Thông tin cộng đồng' : 'Thông tin nhóm'} onClose={onClose} disabled={joining} />
-        <div className="card-sheet-body">
+        <div className="card-sheet-body card-sheet-invite">
           {!preview || preview.state === 'member' ? (
             <div className="card-sheet-loading">
               <Spinner />
@@ -192,35 +225,48 @@ export function GroupInviteSheet({ url, conversationId, seq, onClose }: { url: s
             <div className="card-sheet-loading card-sheet-muted">{preview.text}</div>
           ) : (
             <>
-              <Avatar url={preview.avatar} name={preview.name} size={72} />
+              <div className="invite-hero">
+                <div className="invite-cover" />
+                <Avatar url={preview.avatar} name={preview.name} size={80} className="invite-avatar" />
+              </div>
               <div className="card-sheet-text">
                 <div className="card-sheet-title clamp-2">{preview.name}</div>
-                <div className="card-sheet-muted">
-                  {preview.totalMember} thành viên{preview.creatorName ? ` • Tạo bởi ${preview.creatorName}` : ''}
+                <div className="invite-chips">
+                  <span className="invite-chip">
+                    <Users size={12} /> {preview.totalMember.toLocaleString('vi-VN')} thành viên
+                  </span>
+                  <span className="invite-chip">{community ? 'Cộng đồng' : 'Nhóm'}</span>
+                  {preview.creatorName && <span className="invite-chip">Tạo bởi {preview.creatorName}</span>}
                 </div>
               </div>
-              {preview.desc ? (
-                <div className="card-sheet-text selectable clamp-4">{preview.desc}</div>
-              ) : (
-                <div className="card-sheet-text card-sheet-muted">
-                  {community
-                    ? 'Bạn đang ở phòng chờ. Hãy tham gia chat để cùng trò chuyện với mọi người trong cộng đồng.'
-                    : 'Bạn đang ở phòng chờ. Hãy tham gia chat để cùng trò chuyện với mọi người trong nhóm.'}
-                </div>
-              )}
+              <div className={`invite-desc ${preview.desc ? 'selectable' : 'card-sheet-muted'}`}>
+                {preview.desc ? (
+                  <span className="clamp-4">{preview.desc}</span>
+                ) : community ? (
+                  'Bạn đang ở phòng chờ. Hãy tham gia chat để cùng trò chuyện với mọi người trong cộng đồng.'
+                ) : (
+                  'Bạn đang ở phòng chờ. Hãy tham gia chat để cùng trò chuyện với mọi người trong nhóm.'
+                )}
+              </div>
               {preview.members.length > 0 && (
-                <div className="card-sheet-members">
-                  {preview.members.map((m) => (
-                    <div key={m.id} className="card-sheet-member">
-                      <Avatar url={m.avatar} name={m.name} size={32} />
-                      <span className="truncate">{m.name || 'Người dùng Zalo'}</span>
-                      {m.admin && (
-                        <span title="Trưởng/phó nhóm" className="card-sheet-muted" style={{ display: 'inline-flex' }}>
-                          <KeyRound size={12} />
-                        </span>
-                      )}
-                    </div>
-                  ))}
+                <div className="invite-members">
+                  <div className="invite-members-head">
+                    <span className="invite-faces">
+                      {preview.members.slice(0, 4).map((m) => (
+                        <Avatar key={m.id} url={m.avatar} name={m.name} size={24} className="invite-face" />
+                      ))}
+                    </span>
+                    <span className="card-sheet-muted truncate">{memberSummary(preview)}</span>
+                  </div>
+                  <div className="card-sheet-members">
+                    {preview.members.map((m) => (
+                      <div key={m.id} className="card-sheet-member">
+                        <Avatar url={m.avatar} name={m.name} size={32} />
+                        <span className="truncate">{m.name || 'Người dùng Zalo'}</span>
+                        {m.admin && <span className="invite-role">Trưởng/phó nhóm</span>}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </>
@@ -234,7 +280,7 @@ export function GroupInviteSheet({ url, conversationId, seq, onClose }: { url: s
             </button>
             {preview?.state === 'preview' && (
               <button className="zp-btn zp-btn-primary" disabled={joining} onClick={() => void join()}>
-                {joining ? <Spinner size={13} /> : 'Tham gia'}
+                {joining ? <Spinner size={13} /> : community ? 'Tham gia cộng đồng' : 'Tham gia nhóm'}
               </button>
             )}
           </div>
@@ -292,13 +338,20 @@ export function StickerCategorySheet({ cateId, conversationId, onClose }: { cate
       <div className="zp-dialog card-sheet-stickers">
         <div className="zp-dialog-header">
           {category?.icon && <RemoteImage url={category.icon} fit="contain" className="sticker-sheet-icon" compact placeholder={<span />} />}
-          <div className="zp-dialog-title">{category?.name || 'Bộ sticker'}</div>
+          <div className="sticker-sheet-titles">
+            <div className="zp-dialog-title">{category?.name || 'Bộ sticker'}</div>
+            {category && <div className="sticker-sheet-sub">{category.stickers.length} sticker</div>}
+          </div>
           <button className="zp-icon-btn" onClick={onClose} aria-label="Đóng" title="Đóng">
             <X size={18} />
           </button>
         </div>
         <div className="zp-dialog-body">
           {category ? (
+            <>
+            <div className="sticker-hint">
+              <MousePointerClick size={13} /> Bấm vào một sticker để gửi vào cuộc trò chuyện
+            </div>
             <div className="sticker-grid">
               {category.stickers.map((s) => (
                 <button
@@ -313,6 +366,7 @@ export function StickerCategorySheet({ cateId, conversationId, onClose }: { cate
                 </button>
               ))}
             </div>
+            </>
           ) : loading ? (
             <div className="card-sheet-loading">
               <Spinner />
