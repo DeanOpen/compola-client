@@ -5,22 +5,27 @@ import { usesMock } from './backend';
 
 export type MediaFlavour = 'image' | 'video' | 'audio' | 'file';
 
+/** The scheme knows two loads (docs/media.md): `image` (an `<img>` load) and `cors` (a `fetch()` load, streamed to disk
+ * with Range support) for video, voice and file attachments. */
+const schemeFlavour = (f: MediaFlavour) => (f === 'image' ? 'image' : 'cors');
+
 /** URL for an `<img>` / `<video>` / `<audio>` src. */
 export const mediaUrl = (url: string | null | undefined, flavour: MediaFlavour = 'image'): string | null => {
   if (!url) return null;
   if (url.startsWith('data:') || url.startsWith('blob:')) return url;
   if (usesMock) return url;
-  return `compola-media://load?url=${encodeURIComponent(url)}&flavour=${flavour}`;
+  return `compola-media://load?url=${encodeURIComponent(url)}&flavour=${schemeFlavour(flavour)}`;
 };
 
 /**
  * A local file the official loader produced (`resolveMedia` → `{state:'ok', path}`, the official `ZaloDownloads` copy).
- * Contract request: `compola-media://load?file=<abs path>&flavour=…` serving files under the Zalo data folder only.
+ * docs/media.md: `url=file://…` is served when it points inside Compola's own data / cache folders.
  */
 export const mediaFileUrl = (path: string, flavour: MediaFlavour = 'image'): string | null => {
   if (!path.startsWith('/')) return null;
   if (usesMock) return null;
-  return `compola-media://load?file=${encodeURIComponent(path)}&flavour=${flavour}`;
+  const fileUrl = 'file://' + path.split('/').map(encodeURIComponent).join('/');
+  return `compola-media://load?url=${encodeURIComponent(fileUrl)}&flavour=${schemeFlavour(flavour)}`;
 };
 
 /**

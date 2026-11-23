@@ -1,8 +1,9 @@
 // Conversation info in the inspector (⌥⌘I; Swift `ChatInspector` + InspectorBlocks.swift): who it is, quick actions,
 // the members of a group, polls in the loaded history, and the photos / files / links of the loaded messages.
-// The full "Kho lưu trữ" (shared-media store), mute / pin / more actions arrive with their waves.
+// The shared photos / files / links and "Kho lưu trữ" come from features/sharedMedia; mute / pin / more actions arrive
+// with their waves.
 
-import { BarChart3, ChevronRight, Info, Link as LinkIcon, PanelRightClose, Tag } from 'lucide-react';
+import { BarChart3, ChevronRight, Info, PanelRightClose, Tag } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { mentionCandidates } from '../../engine/chat';
@@ -10,16 +11,13 @@ import { setConversationLabel } from '../../engine/conversations';
 import type { ChatMessage, MentionCandidate } from '../../engine/models/chat';
 import { cssColor, type ConversationSummary } from '../../engine/models/conversations';
 import { setEngine, useEngine } from '../../engine/store';
-import { openExternal } from '../../engine/system';
 import { shell } from '../../shell/shellStore';
 import { Avatar } from '../../ui/Avatar';
 import { ContentUnavailable } from '../../ui/ContentUnavailable';
 import { openMenuBelow } from '../../ui/Menu';
 import { Spinner } from '../../ui/Spinner';
 import { useConversationSummary } from '../chat/ChatDetail';
-import { FileCard } from '../chat/cards/Cards';
-import { PhotoView, VideoThumb } from '../chat/cards/Media';
-import { host } from '../chat/format';
+import { SharedMediaBrowser, SharedMediaSections, useBrowsingSharedMedia } from '../sharedMedia/SharedMedia';
 import './inspector.css';
 
 const memberLimit = 8;
@@ -27,6 +25,7 @@ const listLimit = 5;
 
 export function ChatInspectorColumn({ conversationId }: { conversationId: string | null }) {
   const conversation = useConversationSummary(conversationId);
+  const browsing = useBrowsingSharedMedia(conversation?.id ?? null);
   return (
     <div className="column">
       <div className="toolbar inspector-toolbar" data-tauri-drag-region>
@@ -37,7 +36,13 @@ export function ChatInspectorColumn({ conversationId }: { conversationId: string
           <PanelRightClose size={16} />
         </button>
       </div>
-      {conversation ? <ChatInspector key={conversation.id} conversation={conversation} /> : <ContentUnavailable icon={Info} title="Không có cuộc trò chuyện" />}
+      {conversation && browsing ? (
+        <SharedMediaBrowser conversationId={conversation.id} kind={browsing} />
+      ) : conversation ? (
+        <ChatInspector key={conversation.id} conversation={conversation} />
+      ) : (
+        <ContentUnavailable icon={Info} title="Không có cuộc trò chuyện" />
+      )}
     </div>
   );
 }
@@ -108,60 +113,7 @@ function ChatInspector({ conversation }: { conversation: ConversationSummary }) 
         </>
       )}
 
-      <Section title="Ảnh và video">
-        {shared.media.length === 0 ? (
-          <List>
-            <EmptyLine text="Chưa có ảnh hoặc video" />
-          </List>
-        ) : (
-          <div className="inspector-grid">
-            {shared.media.slice(0, 9).map((m) =>
-              m.kind.type === 'photo' ? (
-                <PhotoView key={m.id} message={m} url={m.kind.url} width={m.kind.width} height={m.kind.height} tile={84} />
-              ) : m.kind.type === 'video' ? (
-                <VideoThumb key={m.id} message={m} thumbnail={m.kind.thumbnail} duration={m.kind.duration} url={m.kind.url} tile={84} />
-              ) : null,
-            )}
-          </div>
-        )}
-      </Section>
-
-      <Section title="Tệp">
-        <List>
-          {shared.files.length === 0 ? (
-            <EmptyLine text="Chưa có tệp" />
-          ) : (
-            shared.files.slice(0, listLimit).map((m) =>
-              m.kind.type === 'file' ? (
-                <div key={m.id} className="inspector-file">
-                  <FileCard name={m.kind.name} size={m.kind.size} url={m.kind.url} />
-                </div>
-              ) : null,
-            )
-          )}
-        </List>
-      </Section>
-
-      <Section title="Liên kết">
-        <List>
-          {shared.links.length === 0 ? (
-            <EmptyLine text="Chưa có liên kết" />
-          ) : (
-            shared.links.slice(0, listLimit).map((m) =>
-              m.kind.type === 'link' ? (
-                <Row
-                  key={m.id}
-                  icon={<LinkIcon size={14} />}
-                  title={m.kind.title || m.kind.url || 'Liên kết'}
-                  subtitle={m.kind.source || host(m.kind.url)}
-                  lines={2}
-                  onClick={m.kind.url ? () => void openExternal((m.kind as { url: string }).url) : undefined}
-                />
-              ) : null,
-            )
-          )}
-        </List>
-      </Section>
+      <SharedMediaSections conversationId={id} />
     </div>
   );
 }
