@@ -4,13 +4,25 @@
 
 import { BadgeCheck, Cloud, Clock, MessageCircle, Settings, UserCheck, UserPlus } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
-import { ago, contactProfile, openContactConversation, useContacts, type ContactProfile } from '../../engine/contacts';
+import {
+  acceptFriendRequest,
+  ago,
+  contactProfile,
+  openContactConversation,
+  sendFriendRequest,
+  strangerInfo,
+  useContacts,
+  type ContactProfile,
+  type StrangerInfo,
+} from '../../engine/contacts';
 import { mediaUrl } from '../../engine/media';
 import { setEngine, useEngine } from '../../engine/store';
 import { Avatar } from '../../ui/Avatar';
 import { openSettings } from '../settings/hosts';
 import { Sheet } from '../../ui/Overlays';
+import { Spinner } from '../../ui/Spinner';
 import { ContactCallActions, DialogHeader } from './ContactsShared';
+import type { ProfileHint } from './contactsUi';
 import './addFriend.css';
 
 export type Relationship = 'friend' | 'requested' | 'requesting' | 'self' | 'none';
@@ -83,50 +95,120 @@ export function ProfileDetails({ rows }: { rows: { label: string; value: ReactNo
   );
 }
 
-/** "Thông tin tài khoản" of a friend (Swift `FriendCard`): local profile data, message / call buttons. */
-export function FriendProfileDialog({ id, onClose }: { id: string; onClose: () => void }) {
+type RequestPhase = 'idle' | 'busy' | 'sent' | 'accepted';
+
+/** "Thông tin tài khoản" of anyone (Swift `FriendCard` / Zalo PC's profile popup): a friend, someone with a pending request,
+ * or a stranger met in a group. Friend-list data first, then the official profile (`contactProfile`), then what the opener
+ * knew (`hint`: the sender / member row it was opened from). Message for everyone; calls for friends; Kết bạn / Đồng ý for
+ * the rest (official greeting, as the stranger bar sends it). */
+export function PersonProfileDialog({ id, hint, onClose }: { id: string; hint: ProfileHint | null; onClose: () => void }) {
   const friend = useContacts((s) => s.friends.find((f) => f.id === id) ?? null);
+  const known = useContacts((s) => s.known[id] ?? null);
+  const inSent = useContacts((s) => s.sent.some((r) => r.id === id));
+  const inReceived = useContacts((s) => s.received.some((r) => r.id === id));
   const [profile, setProfile] = useState<ContactProfile | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [info, setInfo] = useState<StrangerInfo | null>(null);
+  const [phase, setPhase] = useState<RequestPhase>('idle');
+  const [problem, setProblem] = useState<string | null>(null);
+
   useEffect(() => {
     let cancelled = false;
     setProfile(null);
-    void contactProfile(id).then((loaded) => {
+    setLoaded(false);
+    void contactProfile(id).then((p) => {
       // Another profile meanwhile: never show someone else's data.
-      if (!cancelled && loaded?.uid === id) setProfile(loaded);
+      if (cancelled) return;
+      if (p?.uid === id) setProfile(p);
+      setLoaded(true);
     });
     return () => {
       cancelled = true;
     };
   }, [id]);
 
-  if (!friend) return null;
-  const status = friend.online ? 'Đang hoạt động' : friend.lastActive ? `Truy cập ${ago(friend.lastActive)}` : null;
+  const isFriend = !!friend || !!profile?.isFriend || !!info?.isFriend || phase === 'accepted';
+  // Request state only matters for non-friends; asked once the profile says so.
+  useEffect(() => {
+    if (!loaded || isFriend || profile?.isSelf) return;
+    let live = true;
+    void strangerInfo(id).then((i) => live && setInfo(i));
+    return () => {
+      live = false;
+    };
+  }, [id, loaded, isFriend, profile?.isSelf]);
+
+  const name = friend?.name || profile?.name || known?.name || hint?.name || '';
+  const avatar = friend?.avatar ?? profile?.avatar ?? known?.avatar ?? hint?.avatar ?? null;
+  if (!name && !avatar) {
+    return (
+      <Sheet onClose={onClose} width={400}>
+        <DialogHeader title="Thông tin tài khoản" onClose={onClose} />
+        <div className="ct-dialog-body af-profile af-profile-empty">
+          {loaded ? <span className="af-profile-note">Không tải được thông tin người này.</span> : <Spinner size={18} />}
+        </div>
+      </Sheet>
+    );
+  }
+
+  const requested = !isFriend && (phase === 'sent' || inSent || !!info?.requested);
+  const requesting = !isFriend && !requested && (inReceived || !!info?.requesting);
+  const relationship: Relationship = profile?.isSelf ? 'self' : isFriend ? 'friend' : requested ? 'requested' : requesting ? 'requesting' : 'none';
+  const status = friend ? (friend.online ? 'Đang hoạt động' : friend.lastActive ? `Truy cập ${ago(friend.lastActive)}` : null) : null;
+
+  const message = () => {
+    onClose();
+    openContactConversation(id, { name, avatar });
+  };
+  const addFriend = async () => {
+    setPhase('busy');
+    setProblem(null);
+    const fresh = info ?? (await strangerInfo(id));
+    const result = await sendFriendRequest(id, fresh?.defaultMessage || `Xin chào ${name}, kết bạn với mình nhé!`);
+    if (result.ok || result.pending) setPhase('sent');
+    else {
+      setPhase('idle');
+      setProblem(result.text || 'Không thể gửi lời mời kết bạn.');
+    }
+  };
+  const accept = () => {
+    acceptFriendRequest(id);
+    setPhase('accepted');
+  };
+
   return (
     <Sheet onClose={onClose} width={400}>
       <DialogHeader title="Thông tin tài khoản" onClose={onClose} />
       <div className="ct-dialog-body af-profile">
         <ProfileHero
-          avatar={friend.avatar}
-          name={friend.name}
-          secondaryName={friend.zaloName || profile?.zaloName}
+          avatar={avatar}
+          name={name}
+          secondaryName={friend?.zaloName || profile?.zaloName}
           status={status}
-          online={friend.online}
-          relationship="friend"
+          online={friend?.online ?? false}
+          relationship={relationship}
         />
         <div className="af-actions">
-          <button
-            className="ct-btn ct-btn-primary af-action-main"
-            onClick={() => {
-              onClose();
-              openContactConversation(friend.id);
-            }}
-          >
+          {!isFriend && !profile?.isSelf && !requested && (
+            <button
+              className="ct-btn ct-btn-primary af-action-main"
+              disabled={phase === 'busy' || !loaded}
+              onClick={requesting ? accept : () => void addFriend()}
+            >
+              {phase === 'busy' ? <Spinner size={13} /> : requesting ? <UserCheck size={15} /> : <UserPlus size={15} />}
+              {requesting ? 'Đồng ý kết bạn' : 'Kết bạn'}
+            </button>
+          )}
+          <button className={`ct-btn ${isFriend || requested ? 'ct-btn-primary af-action-main' : ''}`} onClick={message}>
             <MessageCircle size={15} /> Nhắn tin
           </button>
         </div>
-        <div className="ct-profile-actions">
-          <ContactCallActions id={friend.id} name={friend.name} onStart={onClose} />
-        </div>
+        {problem && <div className="af-profile-note is-error">{problem}</div>}
+        {isFriend && (
+          <div className="ct-profile-actions">
+            <ContactCallActions id={id} name={name} onStart={onClose} />
+          </div>
+        )}
         <ProfileDetails
           rows={[
             { label: 'Giới thiệu', value: profile?.bio || null },

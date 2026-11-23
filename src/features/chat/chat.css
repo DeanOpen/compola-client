@@ -2365,3 +2365,57 @@
   font-size: 12px;
   color: var(--text-tertiary);
 }
+
+/* A sender's avatar and name open their profile (MessageRow `openSender`). */
+.bubble-who {
+  display: block;
+  padding: 0;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.bubble-who:focus-visible {
+  outline: 2px solid var(--accent, #0068ff);
+  outline-offset: 2px;
+}
+
+button.bubble-sender {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  cursor: pointer;
+}
+
+button.bubble-sender:hover {
+  text-decoration: underline;
+}
+
+/* The header avatar / name open the person's profile or the group's info panel (ChatView `HeaderIdentity`). */
+.chat-header-who {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0;
+  border-radius: 6px;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.chat-header-who.truncate {
+  display: block;
+}
+
+.chat-header-who:hover {
+  opacity: 0.85;
+}
+
+.chat-header-who:focus-visible {
+  outline: 2px solid var(--accent, #0068ff);
+  outline-offset: 2px;
+}

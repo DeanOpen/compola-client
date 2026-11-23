@@ -26,6 +26,7 @@ import { BubbleContent } from './MessageContent';
 import { statusText } from './format';
 import { ECardView, NoticeRow } from './cards/Cards';
 import { ReactionChips } from './ReactionChips';
+import { openContactProfile } from '../contacts/hosts';
 
 export const reactionEmojis = ['❤️', '👍', '😆', '😮', '😢', '😡'];
 
@@ -70,6 +71,10 @@ export const MessageRow = memo(function MessageRow(props: Props) {
   }
 });
 
+/** Tapping a sender's avatar or name opens their "Thông tin tài khoản" (Zalo PC). */
+const openSender = (message: ChatMessage) =>
+  openContactProfile(message.senderId, { name: message.senderName, avatar: message.senderAvatar ?? null });
+
 function BubbleRow({ message, firstInGroup, lastInGroup, showStatus, isGroup, album, onReply, onReact }: Props) {
   const mine = message.isMine;
   const recalled = message.kind.type === 'recalled';
@@ -84,10 +89,20 @@ function BubbleRow({ message, firstInGroup, lastInGroup, showStatus, isGroup, al
       onContextMenu={(e) => openContextMenu(e, menu())}
     >
       {!mine && (
-        <div className="bubble-avatar">{firstInGroup && <Avatar url={message.senderAvatar} name={message.senderName} size={40} />}</div>
+        <div className="bubble-avatar">
+          {firstInGroup && (
+            <button className="bubble-who" title={`Xem thông tin ${message.senderName}`} aria-label={`Xem thông tin ${message.senderName}`} onClick={() => openSender(message)}>
+              <Avatar url={message.senderAvatar} name={message.senderName} size={40} />
+            </button>
+          )}
+        </div>
       )}
       <div className="bubble-column">
-        {showsName && <div className="bubble-sender">{message.senderName}</div>}
+        {showsName && (
+          <button className="bubble-sender" onClick={() => openSender(message)}>
+            {message.senderName}
+          </button>
+        )}
         <div className="bubble-stack" title={fullTime(message.date)}>
           <BubbleContent message={message} firstInGroup={firstInGroup} lastInGroup={lastInGroup} album={album} />
           {message.reactions.length > 0 && (

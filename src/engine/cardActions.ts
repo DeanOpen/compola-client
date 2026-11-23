@@ -32,9 +32,10 @@ export const applyCardOutcome = (outcome: CardActionOutcome, conversationId: str
     case 'done':
       return;
     case 'openChat':
-    case 'openProfile':
-      // Profiles are a later wave: the 1:1 chat is the closest thing the shell can show.
       setEngine({ navigationRequest: outcome.id });
+      return;
+    case 'openProfile':
+      void import('../features/contacts/hosts').then(({ openContactProfile }) => openContactProfile(outcome.id));
       return;
     case 'openURL':
       void openExternal(outcome.url);
