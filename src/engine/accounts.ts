@@ -94,7 +94,8 @@ const snapshots = new Map<string, unknown[]>();
 
 /** Keeps the account on screen and shows `to`: its last state when it was on screen before, a fresh one otherwise. */
 const swapStores = (from: string | null, to: string) => {
-  if (from === to) return;
+  // The first account the host names is the one whose data is already in the stores: nothing to swap.
+  if (from === to || from === null) return;
   if (from) snapshots.set(from, scoped.map((s) => s.getState()));
   const next = snapshots.get(to) ?? fresh;
   scoped.forEach((s, i) => s.setState(next[i], true));
