@@ -56,6 +56,13 @@ export interface Toast {
   seq: number;
   text: string;
   conversationId: string | null;
+  /** Optional inline action ("Hoàn tác"): runs once, then the toast closes. */
+  action?: ToastAction;
+}
+
+export interface ToastAction {
+  label: string;
+  run: () => void;
 }
 
 /**
