@@ -20,6 +20,8 @@ export function RemoteImage({
   placeholder,
   compact = false,
   alt = '',
+  expiredText = 'Ảnh đã hết hạn',
+  onExpired,
 }: {
   url: string | null;
   fit?: 'cover' | 'contain';
@@ -32,6 +34,10 @@ export function RemoteImage({
   placeholder?: ReactNode;
   compact?: boolean;
   alt?: string;
+  /** Shown on the "gone for good" tile ("Video đã hết hạn" for video thumbnails). */
+  expiredText?: string;
+  /** The official loader said the media is gone for good. */
+  onExpired?: () => void;
 }) {
   const direct = resolveFirst ? null : mediaUrl(url);
   const [phase, setPhase] = useState<Phase>({ kind: 'loading', src: direct });
@@ -46,6 +52,7 @@ export function RemoteImage({
     const r = await resolve(force);
     const src = r.state === 'file' ? mediaFileUrl(r.path, 'image', force) : null;
     if (src) return setPhase({ kind: 'loading', src });
+    if (r.state === 'expired') onExpired?.();
     setPhase({ kind: 'failed', reason: r.state === 'expired' ? 'expired' : 'unavailable' });
   };
 
@@ -64,24 +71,31 @@ export function RemoteImage({
     setPhase({ kind: 'loading', src: again });
   };
 
+  if (phase.kind === 'failed' && phase.reason === 'expired') {
+    // Gone for good (Zalo's CDN no longer has it): a quiet tile, no retry.
+    return (
+      <div className={`remote-image media-failure is-expired ${compact ? 'is-compact' : ''} ${className}`} style={style} title={expiredText}>
+        <ImageOff size={compact ? 16 : 24} />
+        {!compact && <span>{expiredText}</span>}
+      </div>
+    );
+  }
   if (phase.kind === 'failed') {
     return (
       <div className={`remote-image media-failure ${compact ? 'is-compact' : ''} ${className}`} style={style}>
         <ImageOff size={compact ? 16 : 22} />
-        {!compact && <span>{phase.reason === 'expired' ? 'Ảnh đã hết hạn' : 'Không tải được ảnh'}</span>}
-        {phase.reason !== 'expired' && (
-          <button
-            className="btn btn-glass btn-small"
-            onClick={(e) => {
-              e.stopPropagation();
-              retry();
-            }}
-            title="Thử lại"
-            aria-label="Thử lại"
-          >
-            <RefreshCw size={12} /> {compact ? '' : 'Thử lại'}
-          </button>
-        )}
+        {!compact && <span>Không tải được ảnh</span>}
+        <button
+          className="btn btn-glass btn-small"
+          onClick={(e) => {
+            e.stopPropagation();
+            retry();
+          }}
+          title="Thử lại"
+          aria-label="Thử lại"
+        >
+          <RefreshCw size={12} /> {compact ? '' : 'Thử lại'}
+        </button>
       </div>
     );
   }

@@ -61,7 +61,7 @@ export function Rail() {
             if (!isConversationList(destination) || destination === 'myCloud') shell.setDestination('inbox');
           }}
         />
-        <RailItem icon={SquareUser} label="Danh bạ" badge={contacts.pendingRequestCount} selected={isContacts(destination)} onClick={() => shell.setDestination('friends')} />
+        <RailItem icon={SquareUser} label="Danh bạ" badge={contacts.pendingRequestCount + contacts.groupInviteUnread} selected={isContacts(destination)} onClick={() => shell.setDestination('friends')} />
       </div>
       <div className="rail-spacer" data-tauri-drag-region />
       <div className="rail-group">

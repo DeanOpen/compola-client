@@ -25,6 +25,10 @@ const parse = (v: unknown): MediaResolution => {
     }
     case 'expired':
       return { state: 'expired' };
+    // Every source answered 404 / 410 (adapter reason "gone"): Zalo's CDN no longer has it, a retry cannot help. The
+    // adapter says "expired" only when the official shelf-life check also agrees; for the user it is the same thing.
+    case 'unavailable':
+      return d?.reason === 'gone' ? { state: 'expired' } : { state: 'unavailable' };
     case 'unsupported':
       return { state: 'unsupported' };
     default:

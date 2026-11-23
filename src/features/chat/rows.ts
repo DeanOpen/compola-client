@@ -5,7 +5,7 @@ import { dayKey } from './format';
 
 export type ChatRow =
   | { kind: 'day'; id: string; date: number }
-  | { kind: 'message'; id: string; message: ChatMessage; first: boolean; last: boolean; status: boolean };
+  | { kind: 'message'; id: string; message: ChatMessage; first: boolean; last: boolean; status: boolean; album?: ChatMessage[] };
 
 export const dayPrefix = 'day-';
 
@@ -25,18 +25,27 @@ export const buildRows = (msgs: ChatMessage[]): ChatRow[] => {
     if (isStandalone(a.kind) || isStandalone(b.kind)) return false;
     return a.senderId === b.senderId && a.isMine === b.isMine && Math.abs(b.date - a.date) < 300_000 && days[i] === days[j];
   };
+  /** Photos of one send (same sender, within a minute, no caption / quote): one mosaic row (Zalo PC album). */
+  const bare = (m: ChatMessage) => m.kind.type === 'photo' && !m.quote && (!m.text || m.text.startsWith('['));
+  const sameSend = (i: number, j: number) => bare(msgs[i]) && bare(msgs[j]) && grouped(i, j) && Math.abs(msgs[j].date - msgs[i].date) < 60_000;
   const out: ChatRow[] = [];
-  msgs.forEach((m, i) => {
+  for (let i = 0; i < msgs.length; i += 1) {
+    const m = msgs[i];
     if (i === 0 || days[i - 1] !== days[i]) out.push({ kind: 'day', id: dayPrefix + m.id, date: m.date });
+    let end = i;
+    while (end + 1 < msgs.length && sameSend(end, end + 1)) end += 1;
+    const album = end > i ? msgs.slice(i, end + 1) : undefined;
     out.push({
       kind: 'message',
       id: m.id,
       message: m,
       first: i === 0 || !grouped(i - 1, i),
-      last: i === msgs.length - 1 || !grouped(i, i + 1),
-      status: m.id === lastMineId,
+      last: end === msgs.length - 1 || !grouped(end, end + 1),
+      status: album ? album.some((x) => x.id === lastMineId) : m.id === lastMineId,
+      album,
     });
-  });
+    i = end;
+  }
   return out;
 };
 

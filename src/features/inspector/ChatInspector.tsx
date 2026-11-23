@@ -4,26 +4,23 @@
 // red actions.
 // Actions that need the conversation-actions port are shown disabled until it lands.
 
+import { GroupMembersSection } from '../groupMembers/GroupMembersSection';
 import { BarChart3, Bell, BellOff, PinOff, ChevronDown, ChevronRight, EyeOff, Info, Pencil, Pin, Settings, Tag, Timer, Trash2, UserPlus, UsersRound, LogOut, type LucideIcon } from 'lucide-react';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { useShallow } from 'zustand/react/shallow';
-import { mentionCandidates } from '../../engine/chat';
 import { setConversationLabel } from '../../engine/conversations';
-import type { ChatMessage, MentionCandidate } from '../../engine/models/chat';
+import type { ChatMessage } from '../../engine/models/chat';
 import { cssColor, type ConversationSummary } from '../../engine/models/conversations';
-import { setEngine, useEngine } from '../../engine/store';
-import { Avatar } from '../../ui/Avatar';
+import { useEngine } from '../../engine/store';
 import { ConversationAvatar } from '../conversations/ConversationRow';
 import { ContentUnavailable } from '../../ui/ContentUnavailable';
 import { openMenuBelow } from '../../ui/Menu';
-import { Spinner } from '../../ui/Spinner';
 import { useConversationSummary } from '../chat/ChatDetail';
 import { SharedMediaBrowser, SharedMediaSections, useBrowsingSharedMedia } from '../sharedMedia/SharedMedia';
 import { conversationMuteMenu } from '../settings/muteMenu';
 import { menuPlan, pinConversation, requestDeleteConversation, setConversationPrompt, unpinConversation } from '../../engine/conversationActions';
 import './inspector.css';
 
-const memberLimit = 8;
 const listLimit = 5;
 
 export function ChatInspectorColumn({ conversationId }: { conversationId: string | null }) {
@@ -51,21 +48,6 @@ function ChatInspector({ conversation }: { conversation: ConversationSummary }) 
   const id = conversation.id;
   const loaded = useEngine((s) => s.messages[id]);
   const selfId = useEngine((s) => s.selfConversationId);
-  const [members, setMembers] = useState<MentionCandidate[] | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    setMembers(null);
-    if (!conversation.isGroup) {
-      setMembers([]);
-      return;
-    }
-    // The official suggestion list is the only member source.
-    void mentionCandidates(id, '', []).then((found) => !cancelled && setMembers(found.filter((m) => !m.isAll)));
-    return () => {
-      cancelled = true;
-    };
-  }, [id, conversation.isGroup]);
 
   const shared = useMemo(() => sharedContent(loaded ?? []), [loaded]);
   const actionsState = useEngine((s) => s.conversationActions);
@@ -99,23 +81,7 @@ function ChatInspector({ conversation }: { conversation: ConversationSummary }) 
             </List>
           </Section>
           <Section title="Thành viên nhóm" trailing={conversation.members > 0 ? String(conversation.members) : undefined}>
-            {members === null ? (
-              <div className="inspector-loading">
-                <Spinner size={14} />
-              </div>
-            ) : members.length ? (
-              <List>
-                {members.slice(0, memberLimit).map((m) => (
-                  <button key={m.id} className="inspector-member" title={`Nhắn tin với ${m.name}`} onClick={() => setEngine({ navigationRequest: m.id })}>
-                    <Avatar url={m.avatar} name={m.name} size={26} />
-                    <span className="truncate">{m.name}</span>
-                  </button>
-                ))}
-                {conversation.members > Math.min(members.length, memberLimit) && (
-                  <EmptyLine text={`và ${conversation.members - Math.min(members.length, memberLimit)} thành viên khác`} />
-                )}
-              </List>
-            ) : null}
+            <GroupMembersSection conversationId={id} showTitle={false} />
           </Section>
         </>
       )}

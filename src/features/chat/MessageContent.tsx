@@ -8,17 +8,22 @@ import { setEngine, useEngine } from '../../engine/store';
 import { openExternal } from '../../engine/system';
 import { symbolIcon } from '../../ui/symbols';
 import { clock, statusText, textRuns, time } from './format';
-import { ContactCardView, FileCard, LinkCard, LocationCard, OAMessageCard, StickerSetCard, ZInstantCard } from './cards/Cards';
+import { ContactCardView, LinkCard, LocationCard, OAMessageCard, StickerSetCard, ZInstantCard } from './cards/Cards';
 import { LivePollCard } from '../poll/PollCard';
-import { GifView, PhotoView, StickerView, VideoThumb, VoiceView } from './cards/Media';
+import { GifView, PhotoView, StickerView, VideoThumb } from './cards/Media';
+import { FileChip, PhotoMosaic, VoiceBubble } from '../chat-parts';
+import { openViewer } from '../media/MediaViewer';
+import { requestForward } from '../../engine/messageActions';
 
 interface ContentProps {
   message: ChatMessage;
   firstInGroup: boolean;
   lastInGroup: boolean;
+  /** Photos of one send (rows.ts): drawn as one mosaic. */
+  album?: ChatMessage[];
 }
 
-export function BubbleContent({ message, firstInGroup, lastInGroup }: ContentProps) {
+export function BubbleContent({ message, firstInGroup, lastInGroup, album }: ContentProps) {
   const mine = message.isMine;
   const k = message.kind;
   const bubble = (children: ReactNode, opts: { tail?: boolean; muted?: boolean; padding?: number; meta?: 'inline' | 'block' | false } = {}) => (
@@ -37,6 +42,22 @@ export function BubbleContent({ message, firstInGroup, lastInGroup }: ContentPro
         </span>
       );
     case 'photo':
+      if (album && album.length > 1) {
+        const photos = album.map((m) => (m.kind.type === 'photo' ? { url: m.kind.url, width: m.kind.width, height: m.kind.height } : { url: null, width: 1, height: 1 }));
+        const last = album[album.length - 1];
+        return (
+          <span className="media-with-meta">
+            <PhotoMosaic
+              photos={photos}
+              onOpen={(i) => {
+                const m = album[i];
+                if (m.kind.type === 'photo' && m.kind.url) openViewer({ kind: 'photo', url: m.kind.url, message: m });
+              }}
+            />
+            <BubbleMeta message={last} overlay />
+          </span>
+        );
+      }
       return (
         <div className="media-stack">
           <span className="media-with-meta">
@@ -47,7 +68,7 @@ export function BubbleContent({ message, firstInGroup, lastInGroup }: ContentPro
         </div>
       );
     case 'gif':
-      return <GifView url={k.url} />;
+      return <GifView message={message} url={k.url} />;
     case 'video':
       return (
         <div className="media-stack">
@@ -62,13 +83,20 @@ export function BubbleContent({ message, firstInGroup, lastInGroup }: ContentPro
     case 'text':
       return bubble(<MessageText message={message} />);
     case 'voice':
-      return bubble(<VoiceView url={k.url} duration={k.duration} mine={mine} />, { meta: 'block' });
+      return bubble(<VoiceBubble url={k.url} duration={k.duration} isMine={mine} />, { meta: 'block' });
     case 'file':
       // Files are cards, not bubbles: neutral for both sides, no tail.
       return (
         <div className={`file-message card-chrome ${message.status === 'sending' ? 'is-sending' : ''}`}>
           {message.quote && <QuoteBlock quote={message.quote} mine={false} />}
-          <FileCard name={k.name} size={k.size} url={k.url} />
+          <FileChip
+            name={k.name}
+            size={k.size}
+            url={k.url}
+            conversationId={message.conversationId}
+            isMine={mine}
+            onShare={message.menu.forward === 'available' ? () => requestForward(message) : undefined}
+          />
         </div>
       );
     case 'link': {
