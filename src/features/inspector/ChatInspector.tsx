@@ -1,12 +1,11 @@
 // The Zalo PC info panel (docs/zalo-pc-style.md §5; logic from Swift `ChatInspector` + InspectorBlocks.swift):
 // "Thông tin hội thoại" / "Thông tin nhóm", the avatar and name, round actions, then collapsible sections — members,
-// group board, photos / videos, files, links (features/sharedMedia: the official media store), security settings, and the
-// red actions.
-// Actions that need the conversation-actions port are shown disabled until it lands.
+// group board, members, then (wave 3 #4, WhatsApp contact-info structure) "Ảnh, file, link · N ›" with one row of
+// thumbnails (opens Kho lưu trữ), setting rows with switches, and the red rows at the bottom.
 
 import { GroupMembersSection } from '../groupMembers/GroupMembersSection';
-import { BarChart3, Bell, BellOff, PinOff, ChevronDown, ChevronRight, EyeOff, Info, Pencil, Pin, Settings, Tag, Timer, Trash2, UserPlus, UsersRound, LogOut, type LucideIcon } from 'lucide-react';
-import { useMemo, useState, type ReactNode } from 'react';
+import { Ban, BarChart3, Bell, BellOff, PinOff, ChevronDown, ChevronRight, EyeOff, Info, Pencil, Pin, Settings, Tag, Timer, Trash2, UserPlus, UsersRound, LogOut, type LucideIcon } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { setConversationLabel } from '../../engine/conversations';
 import type { ChatMessage } from '../../engine/models/chat';
@@ -16,7 +15,13 @@ import { ConversationAvatar } from '../conversations/ConversationRow';
 import { ContentUnavailable } from '../../ui/ContentUnavailable';
 import { openMenuBelow } from '../../ui/Menu';
 import { useConversationSummary } from '../chat/ChatDetail';
-import { SharedMediaBrowser, SharedMediaSections, useBrowsingSharedMedia } from '../sharedMedia/SharedMedia';
+import { SharedMediaBrowser, useBrowsingSharedMedia } from '../sharedMedia/SharedMedia';
+import { browseSharedMedia, feedOf, isPending, mergedAll, previewList, refreshSharedMedia, sharedMediaKinds, useSharedMedia } from '../../engine/sharedMedia';
+import { PhotoView, VideoThumb } from '../chat/cards/Media';
+import { Spinner } from '../../ui/Spinner';
+import { Alert } from '../../ui/Overlays';
+import { blockContact } from '../../engine/contacts';
+import { showToast } from '../../engine/toast';
 import { muteMenuWithUndo } from '../conversationActions/menu';
 import { menuPlan, pinConversation, requestDeleteConversation, setConversationPrompt, unpinConversation } from '../../engine/conversationActions';
 import './inspector.css';
@@ -53,6 +58,7 @@ function ChatInspector({ conversation }: { conversation: ConversationSummary }) 
   const actionsState = useEngine((s) => s.conversationActions);
   const plan = useMemo(() => menuPlan(id, 'chatBox', useEngine.getState()), [id, actionsState]);
   const threadPlan = useMemo(() => menuPlan(id, 'thread', useEngine.getState()), [id, actionsState]);
+  const muted = useEngine((s) => s.mutedIds.has(id));
   const subtitle = id === selfId ? 'Chỉ mình bạn thấy' : conversation.isGroup ? (conversation.members > 0 ? `${conversation.members} thành viên` : 'Nhóm') : null;
 
   return (
@@ -86,22 +92,44 @@ function ChatInspector({ conversation }: { conversation: ConversationSummary }) 
         </>
       )}
 
-      <SharedMediaSections conversationId={id} />
+      <MediaStrip conversationId={id} />
 
-      <Section title="Thiết lập bảo mật">
-        <List>
-          <Row icon={<Timer size={15} />} title="Tin nhắn tự xóa" subtitle="Không bao giờ" />
-          {plan.hide && (
-            <Row
-              icon={<EyeOff size={15} />}
-              title={plan.hide === 'hide' ? 'Ẩn trò chuyện' : 'Bỏ ẩn trò chuyện'}
-              onClick={() => setConversationPrompt({ kind: plan.hide === 'hide' ? 'hide' : 'unhide', id })}
+      {/* WhatsApp-style setting rows (wave 3 #4): the state on the right, a click changes it. */}
+      <section className="inspector-block">
+        <div className="inspector-list">
+          <ToggleRow
+            icon={<BellOff size={15} />}
+            title="Tắt thông báo"
+            subtitle={muted ? 'Đang tắt' : undefined}
+            on={muted}
+            onToggle={(el) => {
+              const item = muteMenuWithUndo(id);
+              if (item.kind === 'submenu') openMenuBelow(el, item.items, 'end');
+              else if (item.kind === undefined || item.kind === 'item') item.onSelect();
+            }}
+          />
+          {plan.pin && (
+            <ToggleRow
+              icon={<Pin size={15} />}
+              title="Ghim hội thoại"
+              on={plan.pin === 'unpin'}
+              onToggle={() => void (plan.pin === 'pin' ? pinConversation(id) : unpinConversation(id))}
             />
           )}
-        </List>
-      </Section>
+          {plan.hide && (
+            <ToggleRow
+              icon={<EyeOff size={15} />}
+              title="Ẩn trò chuyện"
+              on={plan.hide === 'unhide'}
+              onToggle={() => setConversationPrompt({ kind: plan.hide === 'hide' ? 'hide' : 'unhide', id })}
+            />
+          )}
+          <ToggleRow icon={<Timer size={15} />} title="Tin nhắn tự xóa" subtitle="Không bao giờ" on={false} disabled help="Chưa hỗ trợ trên phiên bản này" />
+        </div>
+      </section>
 
       <div className="inspector-block inspector-danger">
+        {!conversation.isGroup && id !== selfId && <BlockRow conversationId={id} name={conversation.name} />}
         <button className="inspector-danger-row" disabled={!threadPlan.canDelete} onClick={() => requestDeleteConversation(id)}>
           <Trash2 size={16} /> Xóa lịch sử trò chuyện
         </button>
@@ -264,4 +292,123 @@ function Row({ icon, title, subtitle, lines = 1, onClick }: { icon: ReactNode; t
 
 function EmptyLine({ text }: { text: string }) {
   return <div className="inspector-empty">{text}</div>;
+}
+
+/** "Ảnh, file, link · N ›" and one row of three thumbnails (WhatsApp contact info); opens Kho lưu trữ. */
+function MediaStrip({ conversationId }: { conversationId: string }) {
+  const lastId = useEngine((s) => {
+    const list = s.messages[conversationId];
+    return list?.[list.length - 1]?.id ?? null;
+  });
+  const first = useRef(true);
+  useEffect(() => {
+    first.current = true;
+  }, [conversationId]);
+  // The newest page of every list when the conversation shows, and again a second after a new message.
+  useEffect(() => {
+    if (first.current) {
+      first.current = false;
+      void refreshSharedMedia(conversationId);
+      return;
+    }
+    const t = setTimeout(() => void refreshSharedMedia(conversationId), 1000);
+    return () => clearTimeout(t);
+  }, [conversationId, lastId]);
+  const loaded = useEngine((s) => s.messages[conversationId] ?? noMessages);
+  const feeds = useSharedMedia(
+    useShallow((s) => ({ images: feedOf(s, conversationId, 'images'), files: feedOf(s, conversationId, 'files'), links: feedOf(s, conversationId, 'links') })),
+  );
+  const all = useMemo(() => mergedAll(feeds, loaded), [feeds, loaded]);
+  const images = useMemo(() => previewList('images', feeds.images.items, loaded).slice(0, 3), [feeds.images, loaded]);
+  const pending = sharedMediaKinds.every((k) => isPending(feeds[k])) && all.length === 0;
+  const more = sharedMediaKinds.some((k) => feeds[k].more);
+  const count = all.length ? `${all.length}${more ? '+' : ''}` : '';
+  const files = all.filter((m) => m.kind.type === 'file').length;
+  const links = all.filter((m) => m.kind.type === 'link').length;
+  return (
+    <section className="inspector-block media-strip">
+      <button className="media-strip-head" onClick={() => browseSharedMedia(conversationId, 'all')}>
+        <span>Ảnh, file, link</span>
+        {count && <span className="inspector-section-count">{count}</span>}
+        <span className="conv-tabs-spacer" />
+        <ChevronRight size={16} className="tertiary" />
+      </button>
+      {pending ? (
+        <div className="inspector-loading">
+          <Spinner size={14} />
+        </div>
+      ) : images.length ? (
+        <div className="media-strip-row">
+          {images.map((m) =>
+            m.kind.type === 'photo' ? (
+              <PhotoView key={m.id} message={m} url={m.kind.url} width={m.kind.width} height={m.kind.height} tile={96} />
+            ) : m.kind.type === 'video' ? (
+              <VideoThumb key={m.id} message={m} thumbnail={m.kind.thumbnail} duration={m.kind.duration} url={m.kind.url} tile={96} />
+            ) : null,
+          )}
+        </div>
+      ) : (
+        <div className="inspector-empty">{all.length ? [files && `${files} file`, links && `${links} link`].filter(Boolean).join(' · ') : 'Chưa có ảnh, file hoặc link'}</div>
+      )}
+    </section>
+  );
+}
+
+const noMessages: ChatMessage[] = [];
+
+/** A setting row with a switch on the right (the switch mirrors the state; the click runs the action). */
+function ToggleRow({
+  icon,
+  title,
+  subtitle,
+  on,
+  disabled = false,
+  help,
+  onToggle,
+}: {
+  icon: ReactNode;
+  title: string;
+  subtitle?: string;
+  on: boolean;
+  disabled?: boolean;
+  help?: string;
+  onToggle?: (el: HTMLButtonElement) => void;
+}) {
+  return (
+    <button className="inspector-row inspector-toggle" disabled={disabled} title={help} role="switch" aria-checked={on} onClick={(e) => onToggle?.(e.currentTarget)}>
+      <span className="tint inspector-row-icon">{icon}</span>
+      <span className="inspector-row-text">
+        <span className="truncate">{title}</span>
+        {subtitle && <span className="inspector-row-sub truncate">{subtitle}</span>}
+      </span>
+      <span className={`inspector-switch ${on ? 'is-on' : ''}`} aria-hidden />
+    </button>
+  );
+}
+
+/** "Chặn": confirm, then block messages and calls (official `blockFriend`). */
+function BlockRow({ conversationId, name }: { conversationId: string; name: string }) {
+  const [asking, setAsking] = useState(false);
+  const block = async () => {
+    setAsking(false);
+    const r = await blockContact(conversationId);
+    showToast(r.ok ? `Đã chặn ${name}` : r.text || 'Đã có lỗi xảy ra. Vui lòng thử lại', conversationId);
+  };
+  return (
+    <>
+      <button className="inspector-danger-row" onClick={() => setAsking(true)}>
+        <Ban size={16} /> Chặn {name}
+      </button>
+      {asking && (
+        <Alert
+          title={`Chặn ${name}?`}
+          message="Người này sẽ không thể nhắn tin hoặc gọi cho bạn."
+          buttons={[
+            { label: 'Chặn', role: 'destructive', onClick: () => void block() },
+            { label: 'Hủy', role: 'cancel', onClick: () => setAsking(false) },
+          ]}
+        />
+      )}
+    </>
+  );
 }
