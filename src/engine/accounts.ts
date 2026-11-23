@@ -7,9 +7,13 @@
 // account_add({activate}) · account_remove · account_set_active · account_reorder · account_set_enabled ·
 // account_rename · engine_* {account?} · compola://badge {account, count} · compola://call-event {kind:'busy', …}.
 // A host without accounts_list (single-account builds) keeps today's UI: the list stays empty.
+// Joined to a Compola Server (desktop joined mode, web client): the list is the server's accounts the user may see,
+// switching is local to this UI, and adding / removing / renaming / reordering / turning off is for the server's
+// admins (Quản trị máy chủ): `accountsManagedHere()` is false and those commands are refused.
 
 import { create, type StoreApi, type UseBoundStore } from 'zustand';
-import { backend } from './backend';
+import { setActiveAccountId } from './activeAccount';
+import { backend, joinedSync } from './backend';
 import { log } from './call';
 import { arr, bool, int, obj, str } from './models/json';
 import type { LoginState, Phase } from './models/phase';
@@ -147,6 +151,7 @@ const activate = (id: string) => {
   const before = get().activeId;
   if (id === before) return;
   swapStores(before, id);
+  setActiveAccountId(id);
   set({ activeId: id });
   if (before !== null) void resync();
 };
@@ -229,7 +234,10 @@ export const switchToIndex = (index: number) => {
   if (a) switchAccount(a.id);
 };
 
-export const canAddAccount = () => get().accounts.length > 0 && get().accounts.length < get().maxAccounts;
+/** Accounts are managed in this app (not on a Compola Server, where its admins manage them). */
+export const accountsManagedHere = () => !joinedSync();
+
+export const canAddAccount = () => accountsManagedHere() && get().accounts.length > 0 && get().accounts.length < get().maxAccounts;
 
 // MARK: Adding an account
 

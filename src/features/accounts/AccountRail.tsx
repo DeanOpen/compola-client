@@ -7,6 +7,7 @@ import { type MouseEvent } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import {
   accountTitle,
+  accountsManagedHere,
   beginAddAccount,
   canAddAccount,
   defaultAccountId,
@@ -24,15 +25,27 @@ import './accounts.css';
 const phaseNote = (a: AccountInfo) =>
   a.phase === 'disabled' ? 'Đã tắt' : a.phase === 'login' ? 'Chưa đăng nhập' : a.phase === 'starting' || a.phase === 'preparing' || a.phase === 'signingIn' ? 'Đang khởi động' : '';
 
-/** An account's menu (right-click on its avatar). */
-const accountMenu = (a: AccountInfo, active: boolean): MenuItem[] => [
-  { kind: 'label', label: [accountTitle(a), phaseNote(a)].filter(Boolean).join(' · ') },
-  ...(active ? [] : [{ label: 'Chuyển sang tài khoản này', icon: ArrowLeftRight, disabled: a.phase === 'disabled', onSelect: () => switchAccount(a.id) }]),
-  { label: 'Quản lý tài khoản…', icon: Settings, onSelect: () => openSettings('account') },
-  { kind: 'separator' },
-  { label: 'Đăng xuất', icon: LogOut, destructive: true, disabled: a.phase !== 'ready', onSelect: () => signOutAccount(a.id) },
-  ...(active || a.id === defaultAccountId ? [] : [{ label: 'Xóa khỏi Compola', icon: Trash2, destructive: true, onSelect: () => removeAccount(a.id) }]),
-];
+/** An account's menu (right-click on its avatar). On a Compola Server, signing accounts out or removing them is for its
+ * admins (Quản trị máy chủ). */
+const accountMenu = (a: AccountInfo, active: boolean): MenuItem[] => {
+  const switchItem: MenuItem[] = active
+    ? []
+    : [{ label: 'Chuyển sang tài khoản này', icon: ArrowLeftRight, disabled: a.phase === 'disabled', onSelect: () => switchAccount(a.id) }];
+  if (!accountsManagedHere())
+    return [
+      { kind: 'label', label: [accountTitle(a), phaseNote(a)].filter(Boolean).join(' · ') },
+      ...switchItem,
+      { label: 'Tài khoản Zalo của máy chủ…', icon: Settings, onSelect: () => openSettings('server') },
+    ];
+  return [
+    { kind: 'label', label: [accountTitle(a), phaseNote(a)].filter(Boolean).join(' · ') },
+    ...switchItem,
+    { label: 'Quản lý tài khoản…', icon: Settings, onSelect: () => openSettings('account') },
+    { kind: 'separator' },
+    { label: 'Đăng xuất', icon: LogOut, destructive: true, disabled: a.phase !== 'ready', onSelect: () => signOutAccount(a.id) },
+    ...(active || a.id === defaultAccountId ? [] : [{ label: 'Xóa khỏi Compola', icon: Trash2, destructive: true, onSelect: () => removeAccount(a.id) }]),
+  ];
+};
 
 /** `activeMenu` opens the account-on-screen's menu (profile, sync, settings, sign out); `activeUnread` is its live count. */
 export function AccountRail({ activeMenu, activeUnread }: { activeMenu: (e: MouseEvent<HTMLButtonElement>) => void; activeUnread: number }) {

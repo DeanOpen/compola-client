@@ -10,13 +10,13 @@ import { BackBar, Problem } from './common';
 import { DevicesPage } from './DevicesPage';
 import { GrantsPage } from './GrantsPage';
 import { PeoplePage } from './PeoplePage';
-import { ZaloAccountPage } from './ZaloAccountPage';
+import { ZaloAccountsPage } from './ZaloAccountPage';
 import './admin.css';
 
 export type AdminPage = 'zalo' | 'people' | 'grants' | 'devices';
 
 const pages: { id: AdminPage; title: string; detail: string; icon: LucideIcon }[] = [
-  { id: 'zalo', title: 'Tài khoản Zalo', detail: 'Đăng nhập hoặc đăng xuất Zalo trên máy chủ.', icon: Smartphone },
+  { id: 'zalo', title: 'Tài khoản Zalo', detail: 'Các tài khoản Zalo của máy chủ: thêm, đăng nhập bằng mã QR, đăng xuất, bật / tắt.', icon: Smartphone },
   { id: 'people', title: 'Người dùng & nhóm', detail: 'Tạo tài khoản, khoá, đặt lại mật khẩu, quản trị viên, nhóm.', icon: Users },
   { id: 'grants', title: 'Phân quyền', detail: 'Ai được dùng tài khoản Zalo, vai trò và phạm vi cuộc trò chuyện.', icon: ShieldCheck },
   { id: 'devices', title: 'Thiết bị', detail: 'Phiên đăng nhập theo từng người; ngắt từ xa.', icon: MonitorSmartphone },
@@ -79,7 +79,7 @@ export function ServerAdminPage({ page, onBack }: { page: AdminPage; onBack: () 
   return (
     <div ref={ref} className="sa-page">
       <BackBar title={title} onBack={onBack} />
-      {page === 'zalo' && <ZaloAccountPage />}
+      {page === 'zalo' && <ZaloAccountsPage />}
       {page === 'people' && <PeoplePage />}
       {page === 'grants' && <GrantsPage />}
       {page === 'devices' && <DevicesPage />}
