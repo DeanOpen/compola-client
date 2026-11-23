@@ -42,6 +42,14 @@
     ],
     "externalBin": [
       "binaries/compola-fingerprint-helper"
-    ]
+    ],
+    "category": "SocialNetworking",
+    "shortDescription": "A native-shell Zalo client",
+    "macOS": {
+      "entitlements": "./Entitlements.plist",
+      "minimumSystemVersion": "11.0",
+      "hardenedRuntime": true,
+      "signingIdentity": "-"
+    }
   }
 }
