@@ -51,7 +51,11 @@ pub use loader::MediaLoader;
 pub const DOH_HOST_SUFFIXES: &[&str] = &["zadn.vn", "zdn.vn", "zalo.me", "zaloapp.com", "zingcdn.me", "zalo.vn", "zing.vn"];
 
 /// Hosts the `compola-media` scheme serves: the DoH list plus Zalo's video CDN.
-pub const SERVED_HOST_SUFFIXES: &[&str] = &["z-cdn.me"];
+/// Further Zalo / VNG CDNs the official client loads media from (its `index.html` CSP): videos on `*.dlmd.me`, files on
+/// `*.dlfl.*`, chat media on `mdchat.me` / `flchat.vn` / `pchat.vn`, plus `z-cdn.me`, `zapps.vn`, `zavi.me`, `zalo.ai`.
+pub const SERVED_HOST_SUFFIXES: &[&str] = &[
+    "z-cdn.me", "dlmd.me", "dlfl.me", "dlfl.vn", "dlfl.info", "mdchat.me", "flchat.vn", "pchat.vn", "zapps.vn", "zavi.me", "zalo.ai",
+];
 
 fn matches_suffix(host: &str, suffixes: &[&str]) -> bool {
     let host = host.trim_end_matches('.').to_ascii_lowercase();
@@ -298,6 +302,8 @@ mod tests {
     #[test]
     fn served_hosts_extend_the_doh_list_only_with_zalo_domains() {
         assert!(is_allowed_host("video-sgp1-1.z-cdn.me"));
+        assert!(is_allowed_host("video-stal-27.dlmd.me"));
+        assert!(!is_allowed_host("dlmd.me.evil.com"));
         assert!(!is_zalo_cdn("video-sgp1-1.z-cdn.me"));
         assert!(is_allowed_host("f21-zpc.zdn.vn"));
         assert!(!is_allowed_host("z-cdn.me.evil.com"));
