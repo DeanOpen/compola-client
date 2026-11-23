@@ -971,6 +971,24 @@ pub async fn remote_leave(app: AppHandle, remote: RemoteState<'_>) -> Result<(),
     app.restart();
 }
 
+/// `accounts_list` of a joined app (the server's accounts the user may use).
+#[tauri::command]
+pub fn remote_accounts_list(remote: RemoteState<'_>) -> Result<Value, String> {
+    Ok(remote.client.as_ref().ok_or("not joined")?.accounts_list())
+}
+
+/// `account_set_active` of a joined app: which of the server's accounts this app shows (local).
+#[tauri::command]
+pub fn remote_account_set_active(remote: RemoteState<'_>, account: String) -> Result<(), String> {
+    remote.client.as_ref().ok_or("not joined")?.set_active_account(&account)
+}
+
+/// `ui_set_event_scope` of a joined app.
+#[tauri::command]
+pub fn remote_set_event_scope(remote: RemoteState<'_>, scope: String) -> Result<(), String> {
+    remote.client.as_ref().ok_or("not joined")?.set_event_scope(&scope)
+}
+
 /// Reconnect now instead of waiting for the next attempt.
 #[tauri::command]
 pub fn remote_retry(remote: RemoteState<'_>) {
