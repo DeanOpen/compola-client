@@ -11,18 +11,17 @@ import {
   PinOff,
   Quote,
   Reply,
-  SmilePlus,
   Star,
   StarOff,
+  ThumbsUp,
   Trash2,
   Undo2,
 } from 'lucide-react';
-import { memo, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { memo, type ReactNode, type RefObject } from 'react';
 import { copyPhoto, copyText, deleteForMe, pinMessage, recall, requestForward, requestUnpinMessage, setStarred } from '../../engine/messageActions';
 import { captionOf, copyableText, type ChatMessage } from '../../engine/models/chat';
 import { Avatar } from '../../ui/Avatar';
 import { openContextMenu, openMenuBelow, type MenuItem } from '../../ui/Menu';
-import { Popover } from '../../ui/Overlays';
 import { BubbleContent } from './MessageContent';
 import { statusText } from './format';
 import { ECardView, NoticeRow } from './cards/Cards';
@@ -71,13 +70,8 @@ export const MessageRow = memo(function MessageRow(props: Props) {
   }
 });
 
-/** Quick reactions of the hover toolbar (the full six are in the picker and the context menu). */
-const quickReactions = ['❤️', '👍', '😆', '😮'];
-
 function BubbleRow({ message, firstInGroup, lastInGroup, showStatus, isGroup, album, onReply, onReact }: Props) {
   const mine = message.isMine;
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const reactButton = useRef<HTMLButtonElement>(null);
   const recalled = message.kind.type === 'recalled';
   const showsName = isGroup && !mine && firstInGroup;
   const myReactions = new Set(message.reactions.filter((r) => r.includesMe).map((r) => r.icon.emoji));
@@ -85,7 +79,7 @@ function BubbleRow({ message, firstInGroup, lastInGroup, showStatus, isGroup, al
 
   return (
     <div
-      className={`bubble-row ${mine ? 'is-mine' : ''} ${firstInGroup ? 'is-first' : ''} ${message.reactions.length ? 'has-reactions' : ''} ${pickerOpen ? 'is-hovered' : ''}`}
+      className={`bubble-row ${mine ? 'is-mine' : ''} ${firstInGroup ? 'is-first' : ''} ${message.reactions.length ? 'has-reactions' : ''}`}
       data-message-id={message.id}
       onContextMenu={(e) => openContextMenu(e, menu())}
     >
@@ -104,53 +98,53 @@ function BubbleRow({ message, firstInGroup, lastInGroup, showStatus, isGroup, al
               <Star size={9} fill="currentColor" strokeWidth={3} />
             </span>
           )}
-          <div className="hover-bar glass" role="toolbar" aria-label="Thao tác tin nhắn">
-            {!recalled &&
-              quickReactions.map((emoji) => (
-                <button
-                  key={emoji}
-                  className={`hover-reaction ${myReactions.has(emoji) ? 'is-selected' : ''}`}
-                  title={`Thả ${emoji}`}
-                  aria-label={`Thả ${emoji}`}
-                  onClick={() => onReact(emoji, message)}
-                >
-                  {emoji}
-                </button>
-              ))}
+          {/* Zalo PC: a like button on the bubble's corner; hovering it opens the six reactions. */}
+          {!recalled && (
+            <div className="react-trigger">
+              <button
+                className={`react-trigger-btn ${myReactions.size ? 'is-mine' : ''}`}
+                title="Thả cảm xúc"
+                aria-label="Thả 👍"
+                onClick={() => onReact(myReactions.size ? [...myReactions][0] : '👍', message)}
+              >
+                {myReactions.size ? [...myReactions][0] : <ThumbsUp size={13} />}
+              </button>
+              <div className="react-strip" role="toolbar" aria-label="Cảm xúc">
+                {reactionEmojis.map((emoji) => (
+                  <button
+                    key={emoji}
+                    className={`hover-reaction ${myReactions.has(emoji) ? 'is-selected' : ''}`}
+                    title={`Thả ${emoji}`}
+                    aria-label={`Thả ${emoji}`}
+                    onClick={() => onReact(emoji, message)}
+                  >
+                    {emoji}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {/* Actions beside the bubble, aligned with its top edge: reply · forward · ⋯ */}
+          <div className="hover-bar" role="toolbar" aria-label="Thao tác tin nhắn">
             {!recalled && (
               <>
-                <BarButton title="Thêm cảm xúc" refEl={reactButton} onClick={() => setPickerOpen((v) => !v)}>
-                  <SmilePlus size={15} />
-                </BarButton>
-                <span className="hover-divider" />
                 <BarButton title="Trả lời" onClick={() => onReply(message)}>
-                  <Reply size={15} />
+                  <Quote size={14} />
                 </BarButton>
                 {message.menu.forward === 'available' && (
                   <BarButton title="Chia sẻ" onClick={() => requestForward(message)}>
-                    <Forward size={15} />
+                    <Forward size={14} />
                   </BarButton>
                 )}
               </>
             )}
             <BarButton title="Thêm" onClick={(el) => openMenuBelow(el, menu(), mine ? 'start' : 'end')}>
-              <MoreHorizontal size={15} />
+              <MoreHorizontal size={14} />
             </BarButton>
           </div>
         </div>
         {mine && showStatus && <div className={`bubble-status-line ${message.status === 'failed' ? 'is-failed' : ''}`}>{statusText[message.status]}</div>}
       </div>
-      {pickerOpen && (
-        <Popover anchor={reactButton} onClose={() => setPickerOpen(false)} placement="top">
-          <ReactionPicker
-            mine={myReactions}
-            pick={(emoji) => {
-              setPickerOpen(false);
-              onReact(emoji, message);
-            }}
-          />
-        </Popover>
-      )}
     </div>
   );
 }

@@ -491,43 +491,146 @@
   left: -6px;
 }
 
-/* Hover toolbar: quick reactions · more · reply · forward · ⋯, beside the bubble */
+/* Zalo PC hover actions: small icons beside the bubble at its top edge (reply · forward · ⋯) */
 .hover-bar {
   position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
+  top: 0;
   display: none;
   align-items: center;
-  gap: 1px;
-  padding: 2px;
-  border-radius: 6px;
+  gap: 2px;
   white-space: nowrap;
   z-index: 3;
 }
 
 .bubble-row:not(.is-mine) .hover-bar {
-  left: calc(100% + 8px);
+  left: calc(100% + 6px);
 }
 
 .bubble-row.is-mine .hover-bar {
-  right: calc(100% + 8px);
+  right: calc(100% + 6px);
 }
 
-.bubble-row:hover .hover-bar,
-.bubble-row.is-hovered .hover-bar {
+.bubble-row:hover .hover-bar {
   display: flex;
 }
 
+.hover-bar .hover-button {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--surface, #fff);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+/* The like button on the bubble's bottom corner; hovering it opens the six reactions above it. */
+.react-trigger {
+  position: absolute;
+  bottom: -10px;
+  z-index: 4;
+  display: none;
+}
+
+.bubble-row:not(.is-mine) .react-trigger {
+  right: 8px;
+}
+
+.bubble-row.is-mine .react-trigger {
+  left: 8px;
+}
+
+.bubble-row:hover .react-trigger,
+.react-trigger:focus-within {
+  display: block;
+}
+
+/* A message already carrying reactions has its chips on that corner: the like button takes the other one. */
+.bubble-row.has-reactions:not(.is-mine) .react-trigger {
+  right: auto;
+  left: 8px;
+}
+
+.bubble-row.has-reactions.is-mine .react-trigger {
+  left: auto;
+  right: 8px;
+}
+
+.bubble-row.has-reactions:not(.is-mine) .react-strip {
+  right: auto;
+  left: -6px;
+}
+
+.bubble-row.has-reactions.is-mine .react-strip {
+  left: auto;
+  right: -6px;
+}
+
+.react-trigger-btn {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--surface, #fff);
+  color: var(--text-secondary);
+  font-size: 13px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+}
+
+.react-trigger-btn:hover {
+  color: var(--primary, #0068ff);
+}
+
+.react-strip {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  display: none;
+  gap: 2px;
+  padding: 4px 6px;
+  border-radius: 20px;
+  background: var(--surface, #fff);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.16);
+  animation: compola-pop 120ms ease-out;
+}
+
+.bubble-row:not(.is-mine) .react-strip {
+  right: -6px;
+}
+
+.bubble-row.is-mine .react-strip {
+  left: -6px;
+}
+
+/* A small bridge so the strip stays open while the pointer moves up to it. */
+.react-strip::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  height: 10px;
+}
+
+.react-trigger:hover .react-strip {
+  display: flex;
+}
+
+@keyframes compola-pop {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.96);
+  }
+}
+
 .hover-reaction {
-  width: 28px;
-  height: 28px;
-  border-radius: 4px;
-  font-size: 16px;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  font-size: 20px;
   transition: transform var(--motion-fast);
 }
 
 .hover-reaction:hover {
-  transform: scale(1.2);
+  transform: scale(1.3) translateY(-2px);
 }
 
 .hover-reaction.is-selected {
