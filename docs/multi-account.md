@@ -79,7 +79,9 @@ Status: contract. Implemented in milestones on `feature/multi-account-core`; see
 - **Shared**: the official runtime (one install), the fingerprint helper (one process; each request carries the cookie
   header of the account's jar), the call helper (§4), the notifier (§5), the screen-capture tool, the media loader, the
   automation server, the Compola Server listener.
-- **Media**: `compola-media://load?…&account=<id>`. The account selects the cookie jar. The URL cache and on-disk media
+- **Media**: `compola-media://load?…&account=<id>`. Each account has its own media loader (its cookie jar) and its own
+  cache directory: `MediaCache/` for `default` (unchanged), `Accounts/<id>/MediaCache/` for the others. That isolates
+  the cache keys by construction. The account selects the cookie jar. The URL cache and on-disk media
   cache keys include the account, because the same URL can answer differently with another account's cookies. A
   missing `account` means the active account, and `file=` paths must lie under some account's data root.
   - Pre-multi-account cache entries count as `default`'s.
@@ -205,7 +207,8 @@ objects change shape:
 The server shares **every** account of its host. The account becomes a dimension of access, of the mirror and of the
 wire protocol.
 
-- **Grants**: `{…, account: <accountId> | "*", role, scope: {all, conversations, labels}}`.
+- **Grants**: `{…, account: <accountId> | "*", role, scope: {all, conversations, labels}}`. A `"*"` grant requires
+  `scope.all` (enforced by the server).
   - `"*"` means every account, present and future, with this role and scope; conversation and label lists then only
     make sense with `all`.
   - **Migration**: existing grants get `account: "default"` (they were made for that account).
@@ -233,11 +236,19 @@ wire protocol.
     /api/admin/accounts/<id>` (remove; `default` → logout only).
   - `PATCH /api/admin/accounts/<id>` `{name?, enabled?, order?}`
   - `GET /api/admin/conversations?account=<id>` (required when more than one account is registered).
-  - Audit entries for `zalo.*`, `message.send` and other writes carry `account`.
+  - Audit entries for `zalo.*`, `message.send` and other writes, and the activity log, carry both `accountId` and `uid`.
+- **Joined apps**:
+  - `accounts_list` and `account_set_active` are answered by `remote.rs` as local commands: the host's accounts the user
+    may use (`hello.accounts`), and which of them this UI shows. They never touch the joined app's own
+    `accounts.json`.
+  - `remote_invoke` fills `args.account` with the joined app's active account when the UI omits it.
 
 ## 8. Automation (MCP tools, add-ons, schedules)
 
 - Every Zalo tool takes an optional `account` (missing → active).
+- The message index (`search.db`) and the automation mirror are keyed by `(account, conversation)`: conversation ids
+  are only unique within an account. `search.db` gets an `account` column (existing rows: `default`).
+  `automation_search` and `automation_messages` take `account` and can be policy-filtered per account.
 - The feed `compola://automation {kind: 'message', account, message}` covers every running account.
 - Add-ons and jobs may be restricted to accounts: `accounts: ["*"] | [ids]`, default `["*"]`.
 
