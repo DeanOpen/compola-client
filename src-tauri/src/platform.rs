@@ -22,8 +22,8 @@ pub fn app_support() -> PathBuf {
 }
 
 impl Platform {
-    pub fn new(app_version: String, client_version: String) -> Self {
-        let user_data = app_support().join("ZaloData");
+    /// The platform of one account (its Electron `userData`: `ZaloData/` for `default`, `Accounts/<id>/ZaloData/`).
+    pub fn new(app_version: String, client_version: String, user_data: PathBuf) -> Self {
         let _ = std::fs::create_dir_all(&user_data);
         Self { app_version, client_type: crate::net::fp::CLIENT_TYPE.into(), client_version, user_data }
     }

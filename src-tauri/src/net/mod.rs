@@ -91,6 +91,7 @@ pub struct NetworkProxy {
     label: String,
     user_agent: String,
     client: reqwest::Client,
+    jar: Arc<CookieJar>,
     sockets: Mutex<HashMap<i64, mpsc::UnboundedSender<WsCmd>>>,
 }
 
@@ -104,17 +105,18 @@ pub struct HttpResponse {
 }
 
 impl NetworkProxy {
-    pub fn new(app: AppHandle, label: String, user_agent: String) -> Arc<Self> {
+    pub fn new(app: AppHandle, label: String, user_agent: String, jar: Arc<CookieJar>) -> Arc<Self> {
         let client = reqwest::Client::builder()
             .user_agent(user_agent.clone())
             .redirect(reqwest::redirect::Policy::limited(10))
             .build()
             .expect("http client");
-        Arc::new(Self { app, label, user_agent, client, sockets: Mutex::new(HashMap::new()) })
+        Arc::new(Self { app, label, user_agent, client, jar, sockets: Mutex::new(HashMap::new()) })
     }
 
+    /// The cookie jar of this host's account.
     fn jar(&self) -> Arc<CookieJar> {
-        self.app.state::<Arc<CookieJar>>().inner().clone()
+        self.jar.clone()
     }
 
     pub async fn handle(self: Arc<Self>, host: Arc<Host>, body: Value) -> Value {
@@ -505,7 +507,7 @@ impl NetworkProxy {
 /// like `NetworkProxy::request`. `Ok(None)`: the helper is not running — the caller uses its own fallback transport.
 /// `Err`: an upstream failure reported by the helper.
 pub async fn perform_via_helper(
-    app: &AppHandle,
+    jar: Option<Arc<CookieJar>>,
     method: &str,
     url: &url::Url,
     mut headers: Vec<(String, String)>,
@@ -514,7 +516,6 @@ pub async fn perform_via_helper(
     wait: Duration,
 ) -> Result<Option<HttpResponse>, String> {
     let Some(helper) = fingerprint::FingerprintProxy::shared().ready(wait).await else { return Ok(None) };
-    let jar = app.try_state::<Arc<CookieJar>>().map(|j| j.inner().clone());
     if let Some(cookie) = jar.as_ref().and_then(|j| j.header_for(url)) {
         headers.push(("cookie".into(), cookie));
     }
@@ -534,13 +535,12 @@ pub async fn perform_via_helper(
 /// Streaming fingerprint-helper request (media / file downloads), with the client cookie jar. `Ok(None)`: the
 /// helper is not running — use the fallback transport. Cookies of the response head are stored.
 pub async fn stream_via_helper(
-    app: &AppHandle,
+    jar: Option<Arc<CookieJar>>,
     url: &url::Url,
     mut request: fingerprint::Request,
     wait: Duration,
 ) -> Result<Option<fingerprint::StreamStart>, fingerprint::Error> {
     let Some(helper) = fingerprint::FingerprintProxy::shared().ready(wait).await else { return Ok(None) };
-    let jar = app.try_state::<Arc<CookieJar>>().map(|j| j.inner().clone());
     if let Some(cookie) = jar.as_ref().and_then(|j| j.header_for(url)) {
         request.headers.push(("cookie".into(), cookie));
     }
@@ -659,14 +659,13 @@ impl StreamingResponse {
 /// Chromium header set, through the fingerprint helper when it runs. Redirects are **not** followed (the caller
 /// decides which headers may follow them); `head_timeout` bounds the wait for the response head.
 pub async fn fetch(
-    app: &AppHandle,
+    jar: &Arc<CookieJar>,
     url: &url::Url,
     mut headers: Vec<(String, String)>,
     user_agent: &str,
     head_timeout: Duration,
 ) -> Result<StreamingResponse, FetchError> {
     static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
-    let jar = app.state::<Arc<CookieJar>>().inner().clone();
     apply_client_headers(&mut headers);
     if let Some(cookie) = jar.header_for(url) {
         headers.push(("cookie".into(), cookie));

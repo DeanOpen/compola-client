@@ -57,6 +57,8 @@ pub struct Media {
 
 pub struct MediaLoader {
     app: Option<AppHandle>,
+    /// The account whose cookies this loader sends (`None`: tests, no cookies).
+    account: Option<Arc<crate::account::Account>>,
     pub cache: DiskCache,
     resolver: DoHResolver,
     pinned: PinnedClients,
@@ -71,7 +73,9 @@ pub struct MediaLoader {
     media_writes: AtomicU32,
 }
 
-static SHARED: OnceLock<Arc<MediaLoader>> = OnceLock::new();
+/// One loader per account: its own cookie jar and its own cache directory, so a URL that answers differently under
+/// another account's cookies never crosses accounts (docs/multi-account.md §2).
+static LOADERS: OnceLock<Mutex<HashMap<String, Arc<MediaLoader>>>> = OnceLock::new();
 
 fn content_type_of(headers: &[(String, String)]) -> String {
     cache::clean_content_type(header(headers, "content-type").as_deref()).unwrap_or_else(|| "application/octet-stream".into())
@@ -105,14 +109,21 @@ pub async fn probe_system_dns(host: String, timeout: Duration) -> bool {
 }
 
 impl MediaLoader {
-    /// The app-wide loader (`app_support()/MediaCache`).
-    pub fn shared(app: &AppHandle) -> Arc<Self> {
-        SHARED
-            .get_or_init(|| {
-                let root = crate::platform::app_support().join("MediaCache");
-                Arc::new(Self::new(Some(app.clone()), DiskCache::new(&root), DoHResolver::default(), MAX_CONCURRENT_DOWNLOADS))
+    /// The loader of an account (`None` = the active one): cache under the account's data root (`MediaCache/` for
+    /// `default`, as before multi-account; `Accounts/<id>/MediaCache/` otherwise).
+    pub fn for_account(app: &AppHandle, account: Option<&str>) -> Result<Arc<Self>, MediaError> {
+        let account = crate::account::get(app, account).map_err(|_| MediaError::Forbidden)?;
+        let loaders = LOADERS.get_or_init(Mutex::default);
+        let mut loaders = loaders.lock();
+        Ok(loaders
+            .entry(account.id().to_owned())
+            .or_insert_with(|| {
+                let root = account.paths.data_root.join("MediaCache");
+                let mut loader = Self::new(Some(app.clone()), DiskCache::new(&root), DoHResolver::default(), MAX_CONCURRENT_DOWNLOADS);
+                loader.account = Some(account.clone());
+                Arc::new(loader)
             })
-            .clone()
+            .clone())
     }
 
     /// `app: None` (tests): no fingerprint helper, no cookies, default user agent.
@@ -124,6 +135,7 @@ impl MediaLoader {
             .expect("media http client");
         Self {
             app,
+            account: None,
             cache,
             resolver,
             pinned: PinnedClients::default(),
@@ -148,8 +160,9 @@ impl MediaLoader {
             .unwrap_or_else(|| fp::user_agent(fp::DEFAULT_CLIENT_VERSION))
     }
 
+    /// The cookie jar of this loader's account.
     fn jar(&self) -> Option<Arc<CookieJar>> {
-        Some(self.app.as_ref()?.try_state::<Arc<CookieJar>>()?.inner().clone())
+        self.account.as_ref().map(|a| a.jar.clone())
     }
 
     /// The full wire header set for the reqwest transports: cookies (Zalo https hosts only) + flavour defaults.
@@ -285,10 +298,12 @@ impl MediaLoader {
 
     /// Swift `helperOrFallback`: `Ok(None)` = helper unavailable or name-resolution trouble, use the other stack.
     async fn helper_get(&self, url: &url::Url, flavour: Flavour, timeout: Option<Duration>) -> Result<Option<net::HttpResponse>, MediaError> {
-        let Some(app) = &self.app else { return Ok(None) };
+        if self.app.is_none() {
+            return Ok(None);
+        }
         let mut headers = vec![("User-Agent".to_owned(), self.user_agent())];
         headers.extend(helper_headers(&[], url, flavour));
-        match net::perform_via_helper(app, "GET", url, headers, &[], timeout, HELPER_WAIT).await {
+        match net::perform_via_helper(self.jar(), "GET", url, headers, &[], timeout, HELPER_WAIT).await {
             Ok(None) => Ok(None),
             Ok(Some(r)) if (200..300).contains(&r.status) => Ok(Some(r)),
             Ok(Some(r)) => Err(MediaError::Http(r.status)),
@@ -519,13 +534,15 @@ impl MediaLoader {
     /// Streams through the fingerprint helper. `Ok(None)`: helper unavailable (also when its connection drops
     /// mid-body) or name-resolution trouble — the caller uses the other stack (Swift `fetchFileViaHelper`).
     async fn file_via_helper(&self, url: &url::Url, progress: &ActiveDownload) -> Result<Option<PathBuf>, MediaError> {
-        let Some(app) = &self.app else { return Ok(None) };
+        if self.app.is_none() {
+            return Ok(None);
+        }
         let mut request = fingerprint::Request::new("GET", url.as_str());
         request.headers = vec![("User-Agent".to_owned(), self.user_agent())];
         request.headers.extend(helper_headers(&[], url, Flavour::Cors));
         request.max_bytes = MAX_FILE_BYTES as i64;
         request.idle_ms = FILE_IDLE.as_millis() as u64;
-        let start = match net::stream_via_helper(app, url, request, HELPER_WAIT).await {
+        let start = match net::stream_via_helper(self.jar(), url, request, HELPER_WAIT).await {
             Ok(None) => return Ok(None),
             Ok(Some(start)) => start,
             Err(e) => {

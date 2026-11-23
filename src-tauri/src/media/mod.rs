@@ -167,9 +167,22 @@ impl From<std::io::Error> for MediaError {
 /// Roots `file://` media may be read from (Swift `allowedLocalRoots`): the Zalo data directory (the official
 /// client's `ZaloDownloads`) and the media caches.
 pub fn allowed_local_roots() -> Vec<PathBuf> {
-    let base = crate::platform::app_support();
-    // Our temp folder too: the official zCloud cache (`getzCloudCachePath`) and staged files live under it.
-    vec![base.join("ZaloData"), base.join("MediaCache"), std::env::temp_dir().join("Compola")]
+    roots_under(&crate::platform::app_support())
+}
+
+/// Every account's `ZaloData/` and `MediaCache/` (`default` at the root, the others under `Accounts/<id>/`), and our
+/// temp folder: the official zCloud cache (`getzCloudCachePath`) and staged files live under it.
+fn roots_under(base: &Path) -> Vec<PathBuf> {
+    let mut roots = vec![base.join("ZaloData"), base.join("MediaCache"), std::env::temp_dir().join("Compola")];
+    if let Ok(entries) = std::fs::read_dir(base.join(crate::account::ACCOUNTS_DIR)) {
+        for entry in entries.flatten() {
+            if entry.file_name().to_str().is_some_and(|id| crate::account::valid_id(id) && id != crate::account::DEFAULT_ID) {
+                roots.push(entry.path().join("ZaloData"));
+                roots.push(entry.path().join("MediaCache"));
+            }
+        }
+    }
+    roots
 }
 
 /// Swift `isLocalFile(_:under:)`: the symlink-resolved path lies strictly inside one of `roots`.
@@ -194,13 +207,13 @@ pub fn is_allowed_local_file(url: &url::Url) -> Option<PathBuf> {
 /// Saves a media URL to a path the user chose (the Swift views' "Lưu về máy…"): from the image cache when the photo
 /// is already there, else through the file download path. Written atomically and quarantined like a download.
 #[tauri::command]
-pub async fn media_save(app: tauri::AppHandle, url: String, dest_path: String) -> Result<String, String> {
+pub async fn media_save(app: tauri::AppHandle, url: String, dest_path: String, account: Option<String>) -> Result<String, String> {
     let parsed = url::Url::parse(&url).map_err(|_| MediaError::BadUrl.to_string())?;
     let dest = PathBuf::from(&dest_path);
     if !dest.is_absolute() || dest.file_name().is_none() || !dest.parent().is_some_and(Path::is_dir) {
         return Err("invalid destination".into());
     }
-    let loader = MediaLoader::shared(&app);
+    let loader = MediaLoader::for_account(&app, account.as_deref()).map_err(|e| e.to_string())?;
     let origin = parsed.clone();
     let source = if parsed.scheme() == "file" {
         Source::File(is_allowed_local_file(&parsed).ok_or_else(|| MediaError::Forbidden.to_string())?)
@@ -233,7 +246,7 @@ pub struct OpenOutcome {
 
 /// A file attachment's URL as the file to open: Zalo CDN URLs download through the client stack into the file
 /// cache (the `cors` flavour); `file://` URLs must be inside our own roots.
-async fn openable_file(app: &tauri::AppHandle, url: &str) -> Result<PathBuf, MediaError> {
+async fn openable_file(app: &tauri::AppHandle, url: &str, account: Option<&str>) -> Result<PathBuf, MediaError> {
     let parsed = url::Url::parse(url).map_err(|_| MediaError::BadUrl)?;
     if parsed.scheme() == "file" {
         return is_allowed_local_file(&parsed).ok_or(MediaError::Forbidden);
@@ -242,14 +255,14 @@ async fn openable_file(app: &tauri::AppHandle, url: &str) -> Result<PathBuf, Med
     if !url.host_str().is_some_and(is_allowed_host) {
         return Err(MediaError::Forbidden);
     }
-    MediaLoader::shared(app).local_file(&url).await
+    MediaLoader::for_account(app, account)?.local_file(&url).await
 }
 
 /// Swift `FileCard.open`: download, then open with the default app — or, when the file could run code (by its
 /// extension, the sender's file name, or its first bytes), reveal it in Finder instead.
 #[tauri::command]
-pub async fn media_open_file(app: tauri::AppHandle, url: String, name: Option<String>) -> Result<OpenOutcome, String> {
-    let file = openable_file(&app, &url).await.map_err(|e| e.to_string())?;
+pub async fn media_open_file(app: tauri::AppHandle, url: String, name: Option<String>, account: Option<String>) -> Result<OpenOutcome, String> {
+    let file = openable_file(&app, &url, account.as_deref()).await.map_err(|e| e.to_string())?;
     let name = name.unwrap_or_default();
     let check = file.clone();
     let revealed = tokio::task::spawn_blocking(move || open::may_execute(&check, &name)).await.map_err(|e| e.to_string())?;
@@ -287,6 +300,19 @@ fn save_atomically(source: Source, dest: &Path, origin: &url::Url) -> std::io::R
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn every_account_s_folders_are_allowed_roots() {
+        let base = std::env::temp_dir().join(format!("compola-roots-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(base.join("Accounts/a1b2c3d4e/ZaloData")).unwrap();
+        std::fs::create_dir_all(base.join("Accounts/not-an-id/ZaloData")).unwrap();
+        let roots = super::roots_under(&base);
+        assert!(roots.contains(&base.join("ZaloData")) && roots.contains(&base.join("MediaCache")));
+        assert!(roots.contains(&base.join("Accounts/a1b2c3d4e/ZaloData")));
+        assert!(roots.contains(&base.join("Accounts/a1b2c3d4e/MediaCache")));
+        assert!(!roots.iter().any(|r| r.starts_with(base.join("Accounts/not-an-id"))));
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
     use super::*;
 
     #[test]

@@ -23,7 +23,6 @@ mod shared_worker;
 mod sqlite_host;
 mod values;
 
-use std::sync::Arc;
 
 use tauri::Manager;
 
@@ -87,17 +86,17 @@ pub fn run() {
         .register_asynchronous_uri_scheme_protocol(host::SCHEME, host::protocol::handle)
         .register_asynchronous_uri_scheme_protocol(media::protocol::SCHEME, media::protocol::handle)
         .manage(host::Hosts::default())
-        .manage(Arc::new(shared_worker::SharedWorkerRouter::default()))
-        .manage(Arc::new(net::cookies::CookieJar::load(platform::app_support().join("cookies.json"))))
         .setup(|app| {
             // Multi-account registry (docs/multi-account.md): an install from before it becomes the `default` account,
             // nothing moves.
-            let registry = account::Registry::load(&platform::app_support());
+            let accounts = account::Accounts::load(&platform::app_support());
+            let registry = accounts.registry();
             log::info!("accounts: {} registered, active {}", registry.accounts.len(), registry.active);
+            app.manage(accounts.clone());
             // Compola Server first: `emit_ui` forwards to it, and a joined app does not run its own engine.
             let remote = remote::Remote::new(app.handle().clone());
             app.manage(remote.clone());
-            let engine = engine::Engine::new(app.handle().clone());
+            let engine = engine::Engine::new(app.handle().clone(), accounts.get(Some(account::DEFAULT_ID))?);
             app.manage(engine.clone());
             let automation = automation::Automation::new(app.handle().clone());
             app.manage(automation.clone());

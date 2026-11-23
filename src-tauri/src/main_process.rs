@@ -13,7 +13,7 @@ use parking_lot::Mutex;
 use rand::RngCore;
 use serde_json::{Map, Value, json};
 use sha2::Sha256;
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 use crate::asar::AsarArchive;
 use crate::bridge::Registry;
@@ -71,6 +71,8 @@ struct State {
 
 pub struct MainProcess {
     pub app: AppHandle,
+    /// The Zalo account this main process serves.
+    pub account: Arc<crate::account::Account>,
     pub platform: Arc<Platform>,
     pub asar: Arc<AsarArchive>,
     pub storage: StorageBackend,
@@ -86,12 +88,13 @@ pub struct MainProcess {
 const STORAGE_STORE: &str = "compola-storage";
 
 impl MainProcess {
-    pub fn new(app: AppHandle, platform: Arc<Platform>, asar: Arc<AsarArchive>) -> Arc<Self> {
+    pub fn new(app: AppHandle, account: Arc<crate::account::Account>, platform: Arc<Platform>, asar: Arc<AsarArchive>) -> Arc<Self> {
         let storage = choose_storage(&platform);
         let sqlite = (storage == StorageBackend::Sqlite).then(|| SqliteHost::new(platform.user_data.join("sqlite/_production")));
         log::info!("storage backend: {}", storage.as_str());
         Arc::new(Self {
             app,
+            account,
             platform,
             asar,
             storage,
@@ -106,7 +109,16 @@ impl MainProcess {
     }
 
     fn jar(&self) -> Arc<CookieJar> {
-        self.app.state::<Arc<CookieJar>>().inner().clone()
+        self.account.jar.clone()
+    }
+
+    /// The account's webview label for `base` (`zalo-host` → `zalo-host-<id>`).
+    pub fn label(&self, base: &str) -> String {
+        self.account.paths.label(base)
+    }
+
+    fn workers(&self) -> Arc<crate::shared_worker::SharedWorkerRouter> {
+        self.account.workers.clone()
     }
 
     fn emit(&self, e: MainEvent) {
@@ -136,6 +148,7 @@ impl MainProcess {
             self.asar.clone(),
             self.platform.user_agent(),
             self.observer.get().expect("observer").clone(),
+            self.account.clone(),
         )
     }
 
@@ -157,7 +170,7 @@ impl MainProcess {
     }
 
     pub fn start(self: &Arc<Self>) -> anyhow::Result<()> {
-        let host = self.new_host(MAIN_LABEL, HostKind::Main)?;
+        let host = self.new_host(&self.label(MAIN_LABEL), HostKind::Main)?;
         *self.host.lock() = Some(host.clone());
         self.normalize_database_adapter_state();
         let session = self.has_session();
@@ -174,9 +187,9 @@ impl MainProcess {
         if std::env::var_os("COMPOLA_NO_SHARED_WORKER").is_some() {
             return;
         }
-        match self.new_host(WORKER_LABEL, HostKind::Worker) {
+        match self.new_host(&self.label(WORKER_LABEL), HostKind::Worker) {
             Ok(worker) => {
-                crate::shared_worker::router(&self.app).register_worker(&worker);
+                self.workers().register_worker(&worker);
                 *self.worker.lock() = Some(worker.clone());
                 worker.load(Page::SharedWorker, &self.page_query(true));
             }
@@ -191,7 +204,7 @@ impl MainProcess {
             st.db_clients.retain(|w| w.upgrade().is_some_and(|h| !Arc::ptr_eq(&h, &worker)));
             st.scripts.retain(|w| w.upgrade().is_some_and(|h| !Arc::ptr_eq(&h, &worker)));
         }
-        crate::shared_worker::router(&self.app).reset_worker(&worker);
+        self.workers().reset_worker(&worker);
         worker.destroy();
     }
 
@@ -259,7 +272,7 @@ impl MainProcess {
                 }
             }
             HostKind::Worker => {
-                crate::shared_worker::router(&self.app).worker_did_finish_load();
+                self.workers().worker_did_finish_load();
                 if let Some(key) = self.state.lock().viewer_key.clone() {
                     host.send("receive-viewerkey", vec![key]);
                 }
@@ -286,8 +299,8 @@ impl MainProcess {
             st.viewer_key = None;
         }
         self.stop_shared_worker();
-        crate::shared_worker::router(&self.app).reset_session();
-        crate::downloads::reset(&self.app);
+        self.workers().reset_session();
+        crate::downloads::reset(&self.app, self.account.id());
         crate::calls::reset(&self.app);
         if let Some(sqlite) = &self.sqlite {
             sqlite.close_all();
@@ -352,9 +365,21 @@ impl MainProcess {
             reg.handle_sync("electron-store-get-data", move |_, _| {
                 Ok(json!({ "defaultCwd": p3.user_data.to_string_lossy(), "appVersion": p3.app_version }))
             });
-            reg.handle("get-child-url", |_, _| async { Ok(json!("zalo-app://local/child.html")) });
-            reg.handle("get-photo-viewer-url", |_, _| async { Ok(json!("zalo-app://local/popup-viewer.html")) });
-            reg.handle("get-resource-dir", |_, _| async { Ok(json!("zalo-app://local/")) });
+            // The account's own origin (WebKit storage is per origin).
+            let origin = self.account.origin();
+            let (child, viewer, dir) = (format!("{origin}/child.html"), format!("{origin}/popup-viewer.html"), format!("{origin}/"));
+            reg.handle("get-child-url", move |_, _| {
+                let v = json!(child);
+                async move { Ok(v) }
+            });
+            reg.handle("get-photo-viewer-url", move |_, _| {
+                let v = json!(viewer);
+                async move { Ok(v) }
+            });
+            reg.handle("get-resource-dir", move |_, _| {
+                let v = json!(dir);
+                async move { Ok(v) }
+            });
         }
 
         // Storage selection (spec §2.2, §4).
@@ -519,8 +544,8 @@ impl MainProcess {
                 async { Ok(undef()) }
             });
         }
-        crate::shared_worker::install(&self.app, reg);
-        crate::downloads::install(&self.app, reg, &self.platform);
+        crate::shared_worker::install(&self.app, reg, self.workers());
+        crate::downloads::install(&self.app, reg, &self.platform, &self.account);
         // main `receiveViewerKeyListener`: relayed to the shared-worker window, whose SecureLocalStorage needs it.
         {
             let me1 = me.clone();

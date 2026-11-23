@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use parking_lot::Mutex;
 use serde_json::{Value, json};
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 use crate::bridge::Registry;
 use crate::host::Host;
@@ -36,10 +36,6 @@ struct Inner {
 
 #[derive(Default)]
 pub struct SharedWorkerRouter(Mutex<Inner>);
-
-pub fn router(app: &AppHandle) -> Arc<SharedWorkerRouter> {
-    app.state::<Arc<SharedWorkerRouter>>().inner().clone()
-}
 
 fn key_of(v: &Value) -> String {
     match v {
@@ -135,8 +131,8 @@ impl SharedWorkerRouter {
     }
 }
 
-pub fn install(app: &AppHandle, reg: &mut Registry) {
-    let r = router(app);
+/// Installs the router channels of one account (`r` is that account's router).
+pub fn install(_app: &AppHandle, reg: &mut Registry, r: Arc<SharedWorkerRouter>) {
     for ch in ["show-shared-worker", "hide-shared-worker", "shared-worker-ping", "shared-worker-dispose"] {
         reg.handle(ch, |_, _| async { Ok(undef()) });
     }

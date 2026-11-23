@@ -9,9 +9,19 @@
 //! Accounts/<id>/cookies.json
 //! ```
 
-use std::path::{Path, PathBuf};
+// Parts of the API are wired in later milestones (accounts manager, commands).
+#![allow(dead_code)]
 
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
+use tauri::{AppHandle, Manager};
+
+use crate::net::cookies::CookieJar;
+use crate::shared_worker::SharedWorkerRouter;
 
 pub const DEFAULT_ID: &str = "default";
 pub const DEFAULT_MAX_ACCOUNTS: usize = 5;
@@ -91,6 +101,97 @@ pub fn account_of_origin_host(host: &str) -> Option<String> {
         return Some(DEFAULT_ID.to_owned());
     }
     (valid_id(host) && host != DEFAULT_ID).then(|| host.to_owned())
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Runtime context of an account
+// ---------------------------------------------------------------------------------------------------------------------
+
+/// What every part of one account shares at runtime: its paths, its cookie jar (the only one its requests use) and
+/// its shared-worker router.
+pub struct Account {
+    pub paths: AccountPaths,
+    pub jar: Arc<CookieJar>,
+    pub workers: Arc<SharedWorkerRouter>,
+}
+
+impl Account {
+    pub fn open(root: &Path, id: &str) -> Arc<Self> {
+        let paths = AccountPaths::new(root, id);
+        let _ = std::fs::create_dir_all(&paths.data_root);
+        Arc::new(Self { jar: Arc::new(CookieJar::load(paths.cookies())), workers: Arc::new(SharedWorkerRouter::default()), paths })
+    }
+
+    pub fn id(&self) -> &str {
+        &self.paths.id
+    }
+
+    /// `zalo-app://<host>` (no trailing slash).
+    pub fn origin(&self) -> String {
+        format!("{}://{}", crate::host::SCHEME, self.paths.origin_host())
+    }
+}
+
+/// The registry plus the accounts opened so far (managed app state).
+pub struct Accounts {
+    root: PathBuf,
+    registry: Mutex<Registry>,
+    open: Mutex<HashMap<String, Arc<Account>>>,
+}
+
+impl Accounts {
+    /// Loads (and migrates) `<root>/accounts.json`.
+    pub fn load(root: &Path) -> Arc<Self> {
+        Arc::new(Self { root: root.to_path_buf(), registry: Mutex::new(Registry::load(root)), open: Mutex::new(HashMap::new()) })
+    }
+
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    /// A copy of the registry.
+    pub fn registry(&self) -> Registry {
+        self.registry.lock().clone()
+    }
+
+    /// Changes the registry and saves it.
+    pub fn update<T>(&self, f: impl FnOnce(&mut Registry) -> Result<T, String>) -> Result<T, String> {
+        let mut r = self.registry.lock();
+        let out = f(&mut r)?;
+        r.save(&self.root).map_err(|e| format!("Không lưu được danh sách tài khoản: {e}"))?;
+        Ok(out)
+    }
+
+    pub fn active_id(&self) -> String {
+        self.registry.lock().active.clone()
+    }
+
+    /// A registered account's context, opened (cookie jar loaded) on first use; `None` = active.
+    pub fn get(&self, id: Option<&str>) -> Result<Arc<Account>, String> {
+        let id = self.registry.lock().resolve(id)?;
+        let mut open = self.open.lock();
+        Ok(open.entry(id.clone()).or_insert_with(|| Account::open(&self.root, &id)).clone())
+    }
+
+    /// Forgets an opened account (after removal).
+    pub fn close(&self, id: &str) {
+        self.open.lock().remove(id);
+    }
+}
+
+/// The managed [`Accounts`].
+pub fn accounts(app: &AppHandle) -> Arc<Accounts> {
+    app.state::<Arc<Accounts>>().inner().clone()
+}
+
+/// An account's context (`None` = active).
+pub fn get(app: &AppHandle, id: Option<&str>) -> Result<Arc<Account>, String> {
+    accounts(app).get(id)
+}
+
+/// The cookie jar of an account (`None` = active).
+pub fn jar(app: &AppHandle, id: Option<&str>) -> Option<Arc<CookieJar>> {
+    app.try_state::<Arc<Accounts>>()?.get(id).ok().map(|a| a.jar.clone())
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -468,6 +569,32 @@ mod tests {
         assert!(r.get(DEFAULT_ID).is_some_and(|d| d.uid.is_none()));
         assert!(r.remove("a00000000").is_err());
         assert!(r.add().is_ok()); // a slot is free again
+    }
+
+    #[test]
+    fn cookie_jars_are_isolated_per_account() {
+        let root = temp_root();
+        let accounts = Accounts::load(&root);
+        let b = accounts.update(|r| r.add()).unwrap();
+        let (d, other) = (accounts.get(Some(DEFAULT_ID)).unwrap(), accounts.get(Some(&b)).unwrap());
+        // Same account → same context (one jar per account, never two writers of one file).
+        assert!(Arc::ptr_eq(&d, &accounts.get(None).unwrap()));
+        let url = url::Url::parse("https://chat.zalo.me/").unwrap();
+        d.jar.set("zpw_sek", "default-session", ".zalo.me", 365, false);
+        assert!(d.jar.header_for(&url).is_some_and(|h| h.contains("default-session")));
+        assert!(other.jar.header_for(&url).is_none());
+        d.jar.set("zpw_sek", "default-session", ".zaloapp.com", 365, false);
+        assert!(d.jar.has_session() && !other.jar.has_session());
+        other.jar.set("zpw_sek", "second-session", ".zalo.me", 365, false);
+        assert!(!d.jar.header_for(&url).unwrap().contains("second-session"));
+        // Persisted to each account's own file: the default keeps the pre-multi-account path.
+        assert_eq!(d.paths.cookies(), root.join("cookies.json"));
+        assert_eq!(other.paths.cookies(), root.join("Accounts").join(&b).join("cookies.json"));
+        let reloaded = Account::open(&root, &b);
+        assert!(reloaded.jar.header_for(&url).is_some_and(|h| h.contains("second-session") && !h.contains("default-session")));
+        assert!(Account::open(&root, DEFAULT_ID).jar.header_for(&url).is_some_and(|h| !h.contains("second-session")));
+        assert!(accounts.get(Some("a00000000")).is_err());
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

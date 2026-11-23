@@ -81,6 +81,8 @@ struct HostState {
 }
 
 pub struct Host {
+    /// The Zalo account this renderer runs (its origin, cookie jar, data).
+    pub account: Arc<crate::account::Account>,
     pub label: String,
     pub kind: HostKind,
     pub app: AppHandle,
@@ -103,9 +105,11 @@ impl Host {
         asar: Arc<AsarArchive>,
         user_agent: String,
         observer: Arc<dyn HostObserver>,
+        account: Arc<crate::account::Account>,
     ) -> anyhow::Result<Arc<Host>> {
-        let net = NetworkProxy::new(app.clone(), label.to_owned(), user_agent.clone());
+        let net = NetworkProxy::new(app.clone(), label.to_owned(), user_agent.clone(), account.jar.clone());
         let host = Arc::new(Host {
+            account,
             label: label.to_owned(),
             kind,
             app: app.clone(),
@@ -120,7 +124,7 @@ impl Host {
         app.state::<Hosts>().insert(host.clone());
 
         let init = scripts::compose(&registry);
-        let blank = url::Url::parse(&format!("{SCHEME}://local/__compola/blank.html")).unwrap();
+        let blank = url::Url::parse(&format!("{}/__compola/blank.html", host.account.origin())).unwrap();
         let nav_app = app.clone();
         let load_host = Arc::downgrade(&host);
         let debug = std::env::var_os("COMPOLA_SHOW_RENDERER").is_some();
@@ -181,7 +185,7 @@ impl Host {
     pub fn load(&self, page: Page, query: &[(String, String)]) {
         let mut sorted = query.to_vec();
         sorted.sort();
-        let mut url = url::Url::parse(&format!("{SCHEME}://local/{}", page.file())).unwrap();
+        let mut url = url::Url::parse(&format!("{}/{}", self.account.origin(), page.file())).unwrap();
         url.query_pairs_mut().extend_pairs(sorted.iter().map(|(k, v)| (k.as_str(), v.as_str())));
         {
             let mut st = self.state.lock();

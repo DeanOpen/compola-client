@@ -273,7 +273,8 @@ pub fn play_notification_sound(app: &AppHandle, raw: &str) {
         let file = std::env::temp_dir().join("CompolaNotifications/noti.mp3");
         if !file.exists() {
             let ua = crate::net::fp::user_agent(crate::net::fp::DEFAULT_CLIENT_VERSION);
-            let Ok(mut r) = crate::net::fetch(&app, &url, Vec::new(), &ua, Duration::from_secs(10)).await else { return };
+            let Some(jar) = crate::account::jar(&app, None) else { return };
+            let Ok(mut r) = crate::net::fetch(&jar, &url, Vec::new(), &ua, Duration::from_secs(10)).await else { return };
             if r.status != 200 {
                 return;
             }

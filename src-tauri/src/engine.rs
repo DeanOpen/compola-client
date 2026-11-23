@@ -87,6 +87,8 @@ const REPLAY_CAP: usize = 4000;
 
 pub struct Engine {
     app: AppHandle,
+    /// The Zalo account this engine runs.
+    pub account: Arc<crate::account::Account>,
     inner: Mutex<Inner>,
     main: Mutex<Option<Arc<MainProcess>>>,
 }
@@ -95,8 +97,8 @@ pub struct Engine {
 const SECOND_QR_REQUIRED_CODE: i64 = -20;
 
 impl Engine {
-    pub fn new(app: AppHandle) -> Arc<Self> {
-        Arc::new(Self { app, inner: Mutex::new(Inner { phase: Some(Phase::Starting), ..Default::default() }), main: Mutex::new(None) })
+    pub fn new(app: AppHandle, account: Arc<crate::account::Account>) -> Arc<Self> {
+        Arc::new(Self { app, account, inner: Mutex::new(Inner { phase: Some(Phase::Starting), ..Default::default() }), main: Mutex::new(None) })
     }
 
     pub fn main_process(&self) -> Option<Arc<MainProcess>> {
@@ -192,8 +194,8 @@ impl Engine {
     fn boot(self: &Arc<Self>, info: crate::runtime::RuntimeInfo) {
         crate::net::fingerprint::FingerprintProxy::shared().warm_up(&self.app);
         self.inner.lock().runtime_version = Some(info.version.clone());
-        let platform = Arc::new(Platform::new(info.version.clone(), info.client_version.clone()));
-        let main = MainProcess::new(self.app.clone(), platform.clone(), info.asar.clone());
+        let platform = Arc::new(Platform::new(info.version.clone(), info.client_version.clone(), self.account.paths.user_data()));
+        let main = MainProcess::new(self.app.clone(), self.account.clone(), platform.clone(), info.asar.clone());
         let _ = main.observer.set(self.clone() as Arc<dyn HostObserver>);
         let weak = Arc::downgrade(self);
         let _ = main.on_event.set(Box::new(move |e| {
@@ -432,7 +434,7 @@ impl Engine {
 
 impl MainProcess {
     fn jar_clear(&self) {
-        self.app.state::<Arc<crate::net::cookies::CookieJar>>().clear_zalo();
+        self.account.jar.clear_zalo();
     }
 }
 
