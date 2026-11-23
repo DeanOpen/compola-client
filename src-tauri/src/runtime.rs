@@ -48,7 +48,9 @@ pub const LATEST_LINK: &str = "https://zalo.me/download/zalo-pc";
 
 /// What is copied out of Zalo.app (`OPTIONAL_PARTS` only when present).
 pub const PARTS: [&str; 3] = ["Contents/Info.plist", "Contents/Resources/app.asar", "Contents/ZaloHelper.app"];
-pub const OPTIONAL_PARTS: [&str; 1] = ["Contents/Resources/app.asar.unpacked"];
+/// Nothing optional: `app.asar.unpacked` holds only Electron's native `.node` modules (~125 MB), which this host
+/// never loads (Rust plays the main process), so it is not copied — as in the Swift app.
+pub const OPTIONAL_PARTS: [&str; 0] = [];
 
 pub fn root() -> PathBuf {
     crate::platform::app_support().join("ZaloRuntime")
