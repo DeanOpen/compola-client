@@ -175,3 +175,10 @@
 .cx-dialog-in {
   animation: cx-dialog-in 0.18s ease both;
 }
+
+.cx-btn-small {
+  height: 28px;
+  min-width: 0;
+  padding: 0 12px;
+  font-size: 13px;
+}

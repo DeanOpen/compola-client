@@ -214,7 +214,8 @@ export const syncCallsStatus = async () => {
       nativeRunning: bool(st.running),
       nativePID: typeof st.pid === 'number' ? st.pid : null,
       helperProblem: optStr(st.problem),
-      nativeState: get().nativeState ?? optStr(st.nativeState),
+      // `nativeState` there is the helper's readiness ("ready" / "starting"), not a call state: `isInCall` must not
+      // read it as one. The call state only comes from `callState` events.
     });
   } catch (e) {
     log(`calls_status: ${String(e)}`);
