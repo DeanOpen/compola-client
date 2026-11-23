@@ -1,5 +1,6 @@
 .chat {
   background: var(--content);
+  position: relative;
 }
 
 /* Toolbar */
@@ -1652,3 +1653,9 @@
   border-radius: 8px;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
 }
+
+/* Files dragged over the window (Tauri drag-drop). */
+.chat-drop-overlay { position: absolute; inset: 0; z-index: 40; display: grid; place-items: center; pointer-events: none;
+  background: color-mix(in srgb, var(--accent, #0068ff) 10%, transparent); }
+.chat-drop-card { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 28px 36px; border-radius: 12px;
+  border: 2px dashed var(--accent, #0068ff); background: var(--surface, #fff); color: var(--accent, #0068ff); font-weight: 600; }

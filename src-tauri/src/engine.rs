@@ -570,3 +570,37 @@ pub fn ui_widen_window(app: AppHandle, delta: f64) -> Result<(), String> {
     let width = (size.width + delta).clamp(960.0, monitor_w);
     w.set_size(tauri::LogicalSize::new(width, size.height)).map_err(|e| e.to_string())
 }
+
+/// ⌘V in the composer: what the clipboard holds as files to send — files copied in Finder (their paths), or an image
+/// (screenshot, copied picture) written to a temporary PNG. Empty when the clipboard holds neither (plain text paste).
+#[tauri::command]
+pub fn clipboard_paste_files() -> Result<Vec<String>, String> {
+    let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
+    if let Ok(files) = clipboard.get().file_list() {
+        let paths: Vec<String> = files.into_iter().filter(|p| p.is_file()).map(|p| p.to_string_lossy().into_owned()).collect();
+        if !paths.is_empty() {
+            return Ok(paths);
+        }
+    }
+    let Ok(image) = clipboard.get_image() else { return Ok(Vec::new()) };
+    let dir = crate::platform::app_support().join("paste");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    // Old pastes are only needed until the upload read them.
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        for e in entries.flatten() {
+            if e.metadata().and_then(|m| m.modified()).is_ok_and(|t| t.elapsed().is_ok_and(|d| d.as_secs() > 3600)) {
+                let _ = std::fs::remove_file(e.path());
+            }
+        }
+    }
+    let name = format!("Ảnh chụp {}.png", chrono::Local::now().format("%Y-%m-%d lúc %H.%M.%S"));
+    let path = dir.join(name);
+    let file = std::fs::File::create(&path).map_err(|e| e.to_string())?;
+    let mut encoder = png::Encoder::new(std::io::BufWriter::new(file), image.width as u32, image.height as u32);
+    encoder.set_color(png::ColorType::Rgba);
+    encoder.set_depth(png::BitDepth::Eight);
+    let mut writer = encoder.write_header().map_err(|e| e.to_string())?;
+    writer.write_image_data(&image.bytes).map_err(|e| e.to_string())?;
+    writer.finish().map_err(|e| e.to_string())?;
+    Ok(vec![path.to_string_lossy().into_owned()])
+}

@@ -51,3 +51,18 @@ export const commands = {
   showRenderer: async () => (await backend()).invoke('engine_show_renderer'),
   switchToSqlite: async () => (await backend()).invoke('engine_switch_to_sqlite'),
 };
+
+/** Files dragged over / dropped on the main window (Tauri's native drag-drop; the page's own HTML5 drop never fires).
+ * Returns an unsubscribe function. A no-op in the mock. */
+export const onFileDrop = async (
+  handler: (event: { kind: 'over' } | { kind: 'leave' } | { kind: 'drop'; paths: string[] }) => void,
+): Promise<() => void> => {
+  if (usesMock) return () => {};
+  const { getCurrentWebview } = await import('@tauri-apps/api/webview');
+  return getCurrentWebview().onDragDropEvent((e) => {
+    const p = e.payload;
+    if (p.type === 'enter' || p.type === 'over') handler({ kind: 'over' });
+    else if (p.type === 'leave') handler({ kind: 'leave' });
+    else if (p.type === 'drop') handler({ kind: 'drop', paths: p.paths });
+  });
+};

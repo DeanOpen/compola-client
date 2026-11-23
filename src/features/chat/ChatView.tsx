@@ -1,9 +1,11 @@
 // Native chat pane for one conversation (Swift `ChatView`): header in the toolbar, pinned bar, message list, composer.
 
-import { BellOff, Info, MessageSquareDashed, MoreHorizontal, Phone, Tag, Video } from 'lucide-react';
+import { BellOff, Info, MessageSquareDashed, MoreHorizontal, Phone, Tag, Upload, Video } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
+import { onFileDrop } from '../../engine/backend';
 import { markRead, sendText, stashFailedDraft, takeFailedDraft } from '../../engine/chat';
+import { clipboardFiles, reportComposer, sendPaths } from '../../engine/composer';
 import { setConversationLabel } from '../../engine/conversations';
 import { pinnedMessage } from '../../engine/messageActions';
 import { appendDraft, isStandalone, type ChatMessage, type ComposerDraft } from '../../engine/models/chat';
@@ -27,6 +29,25 @@ import './chat.css';
 const emptyDraft: ComposerDraft = { text: '', mentions: [], replyTo: null };
 
 export function ChatView({ conversation }: { conversation: ConversationSummary }) {
+  const [pendingPaste, setPendingPaste] = useState<string[] | null>(null);
+  const [dropping, setDropping] = useState(false);
+  // Files dropped anywhere on the window go to the open conversation (photos as photos, the rest as files).
+  useEffect(() => {
+    let off: (() => void) | undefined;
+    let alive = true;
+    void onFileDrop((e) => {
+      if (e.kind === 'over') setDropping(true);
+      else if (e.kind === 'leave') setDropping(false);
+      else {
+        setDropping(false);
+        if (e.paths.length) void sendPaths(conversation.id, e.paths).then((o) => reportComposer(o, conversation.id));
+      }
+    }).then((u) => (alive ? (off = u) : u()));
+    return () => {
+      alive = false;
+      off?.();
+    };
+  }, [conversation.id]);
   const id = conversation.id;
   const loaded = useEngine((s) => s.messages[id]);
   const typingName = useEngine((s) => s.typing[id]);
@@ -178,7 +199,26 @@ export function ChatView({ conversation }: { conversation: ConversationSummary }
         focusTick={focusTick}
         onSend={send}
         onSendLike={sendLike}
+        onPasteFiles={() => void clipboardFiles().then((paths) => paths.length && setPendingPaste(paths))}
       />
+      {dropping && (
+        <div className="chat-drop-overlay fade-in">
+          <div className="chat-drop-card">
+            <Upload size={28} />
+            <div>Thả để gửi tới {conversation.name}</div>
+          </div>
+        </div>
+      )}
+      {pendingPaste && (
+        <Alert
+          title={`Gửi ${pendingPaste.length > 1 ? `${pendingPaste.length} tệp` : 'tệp này'} tới ${conversation.name}?`}
+          message={pendingPaste.map((p) => p.split('/').pop()).join('\n')}
+          buttons={[
+            { label: 'Hủy', role: 'cancel', onClick: () => setPendingPaste(null) },
+            { label: 'Gửi', onClick: () => { const paths = pendingPaste; setPendingPaste(null); void sendPaths(id, paths).then((o) => reportComposer(o, id)); } },
+          ]}
+        />
+      )}
       <MessageActionPresenter conversationId={id} />
       {notice && (
         <Alert

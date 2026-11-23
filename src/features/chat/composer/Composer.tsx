@@ -38,6 +38,7 @@ export function Composer({
   focusTick,
   onSend,
   onSendLike,
+  onPasteFiles,
 }: {
   name: string;
   conversationId: string;
@@ -48,6 +49,8 @@ export function Composer({
   focusTick: number;
   onSend: () => void;
   onSendLike: () => void;
+  /** ⌘V with files or an image on the clipboard. */
+  onPasteFiles?: () => void;
 }) {
   const field = useRef<HTMLTextAreaElement>(null);
   const mirror = useRef<HTMLDivElement>(null);
@@ -240,7 +243,14 @@ export function Composer({
               onSelect={(e) => refreshQuery(draft.text, e.currentTarget.selectionStart)}
               onScroll={(e) => mirror.current && (mirror.current.scrollTop = e.currentTarget.scrollTop)}
               onPaste={(e) => {
-                // Plain text only, like the Swift field.
+                // Files / an image on the clipboard: ⌘V attaches them (asked first, like Zalo PC's paste preview).
+                const types = Array.from(e.clipboardData.types);
+                if (onPasteFiles && (e.clipboardData.files.length > 0 || types.includes('Files') || types.some((t) => t.startsWith('image/')))) {
+                  e.preventDefault();
+                  onPasteFiles();
+                  return;
+                }
+                // Otherwise plain text only, like the Swift field.
                 const text = e.clipboardData.getData('text/plain');
                 if (!text) return;
                 e.preventDefault();
