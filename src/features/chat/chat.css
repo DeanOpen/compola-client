@@ -543,15 +543,11 @@
   display: block;
 }
 
-/* A message already carrying reactions has its chips on that corner: the like button takes the other one. */
+/* Reaction chips sit on the bubble's bottom-right corner for both sides. An incoming message's like button is on
+   that corner too, so with reactions it moves to the left; mine is already on the left. */
 .bubble-row.has-reactions:not(.is-mine) .react-trigger {
   right: auto;
   left: 8px;
-}
-
-.bubble-row.has-reactions.is-mine .react-trigger {
-  left: auto;
-  right: 8px;
 }
 
 .react-trigger-btn {
