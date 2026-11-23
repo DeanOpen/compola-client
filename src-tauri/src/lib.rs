@@ -2,7 +2,6 @@
 //! and Rust plays Electron's preload + main process; the UI window is a web frontend driven by its state.
 
 mod asar;
-mod automation;
 mod bridge;
 mod calls;
 mod downloads;
@@ -89,10 +88,7 @@ pub fn run() {
         .setup(|app| {
             let engine = engine::Engine::new(app.handle().clone());
             app.manage(engine.clone());
-            let automation = automation::Automation::new(app.handle().clone());
-            app.manage(automation.clone());
             engine.start();
-            automation.start();
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -119,27 +115,6 @@ pub fn run() {
             media::media_save,
             media::media_open_file,
             screen_capture::screen_capture_start,
-            automation::automation_state,
-            automation::automation_set_server,
-            automation::automation_regenerate_token,
-            automation::automation_save_client,
-            automation::automation_delete_client,
-            automation::automation_client_tools,
-            automation::automation_client_call,
-            automation::automation_save_job,
-            automation::automation_delete_job,
-            automation::automation_run_job,
-            automation::automation_cron_preview,
-            automation::automation_addon_install,
-            automation::automation_addon_set_enabled,
-            automation::automation_addon_set_settings,
-            automation::automation_addon_storage_set,
-            automation::automation_addon_remove,
-            automation::automation_addon_register_tools,
-            automation::automation_addon_tool_reply,
-            automation::automation_conversations,
-            automation::automation_messages,
-            automation::automation_send_text,
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application")
