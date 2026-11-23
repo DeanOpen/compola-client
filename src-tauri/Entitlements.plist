@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Hardened-runtime entitlements of Compola.app (bundle.macOS.entitlements in tauri.conf.json). -->
+<plist version="1.0">
+<dict>
+    <!-- Kept from the Swift app (scripts/Compola.entitlements): JavaScriptCore only JITs with it under the hardened
+         runtime. The renderer runs in WebKit's own processes, but in-process JSC use must not silently fall back to
+         the interpreter. -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <!-- Calls: ZaloCall (started by this app, which macOS holds responsible for it) captures audio / video. Under the
+         hardened runtime the prompt is only shown when the responsible app has these. -->
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
+    <key>com.apple.security.device.camera</key>
+    <true/>
+</dict>
+</plist>

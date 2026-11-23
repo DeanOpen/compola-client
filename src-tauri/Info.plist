@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Merged by the Tauri bundler into Compola.app/Contents/Info.plist (keys it does not generate itself). -->
+<plist version="1.0">
+<dict>
+    <!-- Calls: the native call helper (ZaloCall, from the Zalo runtime Compola installs) is started by Compola, so
+         macOS attributes its microphone / camera access to Compola and shows these texts in the permission prompts. -->
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Compola cần dùng micro để bạn nói chuyện trong cuộc gọi Zalo. / Compola needs the microphone so people can hear you in Zalo calls.</string>
+    <key>NSCameraUsageDescription</key>
+    <string>Compola cần dùng camera để người khác nhìn thấy bạn trong cuộc gọi video Zalo. / Compola needs the camera so people can see you in Zalo video calls.</string>
+    <key>NSSupportsAutomaticGraphicsSwitching</key>
+    <true/>
+</dict>
+</plist>
