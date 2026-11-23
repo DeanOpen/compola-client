@@ -15,7 +15,7 @@ import { handlePins, resetMessageActions, rewatchPins } from './messageActions';
 import type { Phase } from './models/phase';
 import { initRemote, remote, useRemote } from './remote';
 import { getEngine, resetAccount, setEngine } from './store';
-import { isForActiveAccount, setAccountResync } from './accounts';
+import { accountPrefix, isForActiveAccount, otherAccount, setAccountResync, switchAccount } from './accounts';
 import './features';
 
 registerStateHandler('convActions', handleConversationActions);
@@ -75,6 +75,10 @@ export const startEngine = (): Promise<void> => {
       // A notification was clicked: show its conversation (the shell consumes the request).
       b.listen('compola://notification-click', (p) => {
         const convId = str(obj(p)?.convId);
+        // Another account's banner: Rust makes it active (§5); switch here too so the navigation lands in its stores
+        // even when this event arrives before compola://accounts {kind: 'active'}.
+        const other = otherAccount(p);
+        if (other) switchAccount(other);
         if (convId) setEngine({ navigationRequest: convId });
       }),
       // An inline reply typed in a notification: send it; a refusal goes back to that conversation's composer.
@@ -83,6 +87,17 @@ export const startEngine = (): Promise<void> => {
         const convId = str(json?.convId);
         const text = str(json?.text);
         if (!convId || !text.trim()) return;
+        // A reply in another account's notification is sent by that account (engine_call {account}), not the one on
+        // screen; a refusal is reported with the account's name (its composer is not on screen).
+        const other = otherAccount(p);
+        if (other) {
+          void b
+            .invoke('engine_call', { target: '__zaloChat', method: 'sendText', args: [convId, text.trim(), null, []], account: other })
+            .then((r) => r === 'sent')
+            .catch(() => false)
+            .then((ok) => !ok && showToast(`${accountPrefix(other)}Chưa gửi được trả lời từ thông báo. Hãy mở tài khoản đó và gửi lại.`, null));
+          return;
+        }
         void sendText(text, convId).then((ok) => {
           if (ok) return;
           stashFailedDraft({ text, mentions: [], replyTo: null }, convId, true);

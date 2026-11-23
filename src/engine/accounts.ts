@@ -179,6 +179,14 @@ export const startAccounts = async () => {
   started = true;
   const b = await backend();
   await b.listen('compola://accounts', onAccountsEvent);
+  // Badges always reach the UI, per account (§5): the rail's numbers for the accounts not on screen stay live.
+  await b.listen('compola://badge', (p) => {
+    const r = obj(p);
+    const id = r ? str(r.account) : '';
+    if (!r || !id || id === get().activeId || typeof r.count !== 'number') return;
+    const count = Math.max(0, Math.trunc(r.count));
+    set((s) => ({ accounts: s.accounts.map((a) => (a.id === id && a.badge !== count ? { ...a, badge: count } : a)) }));
+  });
   // Another account wants the call helper while a call runs on the owner (§4).
   await b.listen('compola://call-event', (p) => {
     const r = obj(p);
@@ -287,6 +295,12 @@ export const reorderAccounts = (ids: string[]) => {
   const byId = new Map(get().accounts.map((a) => [a.id, a]));
   set({ accounts: ids.flatMap((i) => byId.get(i) ?? []) });
   void call('account_reorder', { ids });
+};
+
+/** The account a notification / event belongs to, when it is another one than the one on screen. */
+export const otherAccount = (payload: unknown): string | null => {
+  const account = str(obj(payload)?.account);
+  return account && validId(account) && account !== get().activeId ? account : null;
 };
 
 /** "Sales 2 · …": names the account a notice belongs to when it is not the one on screen. */
