@@ -49,6 +49,15 @@ arboard = "3"
 keyring = { version = "3", features = ["apple-native"] }
 rusqlite = { version = "0.37", features = ["bundled"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+ctr = "0.9"
+ghash = "0.5"
+png = "0.18"
+tauri-plugin-notification = "2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+mac-notification-sys = "0.6"
+security-framework = "3"
+core-foundation = "0.10"
 
 [profile.release]
 codegen-units = 1
