@@ -1,7 +1,9 @@
 // The Zalo PC list column (docs/zalo-pc-style.md §2), logic from Swift `ConversationListColumn`: the search field with
 // Thêm bạn / Tạo nhóm, the "Tất cả | Chưa đọc" tabs (or "Ưu tiên | Khác" with the official Khác feature) with Phân loại ▾
 // and ⋯, then 72px rows — pinned chats first, as the official list orders them. The list is exactly what the official
-// ConvListController computed for the active filter; search looks through every conversation.
+// ConvListController computed for the active filter; search looks through every conversation by name, then through the
+// messages of the local index (keyword + meaning, `MessageSearchResults.tsx`). "Tìm kiếm tin nhắn" in the chat header
+// limits the search to that conversation's messages.
 
 import { Archive, ArrowLeft, ChevronDown, EyeOff, Lock, LockOpen, MoreHorizontal, ShieldHalf, Tag, UserPlus, UserRoundSearch, UsersRound } from 'lucide-react';
 import { openAddFriend, openCreateGroup } from '../contacts/hosts';
@@ -29,6 +31,7 @@ import { labelIdOf, shell, useShell, type Destination } from '../../shell/shellS
 import { openContextMenu, openMenuBelow, type MenuItem } from '../../ui/Menu';
 import { ConversationRow, StrangerBoxRow } from './ConversationRow';
 import { ConversationListEmpty, ConversationListLoading, ListBanner } from './ConversationListStates';
+import { MessageSearchSection, useMessageSearch, visibleHits } from './MessageSearchResults';
 import { SearchField } from './SearchField';
 import { unreadCounts, unreadInLabel } from './support';
 import './conversations.css';
@@ -36,8 +39,8 @@ import './conversations.css';
 type ListItem = { kind: 'conversation'; conversation: ConversationSummary } | { kind: 'strangerBox' };
 
 export function ConversationListColumn() {
-  const { rawDestination, search, selection, unlocked } = useShell(
-    useShallow((s) => ({ rawDestination: s.destination, search: s.search, selection: s.selection, unlocked: s.unlockedHiddenIds })),
+  const { rawDestination, search, scope, selection, unlocked } = useShell(
+    useShallow((s) => ({ rawDestination: s.destination, search: s.search, scope: s.searchScope, selection: s.selection, unlocked: s.unlockedHiddenIds })),
   );
   const conversations = useEngine((s) => s.conversations);
   const extras = useEngine((s) => s.extras);
@@ -49,7 +52,7 @@ export function ConversationListColumn() {
   /** "Cloud của tôi" is the inbox with the self conversation open. */
   const destination: Destination = rawDestination === 'myCloud' ? 'inbox' : rawDestination;
   const query = search.trim();
-  const isSearching = query.length > 0;
+  const isSearching = query.length > 0 || scope !== null;
   const activeLabel = !isSearching ? labelFor(destination, extras.labels) : null;
   const offersLabelFilter = extras.loaded && (destination === 'inbox' || labelIdOf(destination) !== null);
 
@@ -59,7 +62,7 @@ export function ConversationListColumn() {
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const found = query.length === 4 ? ((await hiddenConversations(query)) ?? []) : [];
+      const found = query.length === 4 && !scope ? ((await hiddenConversations(query)) ?? []) : [];
       if (cancelled) return;
       setPinMatches(found);
       // The search really changed and no longer is the PIN: the bypass of an earlier result ends (not while the mailbox is unlocked).
@@ -69,7 +72,20 @@ export function ConversationListColumn() {
     return () => {
       cancelled = true;
     };
-  }, [search]);
+  }, [search, scope]);
+
+  // The scoped search belongs to its conversation: another one opened (from anywhere) ends it.
+  useEffect(() => {
+    if (scope && selection !== scope) shell.clearSearchScope();
+  }, [scope, selection]);
+
+  // Messages from the local index; hidden chats only as far as their conversations are listed.
+  const messageSearch = useMessageSearch(query, scope);
+  const hits = useMemo(
+    () => (messageSearch.result ? visibleHits(messageSearch.result.hits, [...pinMatches, ...(unlocked ?? [])], scope) : []),
+    [messageSearch.result, pinMatches, unlocked, scope, actions],
+  );
+  const showsHits = isSearching && (hits.length > 0 || messageSearch.busy || (scope !== null && messageSearch.query !== null));
 
   // The hidden-chat state did not arrive for a long while: say so instead of spinning forever (everything stays locked).
   const [stalled, setStalled] = useState(false);
@@ -82,6 +98,7 @@ export function ConversationListColumn() {
 
   const items = useMemo<ListItem[]>(() => {
     const conv = (c: ConversationSummary): ListItem => ({ kind: 'conversation', conversation: c });
+    if (scope) return [];
     if (isSearching) {
       const needle = query.toLocaleLowerCase('vi');
       const byPIN = pinMatches.flatMap((id) => conversations.filter((c) => c.id === id)).map(conv);
@@ -98,7 +115,7 @@ export function ConversationListColumn() {
       const c = byId.get(id);
       return c ? [conv(c)] : [];
     });
-  }, [conversations, extras, actions, destination, isSearching, query, unlocked, pinMatches]);
+  }, [conversations, extras, actions, destination, isSearching, query, scope, unlocked, pinMatches]);
 
   /** Zalo PC keeps pinned chats as rows (first, with a pin): no tiles. Their order is the official list's. */
   const listing = useMemo(() => {
@@ -158,7 +175,7 @@ export function ConversationListColumn() {
       </div>
       {isSearching ? (
         <div className="conv-tabs">
-          <span className="conv-search-title">Kết quả tìm kiếm</span>
+          <span className="conv-search-title">{scope ? 'Tìm trong cuộc trò chuyện' : 'Kết quả tìm kiếm'}</span>
         </div>
       ) : folder ? (
         <div className="conv-tabs is-folder">
@@ -174,20 +191,23 @@ export function ConversationListColumn() {
         <ConversationListLoading stalled={stalled && !actions.hiddenKnown} />
       ) : destination === 'hidden' && actions.hasHiddenPIN && unlocked === null && !isSearching ? (
         <HiddenMailboxLocked />
-      ) : listing.rows.length === 0 ? (
+      ) : scope && !query ? (
+        <div className="msg-hits-hint secondary">Nhập từ khoá hoặc mô tả nội dung để tìm tin nhắn trong cuộc trò chuyện này.</div>
+      ) : listing.rows.length === 0 && !showsHits ? (
         <div className="conv-empty-wrap">
           {banner}
           <ConversationListEmpty
             destination={destination}
             searchText={isSearching ? query : null}
             hiddenEnabled={actions.hiddenEnabled}
-            onClearSearch={() => shell.setSearch('')}
+            onClearSearch={() => shell.clearSearch()}
             onShowAll={() => shell.setDestination('inbox')}
           />
         </div>
       ) : (
         <div className="conv-list" role="listbox" tabIndex={0} onKeyDown={onListKey} aria-label={titleFor(destination)}>
           {banner && <div className="conv-banner-wrap">{banner}</div>}
+          {showsHits && !scope && listing.rows.length > 0 && <div className="conv-section-title">Trò chuyện</div>}
           {listing.rows.map((item) =>
             item.kind === 'strangerBox' ? (
               <StrangerBoxRow
@@ -195,7 +215,7 @@ export function ConversationListColumn() {
                 box={extras.strangerBox}
                 newest={conversations.find((c) => c.id === extras.strangerBox.newestId && !actions.hiddenIds.has(c.id)) ?? null}
                 onOpen={() => {
-                  shell.setSearch('');
+                  shell.clearSearch();
                   shell.setDestination('strangers');
                 }}
               />
@@ -215,6 +235,16 @@ export function ConversationListColumn() {
                 onContextMenu={onContextMenu}
               />
             ),
+          )}
+          {showsHits && (
+            <MessageSearchSection
+              hits={hits}
+              query={query}
+              busy={messageSearch.busy}
+              semantic={messageSearch.result?.mode === 'hybrid'}
+              scoped={scope !== null}
+              showTitle={!scope || hits.length > 0 || messageSearch.busy}
+            />
           )}
         </div>
       )}

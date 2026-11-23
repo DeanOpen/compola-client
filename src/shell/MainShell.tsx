@@ -70,7 +70,7 @@ export function MainShell() {
   useEffect(() => {
     if (!navigationRequest) return;
     shell.setDestination('inbox');
-    shell.setSearch('');
+    shell.clearSearch();
     shell.select(navigationRequest);
     setEngine({ navigationRequest: null });
   }, [navigationRequest]);

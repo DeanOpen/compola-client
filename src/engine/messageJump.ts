@@ -45,14 +45,20 @@ const waitFor = (test: () => boolean, ms: number) =>
  * Shows `messageId` of `conversationId` in the chat. `date` (epoch ms, when known) stops the search once the history is
  * read past it (the message was deleted or recalled).
  */
-export const requestJumpToMessage = async (conversationId: string, messageId: string, date: number | null = null) => {
+export const requestJumpToMessage = async (
+  conversationId: string,
+  messageId: string,
+  date: number | null = null,
+  /** Opens the conversation; by default a navigation request (back to the unfiltered inbox, search cleared). */
+  open: () => void = () => setEngine({ navigationRequest: conversationId }),
+) => {
   seq += 1;
   const mine = seq;
   const current = () => useMessageJump.getState().request?.seq === mine;
   useMessageJump.setState({ request: { seq: mine, conversationId, messageId, ready: false } });
 
   if (getEngine().openConversationId !== conversationId) {
-    setEngine({ navigationRequest: conversationId });
+    open();
     const opened = await waitFor(() => getEngine().openConversationId === conversationId && !!getEngine().messages[conversationId], pageWait);
     if (!current()) return;
     if (!opened) return fail(mine, conversationId);

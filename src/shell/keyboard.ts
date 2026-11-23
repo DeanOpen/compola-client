@@ -1,12 +1,12 @@
 // Window shortcuts of the signed-in shell (Swift `CompolaCommands` + view shortcuts):
-// ⌘K quick switcher · ⌥⌘I inspector · ⌥⌘F / ⌘F search · ⌃⌘S sidebar · ⌘R reply to the newest message · ⌘, Settings ·
+// ⌘K quick switcher · ⌥⌘I inspector · ⌥⌘F / ⌘F search · ⇧⌘F search in the open conversation · ⌃⌘S sidebar · ⌘R reply to the newest message · ⌘, Settings ·
 // ⌥⌘1/2/3/4 mailboxes, ⌥⌘5 Danh bạ, ⌥⌘6 zCloud.
 
 import { useEffect } from 'react';
 import { getEngine } from '../engine/store';
 import { escapeStackDepth } from '../ui/escape';
 import { openSettings } from '../features/settings/hosts';
-import { shell, useShell, type Destination } from './shellStore';
+import { isConversationList, shell, useShell, type Destination } from './shellStore';
 
 const destinations: Record<string, Destination> = {
   Digit1: 'inbox',
@@ -42,6 +42,12 @@ export const useShellShortcuts = () => {
       } else if (code === 'KeyF' && !e.shiftKey) {
         e.preventDefault();
         shell.focusSearch();
+      } else if (code === 'KeyF' && e.shiftKey && !e.altKey) {
+        // Search the open conversation's messages.
+        const { selection, destination } = useShell.getState();
+        if (!selection || !isConversationList(destination)) return;
+        e.preventDefault();
+        shell.searchInConversation(selection);
       } else if (e.ctrlKey && code === 'KeyS') {
         e.preventDefault();
         shell.toggleSidebar();
@@ -52,7 +58,7 @@ export const useShellShortcuts = () => {
         e.preventDefault();
         const d = destinations[code];
         if (d === 'other' && !getEngine().extras.archivedEnabled) return;
-        if (useShell.getState().search) shell.setSearch('');
+        if (useShell.getState().search || useShell.getState().searchScope) shell.clearSearch();
         shell.setDestination(d);
       }
     };

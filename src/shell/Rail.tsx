@@ -76,7 +76,7 @@ export function Rail() {
             label="Cloud của tôi"
             selected={onSelfChat}
             onClick={() => {
-              shell.setSearch('');
+              shell.clearSearch();
               shell.setDestination('inbox');
               shell.select(selfId);
             }}
