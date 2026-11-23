@@ -628,9 +628,9 @@ pub fn engine_info(app: AppHandle, account: Option<String>) -> Result<Value, Str
 /// `__zaloChat`, `__zaloCompose`, `__zaloPoll`, …) and returns its JSON result.
 #[tauri::command]
 pub async fn engine_call(app: AppHandle, account: Option<String>, target: String, method: String, args: Vec<Value>) -> Result<Value, String> {
-    let engine = engine_for(&app, account)?;
+    let engine = engine_for(&app, account.clone())?;
     let result = engine.call_adapter(&target, &method, args.clone()).await;
-    crate::remote::record_local_call(&app, "engine_call", &target, &method, &args, result.is_ok());
+    crate::remote::record_local_call(&app, account.as_deref(), "engine_call", &target, &method, &args, result.is_ok());
     result
 }
 
@@ -704,7 +704,7 @@ pub async fn engine_call_with_files(
     files: Option<Vec<String>>,
     pick: Option<String>,
 ) -> Result<Value, String> {
-    let engine = engine_for(&app, account)?;
+    let engine = engine_for(&app, account.clone())?;
     let paths = match files {
         Some(f) => f,
         None => match pick_files(&app, pick.as_deref()).await {
@@ -713,7 +713,7 @@ pub async fn engine_call_with_files(
         },
     };
     let result = engine.call_adapter_with_files(&target, &method, args.clone(), paths).await;
-    crate::remote::record_local_call(&app, "engine_call_with_files", &target, &method, &args, result.is_ok());
+    crate::remote::record_local_call(&app, account.as_deref(), "engine_call_with_files", &target, &method, &args, result.is_ok());
     result
 }
 
