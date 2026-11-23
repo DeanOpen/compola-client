@@ -64,6 +64,7 @@ objc2 = "0.6"
 block2 = "0.6"
 objc2-foundation = { version = "0.3", features = ["NSString", "NSURL", "NSArray", "NSSet", "NSError", "NSObject"] }
 objc2-user-notifications = { version = "0.3", features = ["block2"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "libc", "NSRunningApplication"] }
 security-framework = "3"
 core-foundation = "0.10"
 

@@ -232,3 +232,40 @@ pub fn clear_delivered(conversation: &str) {
     });
     center().getDeliveredNotificationsWithCompletionHandler(&block);
 }
+
+/// The authorization status for the settings UI: `authorized` | `denied` | `notDetermined`.
+pub fn status() -> oneshot::Receiver<&'static str> {
+    let (tx, rx) = oneshot::channel();
+    let tx = std::sync::Mutex::new(Some(tx));
+    let block = RcBlock::new(move |settings: NonNull<UNNotificationSettings>| {
+        let status = unsafe { settings.as_ref() }.authorizationStatus();
+        let name = if status == UNAuthorizationStatus::Authorized || status == UNAuthorizationStatus::Provisional {
+            "authorized"
+        } else if status == UNAuthorizationStatus::Denied {
+            "denied"
+        } else {
+            "notDetermined"
+        };
+        if let Some(tx) = tx.lock().ok().and_then(|mut t| t.take()) {
+            let _ = tx.send(name);
+        }
+    });
+    center().getNotificationSettingsWithCompletionHandler(&block);
+    rx
+}
+
+/// Asks macOS for permission (shows the system prompt the first time); resolves with whether it was granted.
+pub fn request() -> oneshot::Receiver<bool> {
+    let (tx, rx) = oneshot::channel();
+    let tx = std::sync::Mutex::new(Some(tx));
+    let done = RcBlock::new(move |granted: Bool, _error: *mut NSError| {
+        if let Some(tx) = tx.lock().ok().and_then(|mut t| t.take()) {
+            let _ = tx.send(granted.as_bool());
+        }
+    });
+    center().requestAuthorizationWithOptions_completionHandler(
+        UNAuthorizationOptions::Alert | UNAuthorizationOptions::Sound | UNAuthorizationOptions::Badge,
+        &done,
+    );
+    rx
+}
