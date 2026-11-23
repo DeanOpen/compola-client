@@ -26,6 +26,7 @@ import {
   muteDescription,
   notificationSettingsDidAppear,
   openSystemNotificationSettings,
+  refreshNotificationAuthorization,
   requestNotificationAuthorization,
   setMessagePreview,
   setNotificationsEnabled,
@@ -215,6 +216,12 @@ function AppearanceSettings() {
 function NotificationSettings() {
   const s = useNotifications();
   useEffect(() => notificationSettingsDidAppear(), []);
+  // Back from System Settings ("Mở Cài đặt…"): the permission may have changed.
+  useEffect(() => {
+    const onFocus = () => void refreshNotificationAuthorization();
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, []);
   return (
     <>
       <Section

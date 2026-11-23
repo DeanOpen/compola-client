@@ -179,12 +179,11 @@ const applySettings = (json: Json) => {
 // MARK: - macOS authorization
 
 /**
- * The shim's `Notification.permission` is what the official code gates on. Rust asks macOS for authorization itself
- * (notifications/un.rs) but has no command reporting it: `notification_authorization` is a contract request. Until it
- * exists the shim is told "granted" (Rust drops banners macOS refuses).
+ * The shim's `Notification.permission` is what the official code gates on: Rust reports the macOS authorization
+ * (`notification_authorization`, `notification_request_authorization` → "authorized" | "denied" | "notDetermined" |
+ * "unavailable"). If the command fails the shim is told "granted" (Rust drops banners macOS refuses).
  */
 const queryAuthorization = async (request: boolean): Promise<NotificationAuthorization> => {
-  if (usesMock) return 'authorized';
   try {
     const b = await backend();
     const status = await b.invoke<string>(request ? 'notification_request_authorization' : 'notification_authorization');

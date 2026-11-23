@@ -110,3 +110,12 @@ onMockBoot((ctx) => {
   // A log line every so often, for the Engine tab's live log.
   setInterval(() => ctx.emit('compola://log', `[log] ${new Date().toTimeString().slice(0, 8)} heartbeat ok`), 15_000);
 });
+
+// macOS authorization (Rust notifications/): `&notifAuth=notDetermined|denied|unavailable`; "Cho phép" grants it.
+let mockAuthorization: string | null = null;
+const authorization = () => (mockAuthorization ??= mockContext().params.get('notifAuth') ?? 'authorized');
+registerMockCommand('notification_authorization', () => authorization());
+registerMockCommand('notification_request_authorization', () => {
+  if (authorization() === 'notDetermined') mockAuthorization = 'authorized';
+  return authorization();
+});
