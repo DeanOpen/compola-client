@@ -20,7 +20,9 @@ export type EngineEvent =
   /** Automation (MCP, schedules, add-ons): `{kind: changed|message|schedule|toolCall, …}` (src-tauri/src/automation). */
   | 'compola://automation'
   /** Compola Server (src/engine/remote.ts): `{kind: changed|connection|joinProgress|access, …}`. */
-  | 'compola://remote';
+  | 'compola://remote'
+  /** Multi-account (src/engine/accounts.ts): `{accounts:[…], activeId}` — PROVISIONAL until docs/multi-account.md. */
+  | 'compola://accounts';
 
 export interface Backend {
   readonly isMock: boolean;
