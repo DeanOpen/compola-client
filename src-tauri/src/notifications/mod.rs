@@ -7,8 +7,13 @@
 //! also brings the UI window forward and emits `compola://notification-click` `{id, convId}` to it; an inline reply
 //! emits `compola://notification-reply` `{id, convId, text}` (sending it is the UI's job).
 //!
-//! Delivery uses `mac-notification-sys` (it reports clicks and replies; `tauri-plugin-notification` does not on
-//! desktop). The plugin is still registered for the UI (permission API) and is the fallback on other platforms.
+//! Delivery uses `UNUserNotificationCenter` ([`un`]): a delegate reports clicks and inline replies, and a
+//! conversation's delivered banners are removed when it is opened. That center only works inside an app bundle, so
+//! an unbundled dev binary falls back to `mac-notification-sys` (deprecated NSUserNotification; one waiting thread per
+//! banner, no removal). `tauri-plugin-notification` is registered for the UI and is the fallback on other platforms.
+
+#[cfg(target_os = "macos")]
+mod un;
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -174,6 +179,17 @@ pub fn install(app: &AppHandle, reg: &mut Registry) {
     }
     let notifier = app.state::<Arc<Notifier>>().inner().clone();
     notifier.wire_focus_bridge();
+    #[cfg(target_os = "macos")]
+    if un::available() {
+        let app = app.clone();
+        let _ = app.clone().run_on_main_thread(move || {
+            un::init(Box::new(move |id, conv, response| {
+                if let Some(n) = app.try_state::<Arc<Notifier>>() {
+                    n.handle_response(&id, &conv, response);
+                }
+            }));
+        });
+    }
 
     reg.handle("_noti_is-supported", |_, _| async { Ok(json!(true)) });
     let n = notifier.clone();
@@ -191,6 +207,10 @@ pub fn install(app: &AppHandle, reg: &mut Registry) {
 /// The UI reports the conversation on screen (suppression backstop); `None` when none is open.
 #[allow(dead_code)]
 pub fn set_open_conversation(app: &AppHandle, id: Option<String>) {
+    #[cfg(target_os = "macos")]
+    if let Some(conv) = &id {
+        un::clear_delivered(conv);
+    }
     if let Some(n) = app.try_state::<Arc<Notifier>>() {
         *n.open_conversation.lock() = id;
     }
@@ -309,17 +329,35 @@ impl Notifier {
             Some(file)
         });
 
-        // The renderer registers the id when `createNotification` resolves; let that happen first.
-        let this = self.clone();
-        let show_id = id.clone();
-        tauri::async_runtime::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(60)).await;
-            let live = this.live.lock().get(&show_id).map(|e| Live { host: e.host.clone(), tag: e.tag.clone() });
-            if let Some(entry) = live {
-                this.push("_noti_on-show", &show_id, Some(&entry));
-            }
-        });
+        #[cfg(target_os = "macos")]
+        if un::available() {
+            let this = self.clone();
+            tauri::async_runtime::spawn(async move {
+                let banner = un::Banner {
+                    id: &id,
+                    title: &request.title,
+                    body: &body,
+                    conversation: &request.tag,
+                    silent: request.silent,
+                    image: image_file.as_deref(),
+                };
+                let result = un::deliver(banner).await;
+                if let Some(f) = &image_file {
+                    let _ = std::fs::remove_file(f); // normally already moved into the center's store
+                }
+                match result {
+                    Ok(()) => this.announce_shown(id),
+                    Err(e) => {
+                        log::info!("notification dropped: {e}");
+                        this.live.lock().remove(&id);
+                    }
+                }
+            });
+            return;
+        }
 
+        // Fallback (unbundled dev binary / other platforms): the banner is announced optimistically.
+        self.announce_shown(id.clone());
         let this = self.clone();
         // mac-notification-sys blocks until the user interacts: one thread per delivered notification.
         std::thread::spawn(move || {
@@ -337,10 +375,24 @@ impl Notifier {
         });
     }
 
+    /// `_noti_on-show`, a moment after delivery: the renderer registers the id when `createNotification` resolves.
+    fn announce_shown(self: &Arc<Self>, id: String) {
+        let this = self.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(60)).await;
+            let live = this.live.lock().get(&id).map(|e| Live { host: e.host.clone(), tag: e.tag.clone() });
+            if let Some(entry) = live {
+                this.push("_noti_on-show", &id, Some(&entry));
+            }
+        });
+    }
+
     fn handle_response(&self, id: &str, conv_id: &str, response: Response) {
         let entry = self.live.lock().remove(id);
         match response {
             Response::Click => {
+                #[cfg(target_os = "macos")]
+                un::clear_delivered(conv_id);
                 self.bring_app_to_front();
                 emit_ui(&self.app, "compola://notification-click", json!({ "id": id, "convId": conv_id }));
                 // The official click handler (`_onNotiClicked`) opens the conversation in the client state.
@@ -395,14 +447,8 @@ enum Response {
 #[cfg(target_os = "macos")]
 fn show(app: &AppHandle, request: &NotificationRequest, body: &str, image: Option<&std::path::Path>) -> Result<Response, String> {
     use mac_notification_sys::{MainButton, Notification, NotificationResponse};
-    static APP_SET: std::sync::Once = std::sync::Once::new();
-    APP_SET.call_once(|| {
-        // Inside a bundle notifications belong to Compola; a bare dev binary keeps the library's default sender.
-        let bundled = std::env::current_exe().is_ok_and(|p| p.to_string_lossy().contains(".app/Contents/MacOS/"));
-        if bundled {
-            let _ = mac_notification_sys::set_application(&app.config().identifier);
-        }
-    });
+    // Only reached without an app bundle (dev binary): the library's default sender shows the banner.
+    let _ = app;
     let image_path = image.map(|p| p.to_string_lossy().into_owned());
     let mut n = Notification::new();
     n.title(&request.title).message(body).wait_for_click(true).main_button(MainButton::Response("Trả lời"));
@@ -481,6 +527,14 @@ mod tests {
         assert_eq!(NotificationRequest::parse(&[json!(""), json!({})]), None);
         let title_only = NotificationRequest::parse(&[json!("Zalo")]).unwrap();
         assert!(title_only.body.is_empty() && title_only.tag.is_empty());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn notification_center_is_gated_outside_a_bundle() {
+        // `currentNotificationCenter` would raise outside an app bundle: the test binary must take the fallback.
+        assert!(!un::available());
+        un::clear_delivered("g1"); // a no-op, not a crash
     }
 
     #[test]

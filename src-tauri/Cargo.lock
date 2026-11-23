@@ -2955,7 +2955,10 @@ version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9df9128cbbfef73cda168416ccf7f837b62737d748333bfe9ab71c245d76613e"
 dependencies = [
+ "bitflags 2.13.2",
+ "block2",
  "objc2",
+ "objc2-core-location",
  "objc2-foundation",
 ]
 
@@ -2982,6 +2985,7 @@ dependencies = [
  "anyhow",
  "arboard",
  "base64 0.22.1",
+ "block2",
  "cbc",
  "chrono",
  "cookie",
@@ -3003,6 +3007,9 @@ dependencies = [
  "md-5",
  "memmap2",
  "mime_guess",
+ "objc2",
+ "objc2-foundation",
+ "objc2-user-notifications",
  "parking_lot",
  "plist",
  "png",
