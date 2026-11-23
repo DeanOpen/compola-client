@@ -700,6 +700,8 @@ pub mod keychain_cipher {
     use super::*;
 
     const SERVICE: &str = "app.compola.secure";
+    /// Service name before the app was renamed to Compola.
+    const LEGACY_SERVICE: &str = "app.compola.tauri.secure";
     const INFO: &[u8] = b"ZprotocolSecureKDF";
     const TYPE_RAW: u8 = 0x49;
 
@@ -725,6 +727,12 @@ pub mod keychain_cipher {
         let entry = keyring::Entry::new(SERVICE, &account).map_err(|e| e.to_string())?;
         match entry.get_secret() {
             Ok(key) => Ok(key),
+            // Installs from before the rename to Compola kept their root keys under the old service: take it from
+            // there once (only on a definite not-found here) and copy it over.
+            Err(keyring::Error::NoEntry) if let Some(key) = keyring::Entry::new(LEGACY_SERVICE, &account).ok().and_then(|e| e.get_secret().ok()) => {
+                let _ = entry.set_secret(&key);
+                Ok(key)
+            }
             // A key that exists but cannot be read now must never be shadowed by a fresh one.
             Err(keyring::Error::NoEntry) => {
                 if !create {
