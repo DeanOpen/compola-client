@@ -1,5 +1,5 @@
-import { AlertTriangle } from 'lucide-react';
-import appIcon from '../../assets/app-icon.png';
+import { AlertTriangle, Check, Download, PackageCheck, RefreshCw, Search, ShieldCheck, X, type LucideIcon } from 'lucide-react';
+import logo from '../../assets/compola-logo.svg';
 import { commands } from '../../engine/backend';
 import type { RuntimeSetup } from '../../engine/models/phase';
 import { Spinner } from '../../ui/Spinner';
@@ -19,60 +19,99 @@ export const formatBytes = (bytes: number): string => {
   return `${value.toLocaleString('vi-VN', { maximumFractionDigits: value < 10 ? 1 : value < 100 ? 1 : 0 })} ${units[i]}`;
 };
 
-/** First launch: Compola fetches the official Zalo code it runs before the QR sign-in (Swift `RuntimeSetupView`). */
+/** The installer's steps in order (Rust `installer::Step`). */
+const steps: { key: RuntimeSetup['step']; title: string; icon: LucideIcon }[] = [
+  { key: 'looking', title: 'Tìm bản Zalo PC mới nhất', icon: Search },
+  { key: 'downloading', title: 'Tải phần lõi Zalo PC', icon: Download },
+  { key: 'verifying', title: 'Kiểm tra chữ ký số của VNG', icon: ShieldCheck },
+  { key: 'installing', title: 'Cài đặt', icon: PackageCheck },
+];
+
+/**
+ * First launch: Compola fetches the official Zalo code it runs before the QR sign-in (Swift `RuntimeSetupView`).
+ * Wave 4: the login card's frame with an Emergent-style checklist of the installer steps (done / running / waiting),
+ * the download bar inside its own row, and the failure attached to the step that failed.
+ */
 export function RuntimeSetupView({ setup }: { setup: RuntimeSetup }) {
+  const current = Math.max(0, steps.findIndex((s) => s.key === setup.step));
   return (
     <BrandBackground>
-      <div className="runtime-setup fade-in">
-        <img src={appIcon} width={84} height={84} alt="" draggable={false} />
-        <div className="setup-heading">Chuẩn bị {appName}</div>
-        <p className="setup-lead">
-          Lần đầu mở, {appName} tải phần lõi chính thức của Zalo PC từ máy chủ của VNG (khoảng 340 MB) và kiểm tra chữ ký số
-          của VNG. Bạn không cần cài Zalo PC.
-        </p>
-        <div className="runtime-progress">
-          {setup.failure ? (
+      <div className="login-page fade-in">
+        <div className="login-brand">
+          <span className="login-logo-row">
+            <img src={logo} width={40} height={40} alt="" draggable={false} />
+            <span className="login-wordmark">{appName}</span>
+          </span>
+          <div className="login-lead">Chuẩn bị {appName} cho lần đầu sử dụng</div>
+        </div>
+        <div className="login-card runtime-card">
+          <p className="runtime-lead">
+            {appName} tải phần lõi chính thức của Zalo PC từ máy chủ của VNG (khoảng 340 MB) và kiểm tra chữ ký số của VNG. Bạn
+            không cần cài Zalo PC.
+          </p>
+          <ol className="runtime-steps">
+            {steps.map((s, i) => {
+              const state = i < current ? 'done' : i > current ? 'waiting' : setup.failure ? 'failed' : 'running';
+              return <StepRow key={s.key} step={s} state={state} setup={setup} />;
+            })}
+          </ol>
+          {setup.failure && (
             <div className="runtime-failure">
-              <div className="runtime-failure-text">
-                <AlertTriangle size={15} /> <span>{setup.failure}</span>
+              <div className="callout is-danger">
+                <AlertTriangle size={15} />
+                <span>{setup.failure}</span>
               </div>
-              <button className="btn btn-prominent btn-large" autoFocus onClick={() => void commands.retryRuntime()}>
-                Thử lại
+              <button className="btn btn-prominent" autoFocus onClick={() => void commands.retryRuntime()}>
+                <RefreshCw size={14} /> Thử lại
               </button>
             </div>
-          ) : (
-            <Progress setup={setup} />
           )}
         </div>
+        <div className="login-footnote">Chỉ cần làm một lần. Những lần sau {appName} mở ngay.</div>
       </div>
     </BrandBackground>
   );
 }
 
-function Progress({ setup }: { setup: RuntimeSetup }) {
-  if (setup.step === 'downloading' && setup.total) {
-    const received = setup.received ?? 0;
-    return (
-      <div className="runtime-bar-wrap nums">
-        <progress className="runtime-bar" value={received} max={setup.total} />
-        <span>
-          Đang tải Zalo PC… {formatBytes(received)} / {formatBytes(setup.total)}
-        </span>
-      </div>
-    );
-  }
-  const status =
-    setup.step === 'looking'
-      ? 'Đang chuẩn bị…'
-      : setup.step === 'downloading'
-        ? `Đang tải Zalo PC… ${formatBytes(setup.received ?? 0)}`
-        : setup.step === 'verifying'
-          ? 'Đang kiểm tra chữ ký của VNG…'
-          : 'Đang cài đặt…';
+function StepRow({
+  step,
+  state,
+  setup,
+}: {
+  step: (typeof steps)[number];
+  state: 'done' | 'running' | 'waiting' | 'failed';
+  setup: RuntimeSetup;
+}) {
+  const Icon = step.icon;
+  const downloading = state === 'running' && step.key === 'downloading';
+  const received = setup.received ?? 0;
   return (
-    <div className="runtime-bar-wrap nums">
-      <Spinner size={14} />
-      <span>{status}</span>
-    </div>
+    <li className={`runtime-step is-${state}`}>
+      <span className="runtime-step-mark">
+        {state === 'done' ? (
+          <Check size={13} strokeWidth={3} />
+        ) : state === 'running' ? (
+          <Spinner size={13} />
+        ) : state === 'failed' ? (
+          <X size={13} strokeWidth={3} />
+        ) : (
+          <Icon size={13} />
+        )}
+      </span>
+      <span className="runtime-step-body">
+        <span className="runtime-step-title">
+          <span>{step.title}</span>
+          {downloading && setup.total ? <span className="runtime-step-pct nums">{Math.round((received / setup.total) * 100)}%</span> : null}
+        </span>
+        {downloading && (
+          <>
+            {setup.total ? <progress className="runtime-bar" value={received} max={setup.total} /> : null}
+            <span className="runtime-step-detail nums">
+              {setup.total ? `${formatBytes(received)} / ${formatBytes(setup.total)}` : formatBytes(received)}
+            </span>
+          </>
+        )}
+      </span>
+    </li>
   );
 }
