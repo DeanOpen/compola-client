@@ -3,7 +3,7 @@
 // message text scale as CSS variables on :root.
 
 import { useSyncExternalStore } from 'react';
-import { usesMock } from '../../engine/backend';
+import { usesTauri } from '../../engine/backend';
 
 export type Appearance = 'system' | 'light' | 'dark';
 export type Accent = 'blue' | 'teal' | 'indigo' | 'pink' | 'orange' | 'green' | 'graphite';
@@ -95,7 +95,7 @@ const apply = (p: Prefs) => {
   root.style.setProperty('--message-scale', String(textSizes.find((t) => t.value === p.textSize)?.scale ?? 1));
   // Light / dark: the window theme drives `prefers-color-scheme` in the webview (needs `core:window:allow-set-theme`).
   root.dataset.theme = p.appearance;
-  if (!usesMock) {
+  if (usesTauri) {
     void import('@tauri-apps/api/window')
       .then(({ getCurrentWindow }) => getCurrentWindow().setTheme(p.appearance === 'system' ? null : p.appearance))
       .catch(() => {});

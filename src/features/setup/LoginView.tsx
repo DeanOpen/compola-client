@@ -13,7 +13,7 @@ import { useState } from 'react';
 import logo from '../../assets/compola-logo.svg';
 import { commands } from '../../engine/backend';
 import type { LoginState } from '../../engine/models/phase';
-import { remote, useHostSettingsLocked, useRemote } from '../../engine/remote';
+import { leaveCopy, remote, useHostSettingsLocked, useRemote } from '../../engine/remote';
 import { JoinServer } from '../remote/JoinServer';
 import { LeaveServerAlert } from '../remote/RemoteGate';
 import { Avatar } from '../../ui/Avatar';
@@ -78,7 +78,7 @@ export function LoginView({ state, notice }: { state: LoginState; notice: string
           <div className="login-footnote join-footnote">
             <span>Máy này đang dùng tài khoản Zalo của {serverName}.</span>
             <button className="btn-link" onClick={() => void remote.leave()}>
-              Rời máy chủ
+              {leaveCopy.action}
             </button>
           </div>
         ) : (
@@ -110,7 +110,7 @@ function HostSignedOut({ serverName }: { serverName: string }) {
         </div>
       </div>
       <button className="btn-link" onClick={() => setConfirmLeave(true)}>
-        Rời máy chủ
+        {leaveCopy.action}
       </button>
       {confirmLeave && <LeaveServerAlert serverName={serverName} onClose={() => setConfirmLeave(false)} />}
     </div>

@@ -2,6 +2,7 @@
 // during a send, the screenshot "Chia sẻ" picker and the screen-recording permission notice.
 
 import { ImageIcon } from 'lucide-react';
+import { usesTauri } from '../../engine/backend';
 import { answerComposerConfirm, reportComposer, shareScreenshot } from '../../engine/composer';
 import { setEngine, useEngine } from '../../engine/store';
 import { showToast } from '../../engine/toast';
@@ -59,6 +60,7 @@ export function ComposerPrompts() {
               label: 'Mở Cài đặt',
               onClick: () => {
                 setEngine({ screenCaptureNeedsPermission: false });
+                if (!usesTauri) return;
                 void import('@tauri-apps/plugin-opener')
                   .then(({ openUrl }) => openUrl('x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture'))
                   .catch(() => {});

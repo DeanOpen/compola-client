@@ -1,12 +1,12 @@
 // OS integration: opening web links in the default browser (Swift `WebLink.open`).
 
-import { usesMock } from './backend';
+import { usesMock, usesTauri } from './backend';
 import { webLink } from './models/json';
 
 export const openExternal = async (link: string | null | undefined) => {
   const safe = webLink(link);
   if (!safe) return;
-  if (usesMock) {
+  if (!usesTauri) {
     window.open(safe, '_blank', 'noopener');
     return;
   }

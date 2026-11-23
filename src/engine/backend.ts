@@ -1,5 +1,6 @@
-// The transport to the Rust engine (src-tauri/src/engine.rs): Tauri commands + events, or the in-browser mock
-// (`?mock=1`, or whenever the page is not running inside Tauri) so the UI can be developed in a plain browser.
+// The transport to the Rust engine (src-tauri/src/engine.rs): Tauri commands + events; the web client served by
+// Compola Server at `/web/` (WebSocket to the server, src/engine/web/webBackend.ts); or the in-browser mock (`?mock=1`,
+// or any other page outside Tauri) so the UI can be developed in a plain browser.
 
 import type { Phase } from './models/phase';
 
@@ -39,9 +40,15 @@ export const mockRequested = (() => {
   return p.has('mock') && p.get('mock') !== '0';
 })();
 
-export const usesMock = mockRequested || !insideTauri;
+/** The web client: the app in a browser at `<server>/web/` (docs/compola-server.md, "Web client"). Treated as joined. */
+export const usesWeb = !insideTauri && !mockRequested && typeof location !== 'undefined' && /^\/web(\/|$)/.test(location.pathname);
 
-type RawInvoke = <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
+export const usesMock = mockRequested || (!insideTauri && !usesWeb);
+
+/** Running in the desktop app: Tauri APIs (`@tauri-apps/*`) are available. */
+export const usesTauri = insideTauri && !mockRequested;
+
+export type RawInvoke = <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
 
 // MARK: - Joined to a Compola Server (docs/compola-server.md, "Joined app — Tauri commands")
 
@@ -73,7 +80,8 @@ const joinedHostAutomation = new Set(['automation_search', 'automation_search_st
 
 export const joinedRefusal = 'Tính năng này chỉ dùng được trên máy chủ Compola Server.';
 
-const routeJoined = <T>(raw: RawInvoke, command: string, args?: Record<string, unknown>): Promise<T> => {
+/** A joined UI's command (desktop joined mode and the web client): kept local, rewritten, refused, or run by the host. */
+export const routeJoined = <T>(raw: RawInvoke, command: string, args?: Record<string, unknown>): Promise<T> => {
   if (command.startsWith('remote_') || joinedLocal.has(command)) return raw<T>(command, args);
   const rewritten = joinedRewritten[command];
   if (rewritten) return raw<T>(rewritten, args);
@@ -115,7 +123,11 @@ let backendPromise: Promise<Backend> | null = null;
 
 export const backend = (): Promise<Backend> => {
   if (!backendPromise) {
-    backendPromise = usesMock ? import('./mock/mockBackend').then((m) => m.createMockBackend()) : tauriBackend();
+    backendPromise = usesMock
+      ? import('./mock/mockBackend').then((m) => m.createMockBackend())
+      : usesWeb
+        ? import('./web/webBackend').then((m) => m.createWebBackend())
+        : tauriBackend();
   }
   return backendPromise;
 };
@@ -166,11 +178,13 @@ export const commands = {
   mediaSave: async (url: string, destPath: string) => (await backend()).invoke<string>('media_save', { url, destPath }),
 };
 
-/** Files dragged over / dropped on the main window (Tauri's native drag-drop; the page's own HTML5 drop never fires).
- * Returns an unsubscribe function. A no-op in the mock. */
+/** Files dragged over / dropped on the main window (Tauri's native drag-drop; the page's own HTML5 drop never fires
+ * there). The web client uses the HTML5 drop and hands out its file references. Returns an unsubscribe function. A
+ * no-op in the mock. */
 export const onFileDrop = async (
   handler: (event: { kind: 'over' } | { kind: 'leave' } | { kind: 'drop'; paths: string[] }) => void,
 ): Promise<() => void> => {
+  if (usesWeb) return (await import('./web/webFiles')).onWebFileDrop(handler);
   if (usesMock) return () => {};
   const { getCurrentWebview } = await import('@tauri-apps/api/webview');
   return getCurrentWebview().onDragDropEvent((e) => {

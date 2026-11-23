@@ -6,14 +6,16 @@
 // `audio` / `file` for `cors`. `retry=1` only for a user's retry click (a failed image URL is otherwise not fetched again
 // for 20 s). Errors come back as an HTTP status plus `X-Compola-Error`: an <img> just gets `onerror`.
 
-import { usesMock } from './backend';
+import { usesMock, usesWeb } from './backend';
+import { isWebFile, webPreviewUrl } from './web/webFiles';
 
 export type MediaFlavour = 'image' | 'cors' | 'video' | 'audio' | 'file';
 
 const schemeFlavour = (f: MediaFlavour) => (f === 'image' ? 'image' : 'cors');
 
 const isWindows = typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent);
-const origin = isWindows ? 'http://compola-media.localhost' : 'compola-media:/';
+// The web client loads the same queries from the server's `/media/load` (the cookie authenticates them).
+const origin = usesWeb ? '/media' : isWindows ? 'http://compola-media.localhost' : 'compola-media:/';
 
 /** URL for an `<img>` / `<video>` / `<audio>` src. */
 export const mediaUrl = (url: string | null | undefined, flavour: MediaFlavour = 'image', retry = false): string | null => {
@@ -43,9 +45,12 @@ export const reactionImageUrl = (path: string): string | null => {
 
 /**
  * Preview of a file the user picked, pasted or dropped (outside the data folders): Rust serves it once
- * `commands.mediaAllowPreviews([path])` allowed it (30 min). Null in the mock (no local files there).
+ * `commands.mediaAllowPreviews([path])` allowed it (30 min). The web client's files are blob: URLs. Null in the mock
+ * (no local files there).
  */
 export const localPreviewUrl = (path: string, flavour: MediaFlavour = 'image'): string | null => {
+  // Web client: a picked / pasted / dropped `File` (blob: URL).
+  if (isWebFile(path)) return webPreviewUrl(path);
   if (!path.startsWith('/') || usesMock) return null;
   return `${origin}/load?file=${encodeURIComponent(path)}&flavour=${schemeFlavour(flavour)}`;
 };
