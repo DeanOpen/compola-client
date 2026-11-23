@@ -37,7 +37,11 @@ export interface AlertButton {
   onClick: () => void;
 }
 
-/** SwiftUI `.alert`: title, message, buttons. Esc presses the cancel button (answered only by its buttons). */
+/**
+ * SwiftUI `.alert`, drawn as a Zalo PC confirm: the title row (with × when there is a cancel button), the message,
+ * then the buttons bottom-right (cancel first, the action filled: blue, red when destructive). Esc presses the cancel
+ * button (answered only by its buttons).
+ */
 export function Alert({ title, message, buttons }: { title: string; message?: string; buttons: AlertButton[] }) {
   const cancel = buttons.find((b) => b.role === 'cancel');
   useEscape(true, () => cancel?.onClick());
@@ -46,15 +50,22 @@ export function Alert({ title, message, buttons }: { title: string; message?: st
   useEffect(() => primary.current?.focus(), []);
   return createPortal(
     <div className="sheet-backdrop fade-in">
-      <div className="alert glass-strong sheet-in" role="alertdialog" aria-modal>
-        <div className="alert-title">{title}</div>
+      <div className="alert glass-strong sheet-in" role="alertdialog" aria-modal aria-label={title}>
+        <div className="alert-header">
+          <div className="alert-title">{title}</div>
+          {cancel && (
+            <button className="icon-button alert-close" onClick={cancel.onClick} aria-label={cancel.label} title={cancel.label}>
+              <X size={16} />
+            </button>
+          )}
+        </div>
         {message && <div className="alert-message">{message}</div>}
         <div className="alert-buttons">
           {buttons.map((b, i) => (
             <button
               key={i}
               ref={i === primaryIndex ? primary : undefined}
-              className={`btn ${b.role === 'cancel' ? 'btn-glass' : b.role === 'destructive' ? 'btn-glass btn-danger' : 'btn-prominent'}`}
+              className={`btn ${b.role === 'cancel' ? 'btn-glass alert-button-cancel' : b.role === 'destructive' ? 'alert-button-destructive' : 'btn-prominent'}`}
               onClick={b.onClick}
             >
               {b.label}

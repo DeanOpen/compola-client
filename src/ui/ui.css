@@ -55,69 +55,133 @@
   margin-top: 10px;
 }
 
-/* Menu */
+/* Menu (Zalo PC: flat white panel, 32px rows, leading icons, red destructive rows) */
 .menu-layer {
   position: fixed;
   inset: 0;
   z-index: 1000;
 }
 
-.menu {
+/* Doubled with .glass-strong: base.css loads after this file. */
+.menu,
+.menu.glass-strong {
   position: fixed;
   z-index: 1001;
-  min-width: 220px;
+  min-width: 208px;
   max-width: 340px;
-  padding: 6px 0;
+  padding: 4px 0;
   border-radius: 8px;
   font-size: 14px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--separator);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.06);
 }
 
 .menu-item {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 10px;
   width: 100%;
-  height: 34px;
-  padding: 0 14px 0 6px;
+  height: 32px;
+  padding: 0 12px;
   border-radius: 0;
   text-align: left;
   white-space: nowrap;
+  color: var(--text);
+  cursor: default;
+}
+
+/* Leading column order: check (only in menus with checkable rows), icon, colour dot, text, trailing bits. */
+.menu-check {
+  order: 0;
+  width: 14px;
+  display: inline-flex;
+  justify-content: center;
+  flex: none;
+  color: var(--primary);
+}
+
+.menu:not(:has(.menu-check svg)) .menu-check {
+  display: none;
+}
+
+.menu-icon {
+  order: 1;
+  flex: none;
+  color: var(--text-secondary);
+}
+
+/* Rows without an icon keep their text aligned with the rows that have one. */
+.menu:has(.menu-icon) .menu-item:not(:has(.menu-icon))::before {
+  content: '';
+  order: 1;
+  width: 15px;
+  flex: none;
+}
+
+.menu-dot {
+  order: 2;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.menu-text {
+  order: 3;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.menu-item > :not(.menu-check):not(.menu-icon):not(.menu-dot):not(.menu-text):not(.menu-shortcut):not(.menu-chevron) {
+  order: 4;
+}
+
+.menu-shortcut {
+  order: 5;
+  margin-left: 16px;
+  font-size: 12.5px;
+  color: var(--text-tertiary);
+}
+
+.menu-chevron {
+  order: 6;
+  margin-left: 4px;
+  margin-right: -4px;
+  color: var(--text-tertiary);
 }
 
 .menu-item.is-active:not(:disabled):not([aria-disabled='true']) {
   background: var(--hover);
 }
 
-.menu-item.is-active .menu-icon {
+.menu-item.is-active:not(:disabled):not([aria-disabled='true']) .menu-icon {
   color: var(--text);
 }
 
-.menu-item.is-destructive {
+.menu-item:disabled,
+.menu-item[aria-disabled='true'] {
+  color: var(--text-tertiary);
+}
+
+.menu-item:disabled .menu-icon,
+.menu-item[aria-disabled='true'] .menu-icon {
+  color: var(--text-tertiary);
+}
+
+.menu-item.is-destructive,
+.menu-item.is-destructive .menu-icon,
+.menu-item.is-destructive.is-active .menu-icon {
   color: var(--danger);
-}
-
-.menu-item.is-destructive .menu-icon {
-  color: var(--danger);
-}
-
-.menu-check {
-  width: 14px;
-  display: inline-flex;
-  justify-content: center;
-  flex: none;
-}
-
-.menu-icon {
-  flex: none;
-  margin-left: 14px;
-  color: var(--text-secondary);
 }
 
 .menu-reactions {
   display: flex;
   gap: 2px;
-  padding: 0 6px 6px;
+  padding: 2px 6px 6px;
   margin-bottom: 4px;
   border-bottom: 1px solid var(--separator);
 }
@@ -141,43 +205,21 @@
   background: var(--accent-selected);
 }
 
-.menu-text {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.menu-shortcut,
-.menu-chevron {
-  color: var(--text-tertiary);
-  margin-left: 12px;
-}
-
-.menu-chevron {
-  margin-left: 6px;
-}
-
-.menu-dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  flex: none;
-}
-
 .menu-separator {
   height: 1px;
-  margin: 6px 0;
+  margin: 4px 0;
   background: var(--separator);
 }
 
 .menu-label {
-  padding: 4px 14px 4px 26px;
+  padding: 6px 12px 4px;
   font-size: 12px;
+  font-weight: 600;
   color: var(--text-secondary);
   white-space: normal;
 }
 
-/* Sheet / alert */
+/* Sheet / alert (Zalo PC dialogs: white, 8px radius, title bar with ×, buttons bottom-right) */
 .sheet-backdrop {
   position: fixed;
   inset: 0;
@@ -188,65 +230,130 @@
   background: var(--dim);
 }
 
-.sheet {
+/* Doubled with .glass-strong: base.css loads after this file. */
+.sheet,
+.sheet.glass-strong {
   display: flex;
   flex-direction: column;
+  max-width: calc(100vw - 32px);
   max-height: calc(100vh - 80px);
   border-radius: 8px;
   overflow: hidden;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--separator);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.18), 0 2px 8px rgba(0, 0, 0, 0.08);
 }
 
 .sheet-header {
   display: flex;
+  flex: none;
   align-items: center;
   gap: 8px;
-  height: 46px;
-  padding: 0 12px 0 18px;
+  height: 48px;
+  padding: 0 10px 0 16px;
   border-bottom: 1px solid var(--separator);
+}
+
+.sheet-header .icon-button {
+  width: 28px !important;
+  height: 28px !important;
 }
 
 .sheet-title {
   flex: 1;
-  font-size: 14px;
-  font-weight: 700;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 16px;
+  font-weight: 600;
 }
 
-.alert {
-  width: 300px;
-  padding: 20px 20px 16px;
+/* Doubled with .glass-strong: base.css loads after this file. */
+.alert,
+.alert.glass-strong {
+  width: 400px;
+  max-width: calc(100vw - 32px);
   border-radius: 8px;
-  text-align: center;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--separator);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.18), 0 2px 8px rgba(0, 0, 0, 0.08);
+  text-align: left;
+}
+
+.alert-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 16px 10px 0 20px;
 }
 
 .alert-title {
-  font-size: 14px;
-  font-weight: 700;
+  flex: 1;
+  padding-top: 3px;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.alert-close {
+  flex: none;
+  width: 28px;
+  height: 28px;
 }
 
 .alert-message {
-  margin-top: 6px;
-  font-size: 12.5px;
+  padding: 8px 20px 0;
+  font-size: 14px;
+  line-height: 1.45;
   color: var(--text-secondary);
   white-space: pre-wrap;
 }
 
 .alert-buttons {
   display: flex;
-  flex-direction: column-reverse;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 8px;
-  margin-top: 16px;
+  padding: 20px 16px 16px;
 }
 
 .alert-buttons .btn {
-  height: 30px;
-  width: 100%;
+  min-width: 80px;
+  height: 32px;
+}
+
+.alert-button-cancel {
+  order: -1;
+}
+
+.alert-button-destructive {
+  background: var(--danger);
+  color: #fff;
+}
+
+.alert-button-destructive:hover:not(:disabled) {
+  filter: brightness(0.92);
+}
+
+.alert-buttons .btn:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
 }
 
 /* Popover */
-.popover {
+/* Doubled with .glass-strong: base.css loads after this file. */
+.popover,
+.popover.glass-strong {
   position: fixed;
   z-index: 950;
   border-radius: 8px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--separator);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.06);
 }
 
 /* Remote image */
@@ -288,22 +395,55 @@
   flex-direction: row;
 }
 
-/* Toast */
+/* Toast: a dark pill at the bottom centre, with an optional inline action ("Hoàn tác") */
 .toast {
-  background: rgba(8, 27, 58, 0.86) !important;
-  color: #fff;
-  border: 0 !important;
   position: absolute;
   left: 50%;
-  transform: translateX(-50%);
+  translate: -50% 0;
   z-index: 50;
-  max-width: min(460px, calc(100% - 40px));
-  padding: 8px 16px;
-  border-radius: 6px;
-  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  max-width: min(480px, calc(100% - 40px));
+  padding: 9px 18px;
+  border: 0 !important;
+  border-radius: 20px;
+  background: rgba(8, 27, 58, 0.9) !important;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2) !important;
+  color: #fff;
+  font-size: 13.5px;
   font-weight: 500;
   text-align: center;
   pointer-events: none;
+}
+
+.toast.has-action {
+  padding-right: 8px;
+  pointer-events: auto;
+}
+
+.toast-text {
+  min-width: 0;
+}
+
+.toast-action {
+  flex: none;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 13px;
+  color: #66a6ff;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.toast-action:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+@media (prefers-color-scheme: dark) {
+  .toast {
+    background: rgba(58, 64, 72, 0.96) !important;
+  }
 }
 
 .badge {
@@ -342,4 +482,8 @@
   font-family: var(--font-rounded);
   font-size: 10.5px;
   font-weight: 500;
+}
+
+.alert-button-cancel {
+  background: var(--fill);
 }
