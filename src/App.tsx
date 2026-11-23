@@ -1,51 +1,62 @@
-import { useState } from "react";
-import reactLogo from "./assets/react.svg";
-import { invoke } from "@tauri-apps/api/core";
-import "./App.css";
+// Window content (Swift `RootView`): a splash while the client boots, the first-run setup (sign-in → phone sync →
+// welcome) or the main window. `setupPending` separates a fresh QR sign-in, which owes the user the sync and welcome
+// steps, from a restored session, which goes straight to the main window.
 
-function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
+import { useEffect } from 'react';
+import { useEngine } from './engine/store';
+import { RuntimeSetupView } from './features/setup/RuntimeSetupView';
+import { SetupFlow } from './features/setup/SetupFlow';
+import { SplashView, appName } from './features/setup/SplashView';
+import { getPref, setPref, usePref } from './features/setup/prefs';
+import { MainShell } from './shell/MainShell';
+import { shell } from './shell/shellStore';
+import { MenuHost } from './ui/Menu';
 
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    setGreetMsg(await invoke("greet", { name }));
+export default function App() {
+  const phase = useEngine((s) => s.phase);
+  const setupPending = usePref('setupPending');
+
+  useEffect(() => {
+    if (phase.kind === 'login') {
+      // Whenever the QR screen is shown a fresh sign-in is under way (also after logging out), and nothing of the
+      // previous account's window may carry over.
+      setPref('setupPending', true);
+      shell.reset();
+    } else if (phase.kind === 'ready') {
+      // A restored session of someone who never saw the setup is not sent through it.
+      if (!getPref('setupPending') && !getPref('didFinishSetup')) setPref('didFinishSetup', true);
+    }
+  }, [phase.kind]);
+
+  const finishSetup = (_startTour: boolean) => {
+    // The coach-mark tour is a later wave; finishing goes straight to the main window.
+    setPref('didFinishSetup', true);
+    setPref('setupPending', false);
+  };
+
+  let content;
+  switch (phase.kind) {
+    case 'starting':
+      content = <SplashView message={`Đang khởi động ${appName}…`} />;
+      break;
+    case 'preparing':
+      content = <RuntimeSetupView setup={phase.setup} />;
+      break;
+    case 'login':
+      content = <SetupFlow onFinish={finishSetup} />;
+      break;
+    case 'signingIn':
+      content = setupPending ? <SetupFlow onFinish={finishSetup} /> : <SplashView message="Đang đăng nhập và đồng bộ dữ liệu…" />;
+      break;
+    case 'ready':
+      content = setupPending ? <SetupFlow onFinish={finishSetup} /> : <MainShell />;
+      break;
   }
 
   return (
-    <main className="container">
-      <h1>Welcome to Tauri + React</h1>
-
-      <div className="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
-
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          greet();
-        }}
-      >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
-        />
-        <button type="submit">Greet</button>
-      </form>
-      <p>{greetMsg}</p>
-    </main>
+    <>
+      {content}
+      <MenuHost />
+    </>
   );
 }
-
-export default App;

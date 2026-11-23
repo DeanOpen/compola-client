@@ -1,0 +1,299 @@
+@import './tokens.css';
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--font);
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--text);
+  background: var(--window);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  cursor: default;
+}
+
+button:disabled {
+  opacity: 0.45;
+}
+
+input,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+a {
+  color: inherit;
+}
+
+.selectable {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.secondary {
+  color: var(--text-secondary);
+}
+
+.tertiary {
+  color: var(--text-tertiary);
+}
+
+.tint {
+  color: var(--accent);
+}
+
+.nums {
+  font-variant-numeric: tabular-nums;
+}
+
+.truncate {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.clamp-3 {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+/* Liquid Glass surfaces */
+.glass {
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 0.5px solid var(--glass-border);
+  box-shadow: var(--glass-shadow), inset 0 0 0 0.5px var(--glass-edge);
+}
+
+.glass-strong {
+  background: var(--glass-bg-strong);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 0.5px solid var(--glass-border);
+  box-shadow: var(--glass-shadow), inset 0 0 0 0.5px var(--glass-edge);
+}
+
+/* Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.btn-prominent {
+  background: var(--accent);
+  color: var(--on-accent);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15), inset 0 0.5px 0 rgba(255, 255, 255, 0.35);
+}
+
+.btn-prominent:hover:not(:disabled) {
+  background: var(--accent-pressed);
+}
+
+.btn-glass {
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 0.5px solid var(--glass-border);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), inset 0 0 0 0.5px var(--glass-edge);
+}
+
+.btn-glass:hover:not(:disabled) {
+  background: var(--glass-bg-strong);
+}
+
+.btn-large {
+  height: 36px;
+  padding: 0 20px;
+  font-size: 14px;
+}
+
+.btn-small {
+  height: 24px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.btn-link {
+  color: var(--accent);
+  font-size: 12.5px;
+}
+
+.btn-link:hover {
+  text-decoration: underline;
+}
+
+.btn-danger {
+  color: var(--danger);
+}
+
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  border-radius: 999px;
+}
+
+.icon-button:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.circle-glass {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 0.5px solid var(--glass-border);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1), inset 0 0 0 0.5px var(--glass-edge);
+  color: var(--text-secondary);
+  transition: transform 0.12s ease;
+}
+
+.circle-glass:hover:not(:disabled) {
+  background: var(--glass-bg-strong);
+  color: var(--text);
+}
+
+.circle-glass:active:not(:disabled) {
+  transform: scale(0.94);
+}
+
+/* Spinner */
+@keyframes compola-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spin {
+  animation: compola-spin 0.9s linear infinite;
+}
+
+@keyframes compola-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes compola-pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(4px);
+  }
+}
+
+@keyframes compola-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+
+@keyframes compola-pulse {
+  50% {
+    opacity: 0.4;
+  }
+}
+
+.fade-in {
+  animation: compola-fade-in 0.25s ease both;
+}
+
+.pop-in {
+  animation: compola-pop-in 0.18s ease-out both;
+}
+
+.slide-up {
+  animation: compola-slide-up 0.18s ease-out both;
+}
+
+/* Scrollbars (macOS overlay look) */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+*:hover::-webkit-scrollbar-thumb {
+  background-color: var(--fill);
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Window drag region under the overlay title bar */
+.drag {
+  -webkit-app-region: drag;
+}
+
+.no-drag {
+  -webkit-app-region: no-drag;
+}
