@@ -639,6 +639,15 @@ pub fn install(app: &AppHandle, reg: &mut Registry) {
     if app.try_state::<Slot>().is_none() {
         app.manage(Slot::default());
     }
+    // Helpers a previous run left behind (killed without `RunEvent::Exit`, e.g. a `tauri dev` restart) go at startup,
+    // not only when the next call starts the helper.
+    static REAPED: std::sync::Once = std::sync::Once::new();
+    REAPED.call_once(|| {
+        std::thread::spawn(|| {
+            helper::reap_orphans(&helper_executable(&crate::runtime::candidate()));
+            crate::screen_capture::reap_orphans();
+        });
+    });
     let a = app.clone();
     reg.handle("call-send-to-native", move |_, args| {
         if let Some((json, optional)) = CallBridge::decode(&args) {
