@@ -177,7 +177,13 @@ export function ConversationListColumn() {
       ) : listing.rows.length === 0 ? (
         <div className="conv-empty-wrap">
           {banner}
-          <ConversationListEmpty destination={destination} searchText={isSearching ? query : null} hiddenEnabled={actions.hiddenEnabled} />
+          <ConversationListEmpty
+            destination={destination}
+            searchText={isSearching ? query : null}
+            hiddenEnabled={actions.hiddenEnabled}
+            onClearSearch={() => shell.setSearch('')}
+            onShowAll={() => shell.setDestination('inbox')}
+          />
         </div>
       ) : (
         <div className="conv-list" role="listbox" tabIndex={0} onKeyDown={onListKey} aria-label={titleFor(destination)}>

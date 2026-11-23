@@ -40,24 +40,57 @@ export function ListBanner({
   );
 }
 
-/** "Đang đồng bộ hội thoại…" while the list (or the hidden-chat state it depends on) has not arrived. */
+/** "Đang đồng bộ hội thoại…" while the list (or the hidden-chat state it depends on) has not arrived: a status line over
+ * skeleton rows shaped like the real ones (wave 4, after Contra), so the column does not jump when the list lands. */
 export function ConversationListLoading({ stalled = false }: { stalled?: boolean }) {
   return (
-    <div className="conv-loading">
-      <Spinner size={18} />
-      <span>{stalled ? hiddenStateStalledText : 'Đang đồng bộ hội thoại…'}</span>
+    <div className="conv-loading" aria-busy>
+      <div className="conv-loading-status">
+        <Spinner size={13} />
+        <span>{stalled ? hiddenStateStalledText : 'Đang đồng bộ hội thoại…'}</span>
+      </div>
+      {[0, 1, 2, 3, 4, 5, 6].map((i) => (
+        <div key={i} className="conv-skeleton" aria-hidden style={{ opacity: 1 - i * 0.12 }}>
+          <span className="conv-skeleton-avatar" />
+          <span className="conv-skeleton-lines">
+            <span style={{ width: `${62 - (i % 3) * 12}%` }} />
+            <span style={{ width: `${84 - (i % 2) * 20}%` }} />
+          </span>
+        </div>
+      ))}
     </div>
   );
 }
 
 /** Empty list of one mailbox, or no search result. */
-export function ConversationListEmpty({ destination, searchText, hiddenEnabled }: { destination: Destination; searchText: string | null; hiddenEnabled: boolean }) {
+export function ConversationListEmpty({
+  destination,
+  searchText,
+  hiddenEnabled,
+  onClearSearch,
+  onShowAll,
+}: {
+  destination: Destination;
+  searchText: string | null;
+  hiddenEnabled: boolean;
+  /** "Xóa tìm kiếm" under a search without results. */
+  onClearSearch?: () => void;
+  /** "Xem tất cả tin nhắn" under an empty filter (Chưa đọc, Khác, a label) — wave 4, after Front's "Clear filter". */
+  onShowAll?: () => void;
+}) {
   if (searchText !== null) {
     return (
       <ContentUnavailable
         icon={Search}
         title={`Không có kết quả cho “${searchText}”`}
         description={hiddenEnabled ? 'Thử tìm theo tên, hoặc nhập mã PIN để xem trò chuyện ẩn.' : 'Thử tìm theo tên người hoặc nhóm.'}
+        actions={
+          onClearSearch && (
+            <button className="btn btn-glass btn-small" onClick={onClearSearch}>
+              Xóa tìm kiếm
+            </button>
+          )
+        }
       />
     );
   }
@@ -73,5 +106,19 @@ export function ConversationListEmpty({ destination, searchText, hiddenEnabled }
             : isLabel(destination)
               ? [Tag, 'Chưa có cuộc trò chuyện', 'Chuột phải vào một cuộc trò chuyện và chọn Phân loại để gắn nhãn này.']
               : [MessagesSquare, 'Chưa có cuộc trò chuyện', 'Cuộc trò chuyện mới sẽ hiện ở đây.'];
-  return <ContentUnavailable icon={icon} title={title} description={message} />;
+  const filtered = destination === 'unread' || destination === 'other' || isLabel(destination);
+  return (
+    <ContentUnavailable
+      icon={icon}
+      title={title}
+      description={message}
+      actions={
+        filtered && onShowAll ? (
+          <button className="btn btn-glass btn-small" onClick={onShowAll}>
+            Xem tất cả tin nhắn
+          </button>
+        ) : undefined
+      }
+    />
+  );
 }
