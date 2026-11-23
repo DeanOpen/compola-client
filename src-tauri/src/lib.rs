@@ -94,6 +94,7 @@ pub fn run() {
             engine::engine_call_with_files,
             engine::ui_widen_window,
             media::media_save,
+            media::media_open_file,
             screen_capture::screen_capture_start,
         ])
         .build(tauri::generate_context!())
