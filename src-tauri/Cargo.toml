@@ -1,11 +1,11 @@
 [package]
-name = "compola-tauri"
+name = "compola"
 version = "0.1.0"
-description = "Compola — a native-shell Zalo client (Rust + Tauri port of zalo-swift-re)"
+description = "Compola — a native-shell Zalo client for macOS (Rust + Tauri port of zalo-swift-re)"
 edition = "2024"
 
 [lib]
-name = "compola_tauri_lib"
+name = "compola_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

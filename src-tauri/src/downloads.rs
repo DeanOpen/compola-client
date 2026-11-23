@@ -192,7 +192,7 @@ pub struct DownloadManager {
 struct Slot(Mutex<Option<Arc<DownloadManager>>>);
 
 pub fn install(app: &AppHandle, reg: &mut Registry, platform: &Arc<Platform>) {
-    let temp_dir = dirs::cache_dir().unwrap_or_else(std::env::temp_dir).join("CompolaTauri/download-tmp");
+    let temp_dir = dirs::cache_dir().unwrap_or_else(std::env::temp_dir).join("Compola/download-tmp");
     let manager = Arc::new(DownloadManager {
         app: app.clone(),
         platform: platform.clone(),

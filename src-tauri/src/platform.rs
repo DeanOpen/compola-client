@@ -12,9 +12,9 @@ pub struct Platform {
     pub user_data: PathBuf,
 }
 
-/// `~/Library/Application Support/CompolaTauri`.
+/// `~/Library/Application Support/Compola`.
 pub fn app_support() -> PathBuf {
-    dirs::data_dir().unwrap_or_else(|| PathBuf::from(".")).join("CompolaTauri")
+    dirs::data_dir().unwrap_or_else(|| PathBuf::from(".")).join("Compola")
 }
 
 impl Platform {
@@ -29,7 +29,7 @@ impl Platform {
     }
 
     pub fn temp_dir(&self) -> PathBuf {
-        std::env::temp_dir().join("CompolaTauri")
+        std::env::temp_dir().join("Compola")
     }
 
     /// Electron `app.getPath(name)`.

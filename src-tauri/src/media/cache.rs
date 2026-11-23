@@ -199,7 +199,7 @@ pub fn apply_quarantine(path: &Path, _origin: &url::Url) -> bool {
 
 #[cfg(test)]
 pub fn has_quarantine(path: &Path) -> bool {
-    get_xattr(path, "com.apple.quarantine").is_some_and(|v| v.windows(4).any(|w| w == b"Compola"))
+    get_xattr(path, "com.apple.quarantine").is_some_and(|v| v.windows(7).any(|w| w == b"Compola"))
 }
 
 /// Remembers the server's Content-Type on a downloaded file (survives the rename into place).
