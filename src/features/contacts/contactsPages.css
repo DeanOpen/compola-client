@@ -1,0 +1,347 @@
+/* Danh bạ pages, wave 4 (docs/design-refs/wave4/contacts): sub-nav icons + counts, presence tabs, status subtitles, hover quick
+   actions, label chips, sticky letter headers, invitation cards (new dot, quoted greeting, expiry chip) and dense sent rows. */
+
+/* Sub-nav */
+.ct-nav-item {
+  height: 48px;
+  margin: 2px 8px;
+  gap: 12px;
+  padding: 0 12px;
+}
+
+.cp-nav-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--ct-hover);
+  color: var(--ct-text);
+}
+
+.ct-nav-item.is-selected .cp-nav-icon {
+  background: var(--ct-layer);
+  color: var(--ct-primary);
+}
+
+.cp-nav-count {
+  flex: none;
+  font-size: 12px;
+  color: var(--ct-text-secondary);
+}
+
+/* Panels: `clip` keeps the rounded corners without breaking the sticky letter headers. */
+.cp-panel {
+  overflow: clip;
+}
+
+.cp-panel .ct-letter {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 8px 16px 6px;
+  background: var(--ct-layer);
+  font-size: 13px;
+  color: var(--ct-primary);
+}
+
+/* Presence tabs (Tất cả / Đang hoạt động) */
+.cp-tabs {
+  display: flex;
+  gap: 20px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--ct-border-subtle);
+}
+
+.cp-tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 40px;
+  font-size: 14px;
+  color: var(--ct-text-secondary);
+}
+
+.cp-tab:hover {
+  color: var(--ct-text);
+}
+
+.cp-tab.is-selected {
+  color: var(--ct-primary);
+  font-weight: 500;
+}
+
+.cp-tab.is-selected::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--ct-primary);
+}
+
+.cp-tab-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ct-success);
+}
+
+.cp-tab-count {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--ct-subtle);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 18px;
+  text-align: center;
+  color: var(--ct-text-secondary);
+}
+
+.cp-tab.is-selected .cp-tab-count {
+  background: var(--ct-selected);
+  color: var(--ct-primary);
+}
+
+/* Rows */
+.cp-panel .ct-row {
+  min-height: 64px;
+  padding: 8px 12px 8px 16px;
+}
+
+.cp-panel .ct-row::after {
+  left: 76px;
+}
+
+.ct-row-sub.is-online {
+  color: var(--ct-success);
+}
+
+.cp-row-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  max-width: 120px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 10px;
+  background: var(--ct-subtle);
+  color: var(--ct-text-secondary);
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+.cp-row-quick {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--ct-hover);
+  color: var(--ct-text);
+  opacity: 0;
+}
+
+.ct-row:hover .cp-row-quick,
+.ct-row:focus-within .cp-row-quick {
+  opacity: 1;
+}
+
+.cp-row-quick:hover {
+  background: var(--ct-selected);
+  color: var(--ct-primary);
+}
+
+.cp-panel .ct-row-more {
+  border-radius: 50%;
+}
+
+/* Section titles with a count chip */
+.cp-section-title {
+  gap: 8px;
+  height: 52px;
+}
+
+.cp-count {
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  background: var(--ct-layer);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 20px;
+  text-align: center;
+  color: var(--ct-text-secondary);
+}
+
+/* Invitation cards */
+.cp-card {
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--ct-border-subtle);
+  border-radius: 8px;
+  transition: box-shadow 0.12s ease;
+}
+
+.cp-card:hover {
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
+}
+
+.cp-card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.cp-card-head .ct-card-name {
+  flex: 1;
+}
+
+.cp-card-avatar {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+}
+
+.cp-new-dot {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--ct-primary);
+  box-shadow: 0 0 0 2px var(--ct-layer);
+}
+
+.cp-card-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  color: var(--ct-text-secondary);
+}
+
+.cp-card-icon:hover {
+  background: var(--ct-hover);
+  color: var(--ct-primary);
+}
+
+.cp-quote {
+  position: relative;
+  min-height: 52px;
+  padding: 8px 10px 8px 12px;
+  border-radius: 6px;
+  background: var(--ct-hover);
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: var(--ct-text);
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.cp-quote::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--ct-primary);
+  opacity: 0.55;
+}
+
+.cp-quote.is-empty {
+  color: var(--ct-text-secondary);
+  font-style: italic;
+}
+
+.cp-quote.is-empty::before {
+  background: var(--ct-border);
+}
+
+.cp-card .ct-card-cta {
+  margin-top: auto;
+}
+
+.cp-chip {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 5px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 11px;
+  background: var(--ct-selected);
+  color: var(--ct-primary);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.cp-chip.is-pending {
+  background: var(--ct-subtle);
+  color: var(--ct-text-secondary);
+}
+
+.cp-invite-from {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--ct-text-secondary);
+}
+
+.cp-invite-from-text {
+  min-width: 0;
+}
+
+.cp-invite-from-text b {
+  font-weight: 500;
+  color: var(--ct-text);
+}
+
+/* Sent requests: dense rows */
+.cp-sent {
+  min-height: 0;
+  border: 1px solid var(--ct-border-subtle);
+  border-radius: 8px;
+}
+
+.cp-sent-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px 10px 14px;
+}
+
+.cp-sent-row + .cp-sent-row {
+  border-top: 1px solid var(--ct-border-subtle);
+}
+
+.cp-sent-row.is-busy {
+  opacity: 0.7;
+}
+
+.cp-sent-cancel {
+  flex: none;
+  height: 30px;
+  padding: 0 12px;
+}

@@ -1,6 +1,7 @@
 // "Danh bạ": friends and groups (Swift ContactsView.swift) in Zalo PC's layout: a page with a title bar, the count, a panel with
 // search / sort / filter, then the list. A click opens the conversation; ⋯ (or a right click) opens the row menu; "Xem thông tin"
-// shows the profile dialog (Swift `FriendCard`).
+// shows the profile dialog (ProfileCard.tsx). Wave 4 (docs/design-refs/wave4/contacts): presence tabs, status subtitles, a hover
+// "Nhắn tin" quick action, label chips and sticky letter headers.
 
 import { ArrowDownUp, ChevronDown, Filter, Info, MessageCircle, MoreHorizontal, Phone, Tag, UserRound, Users, Video } from 'lucide-react';
 import { useEffect, useMemo, useState, type MouseEvent, type ReactNode } from 'react';
@@ -9,14 +10,12 @@ import {
   ago,
   compareSections,
   contactFold,
-  contactProfile,
   openContactConversation,
   standardCompare,
   useContacts,
   visibleFriends,
   visibleGroups,
   type ContactGroup,
-  type ContactProfile,
   type Friend,
 } from '../../engine/contacts';
 import { setConversationLabel } from '../../engine/conversations';
@@ -24,9 +23,9 @@ import { cssColor, type ConversationLabel } from '../../engine/models/conversati
 import { getEngine, useEngine } from '../../engine/store';
 import { Avatar } from '../../ui/Avatar';
 import { openContextMenu, openMenuBelow, type MenuItem } from '../../ui/Menu';
-import { Sheet } from '../../ui/Overlays';
-import { ContactCallActions, ContactsEmpty, ContactsLoading, ContactsPageHeader, ContactsSearchField, DialogHeader } from './ContactsShared';
+import { ContactsEmpty, ContactsLoading, ContactsPageHeader, ContactsSearchField } from './ContactsShared';
 import { contactsUi, useContactsUi, type FriendSort } from './contactsUi';
+import './contactsPages.css';
 
 // MARK: - Visible lists
 
@@ -94,6 +93,7 @@ function ContactRow({
   avatar,
   online = false,
   subtitle,
+  subtitleTone,
   label,
   menu,
   onOpen,
@@ -102,6 +102,7 @@ function ContactRow({
   avatar: string | null;
   online?: boolean;
   subtitle?: ReactNode;
+  subtitleTone?: 'online';
   label?: ConversationLabel | null;
   menu: () => MenuItem[];
   onOpen: () => void;
@@ -129,13 +130,25 @@ function ContactRow({
       </span>
       <span className="ct-row-text">
         <span className="ct-row-name truncate">{name}</span>
-        {subtitle && <span className="ct-row-sub truncate">{subtitle}</span>}
+        {subtitle && <span className={`ct-row-sub truncate ${subtitleTone === 'online' ? 'is-online' : ''}`}>{subtitle}</span>}
       </span>
       {label && (
-        <span className="ct-row-label" title={`Phân loại: ${label.name}`}>
-          <Tag size={12} style={color ? { color } : undefined} fill={color ?? 'none'} />
+        <span className="cp-row-label" title={`Phân loại: ${label.name}`} style={color ? { color, background: `color-mix(in srgb, ${color} 14%, transparent)` } : undefined}>
+          <Tag size={11} fill="currentColor" />
+          <span className="truncate">{label.name}</span>
         </span>
       )}
+      <button
+        className="cp-row-quick"
+        title="Nhắn tin"
+        aria-label={`Nhắn tin cho ${name}`}
+        onClick={(e) => {
+          e.stopPropagation();
+          onOpen();
+        }}
+      >
+        <MessageCircle size={16} />
+      </button>
       <button
         className="ct-row-more"
         title="Tùy chọn"
@@ -169,6 +182,24 @@ const sortItems = (sort: FriendSort, set: (s: FriendSort) => void): MenuItem[] =
   { label: 'Tên (Z-A)', checked: sort === 'za', onSelect: () => set('za') },
 ];
 
+/** A friend's second line: "Đang hoạt động", "Truy cập 5 phút trước", or the Zalo name. */
+const friendStatus = (f: Friend): string | undefined => {
+  if (f.online) return 'Đang hoạt động';
+  if (f.lastActive) return `Truy cập ${ago(f.lastActive)}`;
+  return f.zaloName && f.zaloName !== f.name ? f.zaloName : undefined;
+};
+
+/** Text tab of the friends panel ("Tất cả 17 · Đang hoạt động 3"), Zalo PC underline style. */
+function PresenceTab({ selected, onClick, title, count, dot }: { selected: boolean; onClick: () => void; title: string; count: number; dot?: boolean }) {
+  return (
+    <button className={`cp-tab ${selected ? 'is-selected' : ''}`} role="tab" aria-selected={selected} onClick={onClick}>
+      {dot && <span className="cp-tab-dot" aria-hidden />}
+      {title}
+      <span className="cp-tab-count nums">{count}</span>
+    </button>
+  );
+}
+
 // MARK: - Friends
 
 /** "Danh sách bạn bè": alphabetical friends with letter headers, search, sort and the "Phân loại" filter. */
@@ -181,7 +212,9 @@ export function FriendsPage() {
   const sort = useContactsUi((s) => s.friendSort);
   const labelFilter = useContactsUi((s) => s.friendLabel);
   const [query, setQuery] = useState('');
+  const [presence, setPresence] = useState<'all' | 'online'>('all');
   const activeLabel = labels.find((l) => l.id === labelFilter) ?? null;
+  const onlineCount = useMemo(() => friends.filter((f) => f.online).length, [friends]);
 
   // A label deleted meanwhile stops filtering.
   useEffect(() => {
@@ -192,13 +225,14 @@ export function FriendsPage() {
     const q = contactFold(query).trim();
     let matches = q ? friends.filter((f) => f.sortKey.includes(q) || contactFold(f.zaloName).includes(q)) : friends;
     if (activeLabel) matches = matches.filter((f) => labelOf[f.id] === activeLabel.id);
+    if (presence === 'online') matches = matches.filter((f) => f.online);
     const grouped = new Map<string, Friend[]>();
     for (const f of matches) grouped.set(f.section, [...(grouped.get(f.section) ?? []), f]);
     const dir = sort === 'az' ? 1 : -1;
     return [...grouped.keys()]
       .sort((a, b) => (a === '#' || b === '#' ? compareSections(a, b) : dir * compareSections(a, b)))
       .map((letter) => ({ letter, friends: grouped.get(letter)!.sort((a, b) => dir * standardCompare(a.sortKey, b.sortKey)) }));
-  }, [friends, query, sort, activeLabel, labelOf]);
+  }, [friends, query, sort, activeLabel, labelOf, presence]);
 
   let body: ReactNode;
   if (!friendsLoaded || !hiddenKnown) body = <ContactsLoading text="Đang tải danh sách bạn bè…" />;
@@ -215,7 +249,13 @@ export function FriendsPage() {
         }
       />
     );
-  else if (sections.length === 0) body = <ContactsEmpty icon={UserRound} title="Không tìm thấy kết quả" description="Vui lòng thử lại từ khóa hoặc bộ lọc khác." />;
+  else if (sections.length === 0)
+    body =
+      presence === 'online' && !query && !activeLabel ? (
+        <ContactsEmpty icon={UserRound} title="Chưa có bạn bè nào đang hoạt động" description="Bạn bè đang mở Zalo sẽ hiện ở đây." />
+      ) : (
+        <ContactsEmpty icon={UserRound} title="Không tìm thấy kết quả" description="Vui lòng thử lại từ khóa hoặc bộ lọc khác." />
+      );
   else
     body = (
       <div className="ct-list" aria-label="Bạn bè">
@@ -228,6 +268,8 @@ export function FriendsPage() {
                 name={friend.name}
                 avatar={friend.avatar}
                 online={friend.online}
+                subtitle={friendStatus(friend)}
+                subtitleTone={friend.online ? 'online' : undefined}
                 label={labels.find((l) => l.id === labelOf[friend.id]) ?? null}
                 menu={() => friendMenuItems(friend)}
                 onOpen={() => openContactConversation(friend.id)}
@@ -243,7 +285,11 @@ export function FriendsPage() {
       <ContactsPageHeader icon={UserRound} title="Danh sách bạn bè" />
       <div className="ct-page-scroll">
         <div className="ct-list-title">Bạn bè ({friends.length})</div>
-        <div className="ct-panel">
+        <div className="ct-panel cp-panel">
+          <div className="cp-tabs" role="tablist" aria-label="Lọc theo trạng thái">
+            <PresenceTab selected={presence === 'all'} onClick={() => setPresence('all')} title="Tất cả" count={friends.length} />
+            <PresenceTab selected={presence === 'online'} onClick={() => setPresence('online')} title="Đang hoạt động" count={onlineCount} dot />
+          </div>
           <div className="ct-filter">
             <ContactsSearchField value={query} onChange={setQuery} placeholder="Tìm bạn" />
             <div className="ct-filter-selects">
@@ -322,7 +368,7 @@ export function GroupsPage() {
             key={group.id}
             name={group.name}
             avatar={group.avatar}
-            subtitle={`${group.members} thành viên`}
+            subtitle={`${group.members.toLocaleString('vi-VN')} thành viên`}
             label={labels.find((l) => l.id === labelOf[group.id]) ?? null}
             menu={() => groupMenuItems(group)}
             onOpen={() => openContactConversation(group.id)}
@@ -336,7 +382,7 @@ export function GroupsPage() {
       <ContactsPageHeader icon={Users} title="Danh sách nhóm và cộng đồng" />
       <div className="ct-page-scroll">
         <div className="ct-list-title">Nhóm và cộng đồng ({visible.length})</div>
-        <div className="ct-panel">
+        <div className="ct-panel cp-panel">
           <div className="ct-filter">
             <ContactsSearchField value={query} onChange={setQuery} placeholder="Tìm kiếm..." />
             <div className="ct-filter-selects is-single">
@@ -347,94 +393,5 @@ export function GroupsPage() {
         </div>
       </div>
     </div>
-  );
-}
-
-// MARK: - Profile dialog
-
-/** Cover band + avatar + name block shared by the profile dialogs ("Thông tin tài khoản"). */
-export function ProfileCover({
-  avatar,
-  name,
-  secondaryName,
-  status,
-  online = false,
-}: {
-  avatar: string | null;
-  name: string;
-  secondaryName?: string | null;
-  status?: string | null;
-  online?: boolean;
-}) {
-  return (
-    <div className="ct-profile-cover">
-      <div className="ct-profile-band" aria-hidden />
-      <span className="ct-profile-avatar">
-        <Avatar url={avatar} name={name} size={80} />
-        {online && <span className="ct-presence is-large" aria-hidden />}
-      </span>
-      <div className="ct-profile-name selectable">{name}</div>
-      {secondaryName && secondaryName !== name && <div className="ct-profile-secondary">{secondaryName}</div>}
-      {status && <div className={`ct-profile-status ${online ? 'is-online' : ''}`}>{status}</div>}
-    </div>
-  );
-}
-
-/** "Thông tin tài khoản" of a friend (Swift `FriendCard`): local profile data, message / call buttons. */
-export function FriendProfileDialog({ id, onClose }: { id: string; onClose: () => void }) {
-  const friend = useContacts((s) => s.friends.find((f) => f.id === id) ?? null);
-  const [profile, setProfile] = useState<ContactProfile | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    setProfile(null);
-    void contactProfile(id).then((loaded) => {
-      // Another profile meanwhile: never show someone else's data.
-      if (!cancelled && loaded?.uid === id) setProfile(loaded);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [id]);
-
-  if (!friend) return null;
-  const status = friend.online ? 'Đang hoạt động' : friend.lastActive ? `Truy cập ${ago(friend.lastActive)}` : null;
-  return (
-    <Sheet onClose={onClose} width={400}>
-      <DialogHeader title="Thông tin tài khoản" onClose={onClose} />
-      <div className="ct-dialog-body">
-        <ProfileCover avatar={friend.avatar} name={friend.name} secondaryName={friend.zaloName || profile?.zaloName} status={status} online={friend.online} />
-        <div className="ct-profile-buttons">
-          <button
-            className="ct-btn ct-btn-tonal ct-btn-grow"
-            onClick={() => {
-              onClose();
-              openContactConversation(friend.id);
-            }}
-          >
-            <MessageCircle size={15} /> Nhắn tin
-          </button>
-        </div>
-        <div className="ct-profile-actions">
-          <ContactCallActions id={friend.id} name={friend.name} onStart={onClose} />
-        </div>
-        {(profile?.bio || profile?.isOfficialAccount) && (
-          <div className="ct-profile-info">
-            <div className="ct-profile-info-title">Thông tin cá nhân</div>
-            {profile?.bio && (
-              <div className="ct-profile-line">
-                <span className="ct-profile-line-key">Giới thiệu</span>
-                <span className="selectable">{profile.bio}</span>
-              </div>
-            )}
-            {profile?.isOfficialAccount && (
-              <div className="ct-profile-line">
-                <span className="ct-profile-line-key">Loại tài khoản</span>
-                <span>Tài khoản chính thức</span>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-    </Sheet>
   );
 }
