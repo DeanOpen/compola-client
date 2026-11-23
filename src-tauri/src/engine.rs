@@ -221,7 +221,14 @@ impl Engine {
                 let notice = self.inner.lock().sign_out_notice.clone();
                 self.set_phase(Phase::Login { login: LoginState::default(), notice });
             }
-            MainEvent::Badge(n) => emit_ui(&self.app, "compola://badge", n),
+            MainEvent::Badge(n) => {
+                // Dock badge like the official client: nothing at 0, "5+" above five.
+                if let Some(w) = self.app.get_webview_window("main") {
+                    let label = (n > 0).then(|| if n > 5 { "5+".to_owned() } else { n.to_string() });
+                    let _ = w.set_badge_label(label);
+                }
+                emit_ui(&self.app, "compola://badge", n);
+            }
         }
     }
 

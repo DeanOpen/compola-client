@@ -30,12 +30,30 @@ fn init_logging() {
         }
         fn log(&self, r: &log::Record) {
             if self.enabled(r.metadata()) {
-                eprintln!("[{}] {}", r.level(), r.args());
+                let line = format!("[{}] {}", r.level(), r.args());
+                eprintln!("{line}");
+                // Engine diagnostics on disk (shapes only: the bridge trace never logs contents).
+                if let Some(f) = LOG_FILE.get() {
+                    use std::io::Write;
+                    let ts = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
+                    let _ = writeln!(f.lock().unwrap(), "{ts} {line}");
+                }
             }
         }
         fn flush(&self) {}
     }
     static LOGGER: Logger = Logger;
+    static LOG_FILE: std::sync::OnceLock<std::sync::Mutex<std::fs::File>> = std::sync::OnceLock::new();
+    let dir = platform::app_support().join("logs");
+    let _ = std::fs::create_dir_all(&dir);
+    let path = dir.join("engine.log");
+    // Keep one previous run.
+    if std::fs::metadata(&path).is_ok_and(|m| m.len() > 0) {
+        let _ = std::fs::rename(&path, dir.join("engine.previous.log"));
+    }
+    if let Ok(f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+        let _ = LOG_FILE.set(std::sync::Mutex::new(f));
+    }
     let _ = log::set_logger(&LOGGER);
     log::set_max_level(log::LevelFilter::Debug);
 }
