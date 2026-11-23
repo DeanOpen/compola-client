@@ -1,11 +1,15 @@
-//! The `compola-media` URI scheme (asynchronous): `compola-media://load?url=<encoded>&flavour=image|cors[&retry=1]`.
-//! See the module docs of `media` and `docs/media.md`.
+//! The `compola-media` URI scheme (asynchronous). See the module docs of `media` and `docs/media.md`:
+//! * `compola-media://load?url=<encoded>&flavour=image|cors[&retry=1]` — Zalo CDN media;
+//! * `compola-media://load?file=<encoded absolute path>&flavour=image|video` — local files (`resolveMedia` results)
+//!   under `ZaloData` / `MediaCache` only;
+//! * `compola-media://load?asset=pc-dist/<path>` — a file of the official renderer's `app.asar` (reaction icons,
+//!   emoji / sticker sprites).
 
 use std::io::{Read, Seek, SeekFrom};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use tauri::{UriSchemeContext, UriSchemeResponder, Wry};
+use tauri::{Manager, UriSchemeContext, UriSchemeResponder, Wry};
 
 use super::headers::Flavour;
 use super::active::ActiveDownload;
@@ -24,22 +28,109 @@ pub struct MediaRequest {
     pub retry: bool,
 }
 
+/// How a local file is meant to be shown.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LocalFlavour {
+    Image,
+    Video,
+}
+
+/// Any `compola-media` request.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Request {
+    Remote(MediaRequest),
+    /// A canonical path inside the allowed local roots.
+    Local(PathBuf, LocalFlavour),
+    /// An `app.asar` path starting with `pc-dist/`.
+    Asset(String),
+}
+
+/// Long-lived cache for `app.asar` assets (they change only with a runtime upgrade).
+pub const ASSET_CACHE_CONTROL: &str = "public, max-age=31536000, immutable";
+/// Local files can be replaced at the same path (a re-downloaded corrupt file): always revalidate.
+pub const LOCAL_CACHE_CONTROL: &str = "no-cache";
+
+/// `pc-dist/<path>`: no absolute path, no `.`/`..`/empty segment, no backslash or control character.
+pub fn valid_asset_path(path: &str) -> bool {
+    path.strip_prefix("pc-dist/").is_some_and(|rest| {
+        !rest.is_empty()
+            && !path.chars().any(|c| c == '\\' || c.is_control())
+            && rest.split('/').all(|seg| !seg.is_empty() && seg != "." && seg != "..")
+    })
+}
+
+/// Swift `isAllowedLocalFile` for a `file=` path: absolute, and its symlink-resolved location inside `roots`.
+/// A missing file inside the roots is 404; anything else outside is 403.
+pub fn check_local_path(raw: &str, roots: &[PathBuf]) -> Result<PathBuf, (u16, &'static str)> {
+    let path = std::path::Path::new(raw);
+    if !path.is_absolute() {
+        return Err((400, "path must be absolute"));
+    }
+    match std::fs::canonicalize(path) {
+        Ok(resolved) => {
+            if super::is_local_file_under(&resolved, roots) && resolved.is_file() {
+                Ok(resolved)
+            } else {
+                Err((403, "path not allowed"))
+            }
+        }
+        Err(_) => {
+            let parent_inside = path.parent().and_then(|p| std::fs::canonicalize(p).ok()).is_some_and(|parent| {
+                roots.iter().filter_map(|r| std::fs::canonicalize(r).ok()).any(|root| parent.starts_with(&root))
+            });
+            Err(if parent_inside && !raw.split('/').any(|s| s == "..") { (404, "no such file") } else { (403, "path not allowed") })
+        }
+    }
+}
+
 /// Parses the request URI. `Err((status, reason))` for a request that must not be served.
-pub fn parse_request(uri: &http::Uri) -> Result<MediaRequest, (u16, &'static str)> {
+pub fn parse_request(uri: &http::Uri) -> Result<Request, (u16, &'static str)> {
+    parse_request_with_roots(uri, &super::allowed_local_roots())
+}
+
+pub fn parse_request_with_roots(uri: &http::Uri, roots: &[PathBuf]) -> Result<Request, (u16, &'static str)> {
     let query = uri.query().ok_or((400, "missing query"))?;
     let mut url = None;
-    let mut flavour = Flavour::Image;
+    let mut file = None;
+    let mut asset = None;
+    let mut flavour_text = None;
     let mut retry = false;
     for (key, value) in url::form_urlencoded::parse(query.as_bytes()) {
         match key.as_ref() {
             "url" => url = Some(value.into_owned()),
-            "flavour" | "flavor" => flavour = Flavour::parse(&value).ok_or((400, "bad flavour"))?,
+            "file" => file = Some(value.into_owned()),
+            "asset" => asset = Some(value.into_owned()),
+            "flavour" | "flavor" => flavour_text = Some(value.into_owned()),
             "retry" => retry = value == "1" || value == "true",
             _ => {}
         }
     }
-    let raw = url.ok_or((400, "missing url"))?;
-    let parsed = url::Url::parse(&raw).map_err(|_| (400, "bad url"))?;
+    match (url, file, asset) {
+        (Some(raw), None, None) => {
+            let flavour = Flavour::parse(flavour_text.as_deref().unwrap_or("")).ok_or((400, "bad flavour"))?;
+            parse_remote(&raw, flavour, retry).map(Request::Remote)
+        }
+        (None, Some(raw), None) => {
+            let flavour = match flavour_text.as_deref().unwrap_or("image") {
+                "image" | "" => LocalFlavour::Image,
+                "video" => LocalFlavour::Video,
+                _ => return Err((400, "bad flavour")),
+            };
+            Ok(Request::Local(check_local_path(&raw, roots)?, flavour))
+        }
+        (None, None, Some(path)) => {
+            if !valid_asset_path(&path) {
+                return Err((403, "asset path not allowed"));
+            }
+            Ok(Request::Asset(path))
+        }
+        (None, None, None) => Err((400, "missing url, file or asset")),
+        _ => Err((400, "only one of url, file, asset")),
+    }
+}
+
+fn parse_remote(raw: &str, flavour: Flavour, retry: bool) -> Result<MediaRequest, (u16, &'static str)> {
+    let parsed = url::Url::parse(raw).map_err(|_| (400, "bad url"))?;
     let url = match parsed.scheme() {
         "file" => {
             if super::is_allowed_local_file(&parsed).is_none() {
@@ -126,7 +217,7 @@ fn base(status: u16) -> http::response::Builder {
     http::Response::builder()
         .status(status)
         .header("Access-Control-Allow-Origin", "*")
-        .header("Access-Control-Expose-Headers", "Content-Length, Content-Range, Accept-Ranges, X-Compola-Error")
+        .header("Access-Control-Expose-Headers", "Content-Length, Content-Range, Accept-Ranges, X-Compola-Error, X-Compola-Media-Kind")
 }
 
 fn plain(status: u16, reason: &str, class: Option<&str>) -> http::Response<Vec<u8>> {
@@ -216,11 +307,75 @@ pub fn handle(ctx: UriSchemeContext<'_, Wry>, request: http::Request<Vec<u8>>, r
     };
     let head = method == http::Method::HEAD;
     let range = request.headers().get(http::header::RANGE).and_then(|v| v.to_str().ok()).map(str::to_owned);
-    let loader = MediaLoader::shared(ctx.app_handle());
+    let app = ctx.app_handle().clone();
     tauri::async_runtime::spawn(async move {
-        let response = serve(&loader, parsed, range, head).await;
+        let response = match parsed {
+            Request::Remote(request) => serve(&MediaLoader::shared(&app), request, range, head).await,
+            Request::Local(path, flavour) => tokio::task::spawn_blocking(move || serve_local(&path, flavour, range.as_deref(), head))
+                .await
+                .unwrap_or_else(|e| failure(&MediaError::Io(e.to_string()))),
+            Request::Asset(path) => {
+                let asar = app.try_state::<Arc<crate::engine::Engine>>().and_then(|e| e.main_process()).map(|m| m.asar.clone());
+                match asar {
+                    Some(asar) => tokio::task::spawn_blocking(move || serve_asset(asar.read(&path), &path, range.as_deref(), head))
+                        .await
+                        .unwrap_or_else(|e| failure(&MediaError::Io(e.to_string()))),
+                    None => plain(503, "runtime not loaded", None),
+                }
+            }
+        };
         responder.respond(response);
     });
+}
+
+/// Replaces the Cache-Control of a successful response.
+fn with_cache_control(mut response: http::Response<Vec<u8>>, value: &'static str) -> http::Response<Vec<u8>> {
+    if response.status().is_success() {
+        response.headers_mut().insert(http::header::CACHE_CONTROL, http::HeaderValue::from_static(value));
+    }
+    response
+}
+
+/// ISO-BMFF video by its `ftyp` brand (Swift `VideoPoster.mimeType`).
+pub fn video_mime(head: &[u8]) -> Option<&'static str> {
+    if head.len() < 12 || &head[4..8] != b"ftyp" {
+        return None;
+    }
+    let brand = &head[8..12];
+    Some(if brand == b"qt  " {
+        "video/quicktime"
+    } else if brand.starts_with(b"3g") {
+        "video/3gpp"
+    } else if matches!(brand, b"M4A " | b"M4B " | b"heic" | b"heix" | b"mif1" | b"msf1" | b"avif") {
+        return None;
+    } else {
+        "video/mp4"
+    })
+}
+
+/// A local `resolveMedia` file. The official Zalo Cloud fallback for a dead video thumbnail saves the *video* at
+/// the thumbnail path (`…_t.jpg`): it is served as video either way, and an image-flavour request is told so with
+/// `X-Compola-Media-Kind: video` (Swift made a poster frame; the UI can show a `<video>` instead).
+fn serve_local(path: &PathBuf, flavour: LocalFlavour, range: Option<&str>, head: bool) -> http::Response<Vec<u8>> {
+    let mut start = [0u8; 12];
+    let n = std::fs::File::open(path).and_then(|mut f| f.read(&mut start)).unwrap_or(0);
+    let video = video_mime(&start[..n]);
+    let mut response = with_cache_control(from_file(path, range, head), LOCAL_CACHE_CONTROL);
+    if let Some(mime) = video {
+        if response.status().is_success() {
+            response.headers_mut().insert(http::header::CONTENT_TYPE, http::HeaderValue::from_static(mime));
+            if flavour == LocalFlavour::Image {
+                response.headers_mut().insert("X-Compola-Media-Kind", http::HeaderValue::from_static("video"));
+            }
+        }
+    }
+    response
+}
+
+fn serve_asset(data: Option<Vec<u8>>, path: &str, range: Option<&str>, head: bool) -> http::Response<Vec<u8>> {
+    let Some(bytes) = data else { return plain(404, "no such asset", None) };
+    let media = Media { content_type: crate::host::protocol::mime_for(path), bytes };
+    with_cache_control(from_memory(&media, range, head), ASSET_CACHE_CONTROL)
 }
 
 async fn serve(loader: &Arc<MediaLoader>, request: MediaRequest, range: Option<String>, head: bool) -> http::Response<Vec<u8>> {
@@ -314,17 +469,126 @@ mod tests {
         s.parse().unwrap()
     }
 
+    fn remote(r: Request) -> MediaRequest {
+        match r {
+            Request::Remote(m) => m,
+            other => panic!("{other:?}"),
+        }
+    }
+
+    fn temp_root() -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("compola-local-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(dir.join("ZaloData/ZaloDownloads")).unwrap();
+        dir
+    }
+
+    fn enc(s: &str) -> String {
+        url::form_urlencoded::byte_serialize(s.as_bytes()).collect()
+    }
+
+    #[test]
+    fn local_files_only_under_the_roots() {
+        let root = temp_root();
+        let roots = vec![root.join("ZaloData")];
+        let photo = root.join("ZaloData/ZaloDownloads/a.jpg");
+        std::fs::write(&photo, b"\xff\xd8\xff").unwrap();
+        let ok = parse_request_with_roots(&uri(&format!("compola-media://load?file={}&flavour=video", enc(photo.to_str().unwrap()))), &roots).unwrap();
+        assert_eq!(ok, Request::Local(std::fs::canonicalize(&photo).unwrap(), LocalFlavour::Video));
+        let default = parse_request_with_roots(&uri(&format!("compola-media://load?file={}", enc(photo.to_str().unwrap()))), &roots).unwrap();
+        assert!(matches!(default, Request::Local(_, LocalFlavour::Image)));
+        let status = |path: &str| parse_request_with_roots(&uri(&format!("compola-media://load?file={}", enc(path))), &roots).unwrap_err().0;
+        assert_eq!(status("/etc/hosts"), 403);
+        assert_eq!(status("relative/a.jpg"), 400);
+        assert_eq!(status(&format!("{}/ZaloData/ZaloDownloads/../../../../../../etc/hosts", root.display())), 403);
+        assert_eq!(status(&format!("{}/ZaloData/ZaloDownloads/missing.jpg", root.display())), 404);
+        assert_eq!(status(&format!("{}/ZaloData/ZaloDownloads", root.display())), 403); // a directory
+        assert_eq!(status("/nonexistent-compola/x.jpg"), 403);
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink("/etc/hosts", root.join("ZaloData/escape")).unwrap();
+            assert_eq!(status(&format!("{}/ZaloData/escape", root.display())), 403);
+        }
+        let bad_flavour = parse_request_with_roots(&uri(&format!("compola-media://load?file={}&flavour=cors", enc(photo.to_str().unwrap()))), &roots);
+        assert_eq!(bad_flavour.unwrap_err().0, 400);
+        let both = parse_request_with_roots(&uri(&format!("compola-media://load?file={}&asset=pc-dist/a.png", enc(photo.to_str().unwrap()))), &roots);
+        assert_eq!(both.unwrap_err().0, 400);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn asset_paths() {
+        assert!(valid_asset_path("pc-dist/assets/reaction/heart.png"));
+        assert!(valid_asset_path("pc-dist/emoji@2x.png"));
+        for bad in ["pc-dist/", "pc-dist//a.png", "pc-dist/../app/main.js", "pc-dist/a/./b.png", "/pc-dist/a.png", "main-dist/main.js",
+                    "pc-dist\\..\\x", "pc-dist/a\u{0}.png", "pc-distx/a.png"] {
+            assert!(!valid_asset_path(bad), "{bad}");
+        }
+        assert_eq!(parse_request(&uri("compola-media://load?asset=pc-dist%2Fassets%2Fr.png")).unwrap(), Request::Asset("pc-dist/assets/r.png".into()));
+        assert_eq!(parse_request(&uri("compola-media://load?asset=main-dist%2Fmain.js")).unwrap_err().0, 403);
+        assert_eq!(parse_request(&uri("compola-media://load?asset=pc-dist%2F..%2Fpackage.json")).unwrap_err().0, 403);
+    }
+
+    #[test]
+    fn assets_are_served_with_long_caching() {
+        let r = serve_asset(Some(b"\x89PNG....".to_vec()), "pc-dist/r/heart.png", None, false);
+        assert_eq!(r.status().as_u16(), 200);
+        assert_eq!(r.headers()["content-type"], "image/png");
+        assert_eq!(r.headers()["cache-control"], ASSET_CACHE_CONTROL);
+        let part = serve_asset(Some(vec![1, 2, 3, 4]), "pc-dist/sprite.webp", Some("bytes=1-2"), false);
+        assert_eq!((part.status().as_u16(), part.body().as_slice()), (206, &[2u8, 3][..]));
+        assert_eq!(serve_asset(None, "pc-dist/missing.png", None, false).status().as_u16(), 404);
+    }
+
+    #[test]
+    fn local_videos_saved_as_thumbnails_are_served_as_video() {
+        let root = temp_root();
+        let mp4 = root.join("ZaloData/ZaloDownloads/a_t.jpg");
+        let mut bytes = vec![0, 0, 0, 0x1c];
+        bytes.extend_from_slice(b"ftypmp42");
+        bytes.resize(64, 0);
+        std::fs::write(&mp4, &bytes).unwrap();
+        let r = serve_local(&mp4, LocalFlavour::Image, None, false);
+        assert_eq!(r.headers()["content-type"], "video/mp4");
+        assert_eq!(r.headers()["x-compola-media-kind"], "video");
+        assert_eq!(r.headers()["cache-control"], LOCAL_CACHE_CONTROL);
+        let r = serve_local(&mp4, LocalFlavour::Video, Some("bytes=60-"), false);
+        assert_eq!((r.status().as_u16(), r.headers()["content-range"].to_str().unwrap()), (206, "bytes 60-63/64"));
+        assert!(r.headers().get("x-compola-media-kind").is_none());
+        let jpeg = root.join("ZaloData/ZaloDownloads/b.jpg");
+        std::fs::write(&jpeg, [0xFF, 0xD8, 0xFF, 0xE0, 0, 0x10, b'J', b'F', b'I', b'F', 0, 1]).unwrap();
+        let r = serve_local(&jpeg, LocalFlavour::Image, None, false);
+        assert_eq!(r.headers()["content-type"], "image/jpeg");
+        assert!(r.headers().get("x-compola-media-kind").is_none());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn video_brands() {
+        let head = |brand: &[u8]| {
+            let mut h = vec![0, 0, 0, 0x18];
+            h.extend_from_slice(b"ftyp");
+            h.extend_from_slice(brand);
+            h
+        };
+        assert_eq!(video_mime(&head(b"isom")), Some("video/mp4"));
+        assert_eq!(video_mime(&head(b"qt  ")), Some("video/quicktime"));
+        assert_eq!(video_mime(&head(b"3gp4")), Some("video/3gpp"));
+        assert_eq!(video_mime(&head(b"M4A ")), None);
+        assert_eq!(video_mime(&head(b"heic")), None);
+        assert_eq!(video_mime(&[0xFF, 0xD8]), None);
+    }
+
     #[test]
     fn parses_the_scheme_url() {
         let enc = |s: &str| url::form_urlencoded::byte_serialize(s.as_bytes()).collect::<String>();
         let original = "https://s120-ava-talk.zadn.vn/a/b.jpg?x=1&y=2";
-        let r = parse_request(&uri(&format!("compola-media://load?url={}&flavour=cors&retry=1", enc(original)))).unwrap();
+        let r = parse_request(&uri(&format!("compola-media://load?url={}&flavour=cors&retry=1", enc(original)))).map(remote).unwrap();
         assert_eq!(r, MediaRequest { url: url::Url::parse(original).unwrap(), flavour: Flavour::Cors, retry: true });
         // Windows form, default flavour, http upgraded.
-        let r = parse_request(&uri(&format!("http://compola-media.localhost/load?url={}", enc("http://res-zalo.zadn.vn/x.json")))).unwrap();
+        let r = parse_request(&uri(&format!("http://compola-media.localhost/load?url={}", enc("http://res-zalo.zadn.vn/x.json")))).map(remote).unwrap();
         assert_eq!((r.url.as_str(), r.flavour, r.retry), ("https://res-zalo.zadn.vn/x.json", Flavour::Image, false));
         // encodeURIComponent output (%2F, %3A, %3F, %26, %3D).
-        let r = parse_request(&uri("compola-media://load?url=https%3A%2F%2Ff6-zpc.zdn.vn%2Fa.jpg%3Fk%3Dv%26z%3D1&flavour=image")).unwrap();
+        let r = parse_request(&uri("compola-media://load?url=https%3A%2F%2Ff6-zpc.zdn.vn%2Fa.jpg%3Fk%3Dv%26z%3D1&flavour=image")).map(remote).unwrap();
         assert_eq!(r.url.as_str(), "https://f6-zpc.zdn.vn/a.jpg?k=v&z=1");
     }
 
