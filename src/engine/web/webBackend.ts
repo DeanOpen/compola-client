@@ -82,9 +82,10 @@ export const createWebBackend = (): Backend => {
     }
   })();
   let eventScope: 'active' | 'all' = 'active';
+  let maxAccounts = 1;
   const accountList = () => ({
     active: active ?? '',
-    maxAccounts: Math.max(accounts.length, 1),
+    maxAccounts: Math.max(maxAccounts, accounts.length, 1),
     accounts: accounts.map((a) => ({ ...a, active: a.id === active })),
   });
   const setActive = (id: string, announce: boolean) => {
@@ -97,14 +98,22 @@ export const createWebBackend = (): Backend => {
     }
     if (announce) emit('compola://accounts', { kind: 'active', account: id });
   };
-  /** The accounts of `hello` / `access` (the ones this user may see, in order). */
-  const applyAccounts = (list: unknown) => {
-    if (!Array.isArray(list)) return;
+  /**
+   * The accounts of `hello`, `accounts` and `access` messages: `{active, maxAccounts, accounts: [summary…]}` (the ones
+   * this user may see; `active` = the server's default for them) or a bare list. The account on screen stays this
+   * browser's choice while it is in the list.
+   */
+  const applyAccounts = (value: unknown) => {
+    const wrapped = value && typeof value === 'object' && !Array.isArray(value) ? (value as Json) : null;
+    const list = Array.isArray(value) ? value : Array.isArray(wrapped?.accounts) ? (wrapped.accounts as unknown[]) : null;
+    if (!list) return;
+    if (typeof wrapped?.maxAccounts === 'number') maxAccounts = wrapped.maxAccounts;
     accounts = (list.filter((a) => a && typeof a === 'object' && typeof (a as Json).id === 'string') as Json[]).sort(
       (a, b) => Number(a.order ?? 0) - Number(b.order ?? 0),
     );
     const keep = accounts.some((a) => a.id === active);
-    if (!keep && accounts.length) setActive(String(accounts[0].id), true);
+    const serverActive = typeof wrapped?.active === 'string' && accounts.some((a) => a.id === wrapped.active) ? String(wrapped.active) : null;
+    if (!keep && accounts.length) setActive(serverActive ?? String(accounts[0].id), true);
     emit('compola://accounts', { kind: 'changed', list: accountList() });
   };
   /** Events that reach the UI whatever account they belong to (docs/multi-account.md §6). */
@@ -211,6 +220,9 @@ export const createWebBackend = (): Backend => {
           else if (event.startsWith('compola://') && delivers(event, msg.account, msg.payload)) emit(event, msg.payload ?? null);
           break;
         }
+        case 'accounts':
+          applyAccounts(msg.accounts);
+          break;
         case 'access':
           if (msg.accounts) applyAccounts(msg.accounts);
           if (msg.access) {
