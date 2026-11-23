@@ -1,0 +1,483 @@
+/* "Thêm bạn" dialog + profile card (wave 4, docs/design-refs/wave4/add-friend): Zalo PC dialog, an outlined phone field with
+   the country prefix, inline search status, dense person rows, and the profile hero with a relationship pill. */
+
+/* Phone step */
+.af-form {
+  display: flex;
+  flex-direction: column;
+  padding: 16px 16px 8px;
+}
+
+.af-phone {
+  display: flex;
+  align-items: center;
+  flex: none;
+  height: 40px;
+  border: 1px solid var(--ct-border);
+  border-radius: 8px;
+  background: var(--ct-input);
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.af-phone:focus-within {
+  border-color: var(--ct-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ct-primary) 18%, transparent);
+}
+
+.af-phone.is-error {
+  border-color: var(--ct-danger);
+}
+
+.af-country {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  height: 100%;
+  padding: 0 8px 0 12px;
+  border-radius: 8px 0 0 8px;
+  font-size: 14px;
+  color: var(--ct-text);
+}
+
+.af-country:hover {
+  background: var(--ct-hover);
+}
+
+.af-phone-divider {
+  flex: none;
+  width: 1px;
+  height: 20px;
+  background: var(--ct-border-subtle);
+}
+
+.af-phone-input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0 10px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ct-text);
+  font-size: 15px;
+  letter-spacing: 0.01em;
+}
+
+.af-phone-input::placeholder {
+  color: var(--ct-text-secondary);
+  letter-spacing: 0;
+}
+
+.af-phone-clear {
+  display: inline-flex;
+  flex: none;
+  margin-right: 10px;
+  color: var(--ct-text-secondary);
+  opacity: 0.7;
+}
+
+.af-phone-clear:hover {
+  opacity: 1;
+}
+
+.af-hint {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--ct-text-secondary);
+}
+
+.af-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--ct-hover);
+  font-size: 13px;
+  color: var(--ct-text-secondary);
+}
+
+.af-status b {
+  color: var(--ct-text);
+  font-weight: 600;
+}
+
+.af-notfound {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--ct-danger) 8%, transparent);
+}
+
+.af-notfound-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--ct-danger) 14%, transparent);
+  color: var(--ct-danger);
+}
+
+.af-notfound-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--ct-text-secondary);
+}
+
+.af-notfound-text b {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ct-text);
+}
+
+/* Sections + person rows */
+.af-section {
+  margin-top: 18px;
+}
+
+.af-section-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ct-text-secondary);
+}
+
+.af-section-count {
+  margin-left: 2px;
+  padding: 0 6px;
+  border-radius: 9px;
+  background: var(--ct-subtle);
+  font-size: 11px;
+  line-height: 18px;
+}
+
+.af-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 56px;
+  margin: 0 -8px;
+  padding-right: 8px;
+  border-radius: 8px;
+}
+
+.af-row:hover {
+  background: var(--ct-hover);
+}
+
+.af-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 100%;
+  padding: 0 8px;
+  text-align: left;
+}
+
+.af-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.af-row-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ct-text);
+}
+
+.af-row-sub {
+  font-size: 12.5px;
+  color: var(--ct-text-secondary);
+}
+
+.af-row-add {
+  flex: none;
+  height: 28px;
+  min-width: 74px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+
+.af-row-done {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  padding: 0 6px;
+  font-size: 13px;
+  color: var(--ct-success);
+}
+
+.af-row-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  color: var(--ct-text-secondary);
+  opacity: 0;
+  transition: opacity 0.1s ease;
+}
+
+.af-row:hover .af-row-remove,
+.af-row-remove:focus-visible {
+  opacity: 1;
+}
+
+.af-row-remove:hover {
+  background: var(--ct-subtle);
+  color: var(--ct-text);
+}
+
+.af-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin: auto;
+  padding: 40px 24px;
+  font-size: 13px;
+  color: var(--ct-text-secondary);
+  text-align: center;
+}
+
+.af-empty-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--ct-selected);
+  color: var(--ct-primary);
+}
+
+/* Profile card */
+.af-profile {
+  display: flex;
+  flex-direction: column;
+}
+
+.af-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding-bottom: 14px;
+  text-align: center;
+}
+
+.af-hero-band {
+  align-self: stretch;
+  height: 120px;
+  background:
+    radial-gradient(90% 120% at 100% 0%, rgba(255, 255, 255, 0.28), transparent 60%),
+    radial-gradient(70% 90% at 0% 100%, rgba(0, 30, 90, 0.25), transparent 60%),
+    linear-gradient(135deg, #4d9bff 0%, #0068ff 50%, #0049c2 100%);
+}
+
+.af-hero-avatar {
+  position: relative;
+  display: inline-flex;
+  margin-top: -46px;
+  margin-bottom: 8px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 4px var(--ct-layer), 0 2px 10px rgba(0, 0, 0, 0.12);
+}
+
+.af-hero-presence {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--ct-success);
+  box-shadow: 0 0 0 3px var(--ct-layer);
+}
+
+.af-hero-name {
+  padding: 0 20px;
+  font-size: 19px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--ct-text);
+}
+
+.af-hero-secondary {
+  font-size: 13px;
+  color: var(--ct-text-secondary);
+}
+
+.af-hero-status {
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--ct-text-secondary);
+}
+
+.af-hero-status.is-online {
+  color: var(--ct-success);
+}
+
+.af-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 8px;
+  padding: 0 10px;
+  height: 24px;
+  border-radius: 12px;
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.af-pill.is-friend {
+  background: color-mix(in srgb, var(--ct-success) 14%, transparent);
+  color: var(--ct-success);
+}
+
+.af-pill.is-pending,
+.af-pill.is-self {
+  background: var(--ct-subtle);
+  color: var(--ct-text-secondary);
+}
+
+.af-pill.is-incoming {
+  background: var(--ct-selected);
+  color: var(--ct-primary);
+}
+
+.af-actions {
+  display: flex;
+  gap: 8px;
+  padding: 2px 16px 16px;
+}
+
+.af-actions .ct-btn {
+  height: 36px;
+}
+
+.af-action-main {
+  flex: 1;
+}
+
+.af-details {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px 18px;
+  border-top: 6px solid var(--ct-surface);
+}
+
+.af-details-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ct-text);
+}
+
+.af-detail {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: 8px;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.af-detail-key {
+  color: var(--ct-text-secondary);
+}
+
+.af-detail-value {
+  color: var(--ct-text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Message step */
+.af-message {
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+}
+
+.af-message-who {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--ct-hover);
+}
+
+.af-message-label {
+  margin: 16px 0 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ct-text-secondary);
+}
+
+.af-textarea {
+  position: relative;
+  display: flex;
+  border: 1px solid var(--ct-border);
+  border-radius: 8px;
+  background: var(--ct-input);
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.af-textarea:focus-within {
+  border-color: var(--ct-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ct-primary) 18%, transparent);
+}
+
+.af-textarea textarea {
+  flex: 1;
+  min-height: 132px;
+  padding: 10px 12px 26px;
+  resize: none;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ct-text);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.af-counter {
+  position: absolute;
+  right: 10px;
+  bottom: 6px;
+  font-size: 12px;
+  color: var(--ct-text-secondary);
+}
+
+.af-counter.is-full {
+  color: var(--ct-danger);
+}
+
+.af-error {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--ct-danger);
+}

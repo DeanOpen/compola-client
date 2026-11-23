@@ -7,7 +7,7 @@ import { usesMock } from '../../engine/backend';
 import { onAccountReset } from '../../engine/store';
 import { escapeStackDepth } from '../../ui/escape';
 import { AddFriendDialog } from './AddFriendDialog';
-import { FriendProfileDialog } from './ContactsView';
+import { FriendProfileDialog } from './ProfileCard';
 import { CreateGroupSheet } from './CreateGroupSheet';
 import { StrangerRequestBar } from './StrangerRequestBar';
 import { contactsUi, useContactsUi } from './contactsUi';
