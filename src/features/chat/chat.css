@@ -708,8 +708,22 @@
   overflow: hidden;
 }
 
-.gif .remote-image {
+.gif {
+  background: var(--surface);
+}
+
+.gif .remote-image:not(.media-failure) {
   background: transparent;
+}
+
+.gif-video {
+  object-fit: contain;
+}
+
+.video-thumb.is-expired,
+.video-thumb.is-expired:disabled {
+  cursor: default;
+  opacity: 1;
 }
 
 .gif-badge {

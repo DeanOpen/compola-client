@@ -39,6 +39,8 @@ interface Props {
   /** Status line only under my most recent message. */
   showStatus: boolean;
   isNewest: boolean;
+  /** Photos of one send drawn as a mosaic (this row's message is the first). */
+  album?: ChatMessage[];
   onReply: (m: ChatMessage) => void;
   onReact: (emoji: string, m: ChatMessage) => void;
 }
@@ -72,7 +74,7 @@ export const MessageRow = memo(function MessageRow(props: Props) {
 /** Quick reactions of the hover toolbar (the full six are in the picker and the context menu). */
 const quickReactions = ['❤️', '👍', '😆', '😮'];
 
-function BubbleRow({ message, firstInGroup, lastInGroup, showStatus, isGroup, onReply, onReact }: Props) {
+function BubbleRow({ message, firstInGroup, lastInGroup, showStatus, isGroup, album, onReply, onReact }: Props) {
   const mine = message.isMine;
   const [pickerOpen, setPickerOpen] = useState(false);
   const reactButton = useRef<HTMLButtonElement>(null);
@@ -93,7 +95,7 @@ function BubbleRow({ message, firstInGroup, lastInGroup, showStatus, isGroup, on
       <div className="bubble-column">
         {showsName && <div className="bubble-sender">{message.senderName}</div>}
         <div className="bubble-stack" title={fullTime(message.date)}>
-          <BubbleContent message={message} firstInGroup={firstInGroup} lastInGroup={lastInGroup} />
+          <BubbleContent message={message} firstInGroup={firstInGroup} lastInGroup={lastInGroup} album={album} />
           {message.reactions.length > 0 && (
             <ReactionChips reactions={message.reactions} conversationId={message.conversationId} messageId={message.id} mine={mine} />
           )}

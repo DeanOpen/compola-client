@@ -1,7 +1,7 @@
 // Photos, GIFs, stickers, videos and voice messages (Swift `PhotoView`, `VideoThumb`, `VoiceView`). Photos and video
 // thumbnails fall back to the official loader (`resolveMedia`) when the CDN link is dead; E2EE media go there first.
 
-import { AudioLines, Pause, Play, Smile } from 'lucide-react';
+import { AudioLines, Pause, Play, Smile, VideoOff } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { mediaUrl } from '../../../engine/media';
 import { resolveMedia } from '../../../engine/mediaResolver';
@@ -38,10 +38,25 @@ export function PhotoView({ message, url, width, height, tile }: { message: Chat
   );
 }
 
-export function GifView({ url }: { url: string | null }) {
+/** A GIF: Zalo sends some as short MP4s (played muted, looping); the still / animated image otherwise. The frame keeps its
+ * size whatever happens, so a dead link shows the "hết hạn" tile instead of an empty box. */
+export function GifView({ message, url }: { message: ChatMessage; url: string | null }) {
+  const [videoFailed, setVideoFailed] = useState(false);
+  const isVideo = !!url && /\.(mp4|webm|mov)(\?|$)/i.test(url);
+  const src = isVideo ? mediaUrl(url, 'cors') : null;
   return (
     <div className="gif">
-      <RemoteImage url={url} fit="contain" className="fill" />
+      {src && !videoFailed ? (
+        <video className="fill gif-video" src={src} autoPlay loop muted playsInline onError={() => setVideoFailed(true)} />
+      ) : (
+        <RemoteImage
+          url={isVideo ? null : url}
+          fit="contain"
+          className="fill"
+          expiredText="GIF đã hết hạn"
+          resolve={(force) => resolveMedia(message.conversationId, message.id, 'photo', force)}
+        />
+      )}
       <span className="gif-badge">GIF</span>
     </div>
   );
@@ -58,34 +73,50 @@ export function StickerView({ url }: { url: string | null }) {
 export function VideoThumb({ message, thumbnail, duration, url, tile }: { message: ChatMessage; thumbnail: string | null; duration: number; url: string | null; tile?: number }) {
   const size = tile ? { width: tile, height: tile } : { width: 260, height: 160 };
   const [failed, setFailed] = useState(false);
+  /** The official loader said the video (or its thumbnail) is gone for good: no play button, no retry. */
+  const [expired, setExpired] = useState(false);
   const encrypted = isEncryptedMedia(message, url);
   const play = async () => {
+    if (expired) return;
     setFailed(false);
     // E2EE videos are ciphertext on the CDN: only the official download (which decrypts) can play them.
     if (url && !encrypted) return openViewer({ kind: 'video', url, message });
     const r = await resolveMedia(message.conversationId, message.id, 'video', failed);
     if (r.state === 'file') openViewer({ kind: 'video', url: null, file: r.path, message });
+    else if (r.state === 'expired') setExpired(true);
     else setFailed(true);
   };
   return (
     <button
-      className={`video-thumb ${tile ? 'is-tile' : ''}`}
+      className={`video-thumb ${tile ? 'is-tile' : ''} ${expired ? 'is-expired' : ''}`}
       style={{ width: size.width, maxWidth: '100%', aspectRatio: `${size.width} / ${size.height}` }}
       onClick={() => void play()}
-      aria-label="Video"
+      disabled={expired}
+      aria-label={expired ? 'Video đã hết hạn' : 'Video'}
     >
-      <RemoteImage
-        url={thumbnail}
-        className="fill"
-        compact
-        placeholder={<span className="fill" />}
-        resolve={(force) => resolveMedia(message.conversationId, message.id, 'videoThumb', force)}
-      />
-      <span className="video-play">
-        <Play size={tile ? 12 : 18} fill="currentColor" />
-      </span>
-      {duration > 0 && <span className="video-duration nums">{clock(duration)}</span>}
-      {failed && !tile && <span className="video-failed">Không thể phát video. Nhấn để thử lại.</span>}
+      {expired ? (
+        <span className="remote-image media-failure is-expired fill">
+          <VideoOff size={tile ? 16 : 24} />
+          {!tile && <span>Video đã hết hạn</span>}
+        </span>
+      ) : (
+        <>
+          <RemoteImage
+            url={thumbnail}
+            className="fill"
+            compact
+            placeholder={<span className="fill" />}
+            expiredText="Video đã hết hạn"
+            onExpired={() => setExpired(true)}
+            resolve={(force) => resolveMedia(message.conversationId, message.id, 'videoThumb', force)}
+          />
+          <span className="video-play">
+            <Play size={tile ? 12 : 18} fill="currentColor" />
+          </span>
+          {duration > 0 && <span className="video-duration nums">{clock(duration)}</span>}
+          {failed && !tile && <span className="video-failed">Không thể phát video. Nhấn để thử lại.</span>}
+        </>
+      )}
     </button>
   );
 }

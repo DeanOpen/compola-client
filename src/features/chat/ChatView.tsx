@@ -1,5 +1,8 @@
 // Native chat pane for one conversation (Swift `ChatView`): header in the toolbar, pinned bar, message list, composer.
 
+import { StrangerRequestBar } from '../contacts/StrangerRequestBar';
+import { useMessageJumpRequest } from '../../engine/messageJump';
+import { SendPreviewSheet } from '../attach/SendPreviewSheet';
 import { ReminderDetailHost } from './cards/ReminderCard';
 import { BellOff, MessageSquareDashed, PanelRight, Search, Upload, UserPlus, type LucideIcon } from 'lucide-react';
 import { CallButtons } from '../calls/CallButtons';
@@ -30,21 +33,30 @@ const emptyDraft: ComposerDraft = { text: '', mentions: [], replyTo: null };
 export function ChatView({ conversation }: { conversation: ConversationSummary }) {
   const [pendingPaste, setPendingPaste] = useState<string[] | null>(null);
   const [dropping, setDropping] = useState(false);
-  // Files dropped anywhere on the window go to the open conversation (photos as photos, the rest as files).
+  // Files dropped anywhere on the window go to the open conversation (photos as photos, the rest as files). Several
+  // files, or a drop with ⌥ held, open the send preview first (remove items, add a caption).
   useEffect(() => {
     let off: (() => void) | undefined;
     let alive = true;
+    let option = false;
+    const key = (e: KeyboardEvent) => (option = e.altKey);
+    window.addEventListener('keydown', key);
+    window.addEventListener('keyup', key);
     void onFileDrop((e) => {
       if (e.kind === 'over') setDropping(true);
       else if (e.kind === 'leave') setDropping(false);
       else {
         setDropping(false);
-        if (e.paths.length) void sendPaths(conversation.id, e.paths).then((o) => reportComposer(o, conversation.id));
+        if (!e.paths.length) return;
+        if (e.paths.length > 1 || option) setPendingPaste(e.paths);
+        else void sendPaths(conversation.id, e.paths).then((o) => reportComposer(o, conversation.id));
       }
     }).then((u) => (alive ? (off = u) : u()));
     return () => {
       alive = false;
       off?.();
+      window.removeEventListener('keydown', key);
+      window.removeEventListener('keyup', key);
     };
   }, [conversation.id]);
   const id = conversation.id;
@@ -60,6 +72,14 @@ export function ChatView({ conversation }: { conversation: ConversationSummary }
   const [sendTick, setSendTick] = useState(0);
   const [notice, setNotice] = useState<'restored' | 'like' | null>(null);
   const [jumpTarget, setJumpTarget] = useState<string | null>(null);
+  // "Xem trong trò chuyện" (Kho lưu trữ): the engine loaded the message, scroll to it and flash it.
+  const jump = useMessageJumpRequest(id);
+  useEffect(() => {
+    if (!jump) return;
+    setJumpTarget(jump.messageId);
+    jump.consume();
+  }, [jump?.messageId]);
+  const selfId = useEngine((s) => s.selfConversationId);
   const draftRef = useRef(draft);
   draftRef.current = draft;
   const lastMarkedId = useRef<string | null>(null);
@@ -192,6 +212,8 @@ export function ChatView({ conversation }: { conversation: ConversationSummary }
       </div>
       <div className="chat-bottom">
         <ToastView conversationId={id} bottom={0} />
+        {/* Hides itself for friends and blocked people. */}
+        {!conversation.isGroup && id !== selfId && <StrangerRequestBar conversationId={id} name={conversation.name} />}
         <Composer
         name={conversation.name}
         conversationId={id}
@@ -214,13 +236,19 @@ export function ChatView({ conversation }: { conversation: ConversationSummary }
         </div>
       )}
       {pendingPaste && (
-        <Alert
-          title={`Gửi ${pendingPaste.length > 1 ? `${pendingPaste.length} tệp` : 'tệp này'} tới ${conversation.name}?`}
-          message={pendingPaste.map((p) => p.split('/').pop()).join('\n')}
-          buttons={[
-            { label: 'Hủy', role: 'cancel', onClick: () => setPendingPaste(null) },
-            { label: 'Gửi', onClick: () => { const paths = pendingPaste; setPendingPaste(null); void sendPaths(id, paths).then((o) => reportComposer(o, id)); } },
-          ]}
+        <SendPreviewSheet
+          conversationName={conversation.name}
+          paths={pendingPaste}
+          onCancel={() => setPendingPaste(null)}
+          onSend={(paths, caption) => {
+            setPendingPaste(null);
+            if (!paths.length) return;
+            // The caption goes as a text message after the media.
+            void sendPaths(id, paths).then((o) => {
+              reportComposer(o, id);
+              if (caption && (o.kind === 'done' || o.kind === 'pending')) void sendText(caption, id);
+            });
+          }}
         />
       )}
       <MessageActionPresenter conversationId={id} />

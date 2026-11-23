@@ -197,6 +197,7 @@ export function MessageList({
                   firstInGroup={row.first}
                   lastInGroup={row.last}
                   showStatus={row.status}
+                  album={row.album}
                   isNewest={row.id === newestId}
                   onReply={onReply}
                   onReact={onReact}
