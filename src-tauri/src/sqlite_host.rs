@@ -294,6 +294,10 @@ fn open_connection(path: &Path) -> Result<rusqlite::Connection, HostError> {
         "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000; \
          PRAGMA journal_size_limit=67108864; PRAGMA temp_store=MEMORY;",
     )?;
+    // Beyond the official connection (speed only, same data): a 32 MB page cache instead of SQLite's 2 MB default,
+    // reads through a 256 MB memory map, and room for the DAL's repeated statements in the prepared-statement cache.
+    conn.execute_batch("PRAGMA cache_size=-32768; PRAGMA mmap_size=268435456;")?;
+    conn.set_prepared_statement_cache_capacity(256);
     Ok(conn)
 }
 
@@ -745,9 +749,39 @@ where
 }
 
 /// The first statement of `sql` (like `sqlite3_prepare_v2`, the rest of the text is ignored).
-fn prepare<'c>(c: &'c rusqlite::Connection, sql: &str) -> Result<rusqlite::Statement<'c>, HostError> {
+/// A prepared statement: from the connection's statement cache when the text is a single statement (the DAL repeats
+/// the same queries constantly, so this skips SQLite's parse/plan on every call), else parsed through `Batch`.
+enum Prepared<'c> {
+    Cached(rusqlite::CachedStatement<'c>),
+    Plain(rusqlite::Statement<'c>),
+}
+
+impl<'c> std::ops::Deref for Prepared<'c> {
+    type Target = rusqlite::Statement<'c>;
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Prepared::Cached(s) => s,
+            Prepared::Plain(s) => s,
+        }
+    }
+}
+
+impl std::ops::DerefMut for Prepared<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        match self {
+            Prepared::Cached(s) => s,
+            Prepared::Plain(s) => s,
+        }
+    }
+}
+
+fn prepare<'c>(c: &'c rusqlite::Connection, sql: &str) -> Result<Prepared<'c>, HostError> {
+    // Multiple statements, empty text or a syntax error: the uncached path keeps the original behaviour and errors.
+    if let Ok(statement) = c.prepare_cached(sql) {
+        return Ok(Prepared::Cached(statement));
+    }
     match Batch::new(c, sql).next()? {
-        Some(statement) => Ok(statement),
+        Some(statement) => Ok(Prepared::Plain(statement)),
         // Empty text / comments only: Swift's prepare fails with the connection's (OK) state.
         None => Err(SqliteError::new(SQLITE_ERROR, "not an error").into()),
     }

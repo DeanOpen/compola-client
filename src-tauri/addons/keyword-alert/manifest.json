@@ -1,0 +1,15 @@
+{
+  "id": "keyword-alert",
+  "name": "Cảnh báo từ khoá",
+  "version": "1.0.0",
+  "description": "Báo khi tin nhắn đến chứa từ khoá bạn theo dõi (không phân biệt dấu), và có thể chuyển tiếp vào một hội thoại như Cloud của tôi.",
+  "author": "Compola",
+  "main": "main.js",
+  "permissions": ["messages:read", "messages:send", "notifications"],
+  "settings": [
+    { "key": "keywords", "label": "Từ khoá (cách nhau bởi dấu phẩy)", "type": "text", "default": "gấp, khẩn, urgent" },
+    { "key": "notify", "label": "Hiện thông báo", "type": "boolean", "default": true },
+    { "key": "forwardTo", "label": "Chuyển tiếp vào hội thoại", "type": "conversation", "default": "" },
+    { "key": "includeMine", "label": "Kể cả tin nhắn của tôi", "type": "boolean", "default": false }
+  ]
+}

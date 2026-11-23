@@ -224,6 +224,9 @@ impl Engine {
                 self.set_phase(Phase::SigningIn);
             }
             MainEvent::LoggedOut => {
+                if let Some(a) = self.automation() {
+                    a.clear_search();
+                }
                 let notice = self.inner.lock().sign_out_notice.clone();
                 self.set_phase(Phase::Login { login: LoginState::default(), notice });
             }
@@ -252,6 +255,9 @@ impl Engine {
         let Some(main) = self.main_process() else { return };
         main.jar_clear();
         main.reset_account_state();
+        if let Some(a) = self.automation() {
+            a.clear_search();
+        }
         self.refresh_qr();
     }
 
@@ -418,6 +424,10 @@ impl Engine {
     pub fn replay(&self) -> Vec<Value> {
         self.inner.lock().replay.iter().cloned().collect()
     }
+
+    fn automation(&self) -> Option<Arc<crate::automation::Automation>> {
+        self.app.try_state::<Arc<crate::automation::Automation>>().map(|s| s.inner().clone())
+    }
 }
 
 impl MainProcess {
@@ -458,12 +468,18 @@ impl HostObserver for Engine {
             return;
         }
         self.record_replay(&state);
+        if let Some(a) = self.automation() {
+            a.observe_state(&state);
+        }
         emit_ui(&self.app, "compola://state", state);
     }
 
     fn page_started(&self, host: &Arc<Host>) {
         if host.kind == HostKind::Main {
             self.clear_replay();
+            if let Some(a) = self.automation() {
+                a.reset_mirror();
+            }
         }
         if let Some(m) = self.main_process() {
             m.page_did_start_loading(host);

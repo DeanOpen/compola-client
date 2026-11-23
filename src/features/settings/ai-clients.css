@@ -1,0 +1,25 @@
+/* Settings › MCP › Kết nối ứng dụng AI (AiClientsSection.tsx). Rows reuse .st-row / .st-dot / .st-auto-* from automation.css. */
+
+.st-aic-loading {
+  display: flex;
+  justify-content: center;
+  padding: 18px 0;
+}
+
+.st-aic-manual {
+  margin: 0 0 8px;
+}
+
+.st-aic-disclosure {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 2px;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--text-secondary, var(--text));
+}
+
+.st-aic-disclosure:hover {
+  color: var(--text);
+}

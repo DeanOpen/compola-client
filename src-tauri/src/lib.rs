@@ -1,7 +1,9 @@
 //! Compola (Rust + Tauri) — a port of zalo-swift-re: the official Zalo PC renderer runs headless in a hidden webview
 //! and Rust plays Electron's preload + main process; the UI window is a web frontend driven by its state.
 
+mod ai_clients;
 mod asar;
+mod automation;
 mod bridge;
 mod calls;
 mod downloads;
@@ -92,13 +94,20 @@ pub fn run() {
             app.manage(remote.clone());
             let engine = engine::Engine::new(app.handle().clone());
             app.manage(engine.clone());
+            let automation = automation::Automation::new(app.handle().clone());
+            app.manage(automation.clone());
+            // A joined app shows the host's account: no engine, MCP server, schedules or add-ons of its own.
             if !remote.is_joined() {
                 engine.start();
+                automation.start();
             }
             remote.start();
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            ai_clients::ai_clients_detect,
+            ai_clients::ai_clients_install,
+            ai_clients::ai_clients_remove,
             engine::engine_phase,
             engine::engine_replay,
             engine::engine_info,
@@ -122,6 +131,32 @@ pub fn run() {
             media::media_save,
             media::media_open_file,
             screen_capture::screen_capture_start,
+            automation::automation_state,
+            automation::automation_set_server,
+            automation::automation_regenerate_token,
+            automation::automation_save_client,
+            automation::automation_delete_client,
+            automation::automation_client_tools,
+            automation::automation_client_call,
+            automation::automation_save_job,
+            automation::automation_delete_job,
+            automation::automation_run_job,
+            automation::automation_cron_preview,
+            automation::automation_addon_install,
+            automation::automation_addon_set_enabled,
+            automation::automation_addon_set_settings,
+            automation::automation_addon_storage_set,
+            automation::automation_addon_remove,
+            automation::automation_addon_register_tools,
+            automation::automation_addon_tool_reply,
+            automation::automation_conversations,
+            automation::automation_messages,
+            automation::automation_send_text,
+            automation::automation_search,
+            automation::automation_search_status,
+            automation::automation_search_set_config,
+            automation::automation_search_clear,
+            automation::automation_search_test,
             remote::remote_status,
             remote::remote_state,
             remote::remote_set_server,

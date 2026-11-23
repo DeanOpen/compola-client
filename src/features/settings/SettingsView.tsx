@@ -6,6 +6,9 @@ import { setConversationPrompt } from '../../engine/conversationActions';
 import { setStickerSuggest } from '../../engine/stickers';
 import {
   Bell,
+  CalendarClock,
+  Puzzle,
+  Server,
   BellOff,
   BellRing,
   Check,
@@ -21,6 +24,7 @@ import {
   Palette,
   RefreshCw,
   Search,
+  TextSearch,
   Settings as SettingsIcon,
   Smartphone,
   Smile,
@@ -58,9 +62,12 @@ import { appName } from '../setup/SplashView';
 import { openTransfer } from '../transfer/hosts';
 import { accents, appearances, setAppearancePref, textSizes, useAppearancePrefs, type Appearance } from './appearance';
 import { transferBlockedText } from '../../engine/transfer';
+import { AddonSettings, McpSettings, ScheduleSettings } from './AutomationSettings';
+import { SearchSettings } from './SearchSettings';
 import './settings.css';
+import './automation.css';
 
-export type SettingsTab = 'general' | 'appearance' | 'notifications' | 'privacy' | 'sticker' | 'account' | 'engine';
+export type SettingsTab = 'general' | 'appearance' | 'notifications' | 'privacy' | 'sticker' | 'account' | 'mcp' | 'schedules' | 'addons' | 'search' | 'engine';
 
 interface TabInfo {
   id: SettingsTab;
@@ -79,6 +86,10 @@ const tabs: TabInfo[] = [
   { id: 'privacy', title: 'Quyền riêng tư', icon: Lock, subtitle: 'Trò chuyện ẩn và mã PIN.', keywords: 'ẩn trò chuyện pin' },
   { id: 'sticker', title: 'Sticker', icon: Smile, subtitle: 'Gợi ý sticker khi soạn tin nhắn.', keywords: 'gợi ý sticker' },
   { id: 'account', title: 'Tài khoản', icon: UserCircle, subtitle: 'Tài khoản Zalo, đồng bộ và đăng xuất.', keywords: 'đồng bộ điện thoại đăng xuất sao lưu' },
+  { id: 'mcp', title: 'MCP', icon: Server, subtitle: 'Máy chủ MCP cho ứng dụng AI và kết nối tới máy chủ MCP khác.', keywords: 'mcp ai claude cursor máy chủ server token công cụ tools openmcp' },
+  { id: 'schedules', title: 'Lịch tự động', icon: CalendarClock, subtitle: 'Hẹn giờ gửi tin nhắn và chạy công cụ theo lịch cron.', keywords: 'cron lịch hẹn giờ tự động gửi tin nhắn định kỳ schedule' },
+  { id: 'search', title: 'Tìm kiếm', icon: TextSearch, subtitle: 'Tìm tin nhắn không phân biệt dấu và theo ý nghĩa (RAG).', keywords: 'tìm kiếm search rag embeddings ollama ý nghĩa chỉ mục index' },
+  { id: 'addons', title: 'Add-on', icon: Puzzle, subtitle: 'Mở rộng Compola bằng các tiện ích JavaScript.', keywords: 'add-on addon plugin tiện ích mở rộng trả lời tự động từ khoá tóm tắt' },
   { id: 'engine', title: 'Engine', icon: Cpu, subtitle: 'Mã Zalo PC chính thức chạy ẩn bên dưới Compola.', keywords: 'sqlite indexeddb renderer nhật ký log lưu trữ' },
 ];
 
@@ -86,7 +97,7 @@ const tabs: TabInfo[] = [
 const navGroups: { title: string; ids: SettingsTab[] }[] = [
   { title: 'Ứng dụng', ids: ['general', 'appearance', 'notifications', 'privacy', 'sticker'] },
   { title: 'Tài khoản', ids: ['account'] },
-  { title: 'Nâng cao', ids: ['engine'] },
+  { title: 'Nâng cao', ids: ['search', 'mcp', 'schedules', 'addons', 'engine'] },
 ];
 
 const fold = (t: string) =>
@@ -165,6 +176,10 @@ export function SettingsDialog({ tab, onTab, onClose }: { tab: SettingsTab; onTa
             {tab === 'privacy' && <PrivacySettings />}
             {tab === 'sticker' && <StickerSettings />}
             {tab === 'account' && <AccountSettings onClose={onClose} />}
+            {tab === 'mcp' && <McpSettings />}
+            {tab === 'schedules' && <ScheduleSettings />}
+            {tab === 'addons' && <AddonSettings />}
+            {tab === 'search' && <SearchSettings />}
             {tab === 'engine' && <EngineSettings />}
           </div>
         </section>
@@ -176,7 +191,7 @@ export function SettingsDialog({ tab, onTab, onClose }: { tab: SettingsTab; onTa
 
 // MARK: - Building blocks
 
-function Section({ title, description, footer, children, tone }: { title?: string; description?: ReactNode; footer?: ReactNode; children: ReactNode; tone?: 'danger' }) {
+export function Section({ title, description, footer, children, tone }: { title?: string; description?: ReactNode; footer?: ReactNode; children: ReactNode; tone?: 'danger' }) {
   return (
     <div className={`st-section ${tone === 'danger' ? 'is-danger' : ''}`}>
       {title && <div className="st-section-title">{title}</div>}
@@ -187,7 +202,7 @@ function Section({ title, description, footer, children, tone }: { title?: strin
   );
 }
 
-function Row({ label, detail, children, column = false }: { label: ReactNode; detail?: ReactNode; children?: ReactNode; column?: boolean }) {
+export function Row({ label, detail, children, column = false }: { label: ReactNode; detail?: ReactNode; children?: ReactNode; column?: boolean }) {
   return (
     <div className={`st-row ${column ? 'is-column' : ''}`}>
       <div className="st-row-text">
@@ -213,7 +228,7 @@ function Callout({ tone, icon: Icon, title, detail, action }: { tone: 'info' | '
   );
 }
 
-function Toggle({ on, disabled, onChange, label }: { on: boolean; disabled?: boolean; onChange: (on: boolean) => void; label: string }) {
+export function Toggle({ on, disabled, onChange, label }: { on: boolean; disabled?: boolean; onChange: (on: boolean) => void; label: string }) {
   return (
     <button role="switch" aria-checked={on} aria-label={label} className={`st-switch ${on ? 'is-on' : ''}`} disabled={disabled} onClick={() => onChange(!on)}>
       <span className="st-switch-knob" />
@@ -221,7 +236,7 @@ function Toggle({ on, disabled, onChange, label }: { on: boolean; disabled?: boo
   );
 }
 
-function Segmented<T extends string>({
+export function Segmented<T extends string>({
   value,
   options,
   onChange,
