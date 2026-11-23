@@ -1,0 +1,83 @@
+/* Brand + system tokens (Swift: Theme.swift `ZaloTheme`, ChatStyle.swift `ChatPalette`). Light / dark via
+   prefers-color-scheme; "Liquid Glass" surfaces are translucent fills + backdrop-filter. */
+
+:root {
+  color-scheme: light dark;
+
+  --accent: #0068ff;
+  --accent-pressed: #005ae0;
+  --accent-tonal: #e5f1ff;
+  --accent-soft: rgba(0, 104, 255, 0.16);
+  --accent-faint: rgba(0, 104, 255, 0.1);
+  --on-accent: #ffffff;
+  --ink: #081b3a;
+
+  --window: #f2f2f4;
+  --content: #ffffff;
+  --text: rgba(0, 0, 0, 0.88);
+  --text-secondary: rgba(60, 60, 67, 0.62);
+  --text-tertiary: rgba(60, 60, 67, 0.34);
+  --separator: rgba(0, 0, 0, 0.1);
+  --fill: rgba(120, 120, 128, 0.16);
+  --fill-quaternary: rgba(120, 120, 128, 0.1);
+  --hover: rgba(0, 0, 0, 0.05);
+  --primary-faint: rgba(0, 0, 0, 0.05);
+
+  --bubble-in: #e9e9eb;
+  --bubble-out: var(--accent);
+  --card: var(--bubble-in);
+
+  --danger: #ff3b30;
+  --warning: #ff9500;
+  --success: #34c759;
+  --star: #ffcc00;
+
+  --glass-bg: rgba(255, 255, 255, 0.62);
+  --glass-bg-strong: rgba(255, 255, 255, 0.82);
+  --glass-border: rgba(255, 255, 255, 0.7);
+  --glass-edge: rgba(0, 0, 0, 0.08);
+  --glass-shadow: 0 8px 28px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06);
+  --glass-blur: blur(28px) saturate(180%);
+
+  --sidebar-bg: rgba(246, 246, 248, 0.68);
+  --dim: rgba(0, 0, 0, 0.12);
+
+  --radius-s: 8px;
+  --radius-m: 12px;
+  --radius-l: 16px;
+  --radius-xl: 22px;
+
+  --font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', 'Segoe UI', Roboto, sans-serif;
+  --font-rounded: ui-rounded, 'SF Pro Rounded', -apple-system, BlinkMacSystemFont, sans-serif;
+  --toolbar-h: 52px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --accent-tonal: rgba(0, 104, 255, 0.22);
+    --accent-soft: rgba(64, 140, 255, 0.24);
+    --accent-faint: rgba(64, 140, 255, 0.14);
+
+    --window: #22262b;
+    --content: #1c1f23;
+    --text: rgba(255, 255, 255, 0.92);
+    --text-secondary: rgba(235, 235, 245, 0.6);
+    --text-tertiary: rgba(235, 235, 245, 0.3);
+    --separator: rgba(255, 255, 255, 0.1);
+    --fill: rgba(120, 120, 128, 0.32);
+    --fill-quaternary: rgba(120, 120, 128, 0.18);
+    --hover: rgba(255, 255, 255, 0.06);
+    --primary-faint: rgba(255, 255, 255, 0.06);
+
+    --bubble-in: #3b3b3b;
+
+    --glass-bg: rgba(42, 47, 53, 0.6);
+    --glass-bg-strong: rgba(42, 47, 53, 0.85);
+    --glass-border: rgba(255, 255, 255, 0.1);
+    --glass-edge: rgba(0, 0, 0, 0.4);
+    --glass-shadow: 0 10px 30px rgba(0, 0, 0, 0.45), 0 1px 2px rgba(0, 0, 0, 0.3);
+
+    --sidebar-bg: rgba(42, 47, 53, 0.66);
+    --dim: rgba(0, 0, 0, 0.32);
+  }
+}
