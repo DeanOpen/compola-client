@@ -9,12 +9,19 @@ export interface GroupComposeRequest {
 
 export type FriendSort = 'az' | 'za';
 
+export interface ProfileHint {
+  name: string;
+  avatar: string | null;
+}
+
 interface ContactsUi {
   groupCompose: GroupComposeRequest | null;
   /** "Thêm bạn" dialog. */
   addFriendOpen: boolean;
-  /** "Thông tin tài khoản" dialog of a friend. */
+  /** "Thông tin tài khoản" dialog of a person (friend or not). */
   profileId: string | null;
+  /** What the opener already knows (name / avatar of a message sender or group member), shown while the profile loads. */
+  profileHint: ProfileHint | null;
   /** "Hồ sơ của bạn" (the signed-in account). */
   myProfileOpen: boolean;
   friendSort: FriendSort;
@@ -26,6 +33,7 @@ export const useContactsUi = create<ContactsUi>()(() => ({
   groupCompose: null,
   addFriendOpen: false,
   profileId: null,
+  profileHint: null,
   myProfileOpen: false,
   friendSort: 'az',
   friendLabel: null,
@@ -44,11 +52,11 @@ export const contactsUi = {
   closeGroupCompose: () => set({ groupCompose: null }),
   openAddFriend: () => set({ addFriendOpen: true }),
   closeAddFriend: () => set({ addFriendOpen: false }),
-  showProfile: (id: string) => set({ profileId: id }),
-  closeProfile: () => set({ profileId: null }),
+  showProfile: (id: string, hint: ProfileHint | null = null) => set({ profileId: id, profileHint: hint }),
+  closeProfile: () => set({ profileId: null, profileHint: null }),
   showMyProfile: () => set({ myProfileOpen: true }),
   closeMyProfile: () => set({ myProfileOpen: false }),
   setFriendSort: (friendSort: FriendSort) => set({ friendSort }),
   setFriendLabel: (friendLabel: string | null) => set({ friendLabel }),
-  reset: () => set({ groupCompose: null, addFriendOpen: false, profileId: null, myProfileOpen: false, friendLabel: null }),
+  reset: () => set({ groupCompose: null, addFriendOpen: false, profileId: null, profileHint: null, myProfileOpen: false, friendLabel: null }),
 };

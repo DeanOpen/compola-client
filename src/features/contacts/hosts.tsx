@@ -4,13 +4,13 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { usesMock } from '../../engine/backend';
-import { onAccountReset } from '../../engine/store';
+import { onAccountReset, useEngine } from '../../engine/store';
 import { escapeStackDepth } from '../../ui/escape';
 import { AddFriendDialog } from './AddFriendDialog';
-import { FriendProfileDialog, MyProfileDialog } from './ProfileCard';
+import { MyProfileDialog, PersonProfileDialog } from './ProfileCard';
 import { CreateGroupSheet } from './CreateGroupSheet';
 import { StrangerRequestBar } from './StrangerRequestBar';
-import { contactsUi, useContactsUi } from './contactsUi';
+import { contactsUi, useContactsUi, type ProfileHint } from './contactsUi';
 
 onAccountReset(contactsUi.reset);
 
@@ -20,8 +20,13 @@ export const openCreateGroup = (preselected: string[] = []) => contactsUi.compos
 /** Shows the "Thêm bạn" dialog (list column / rail "Thêm bạn" buttons). */
 export const openAddFriend = () => contactsUi.openAddFriend();
 
-/** Shows a friend's "Thông tin tài khoản" dialog. */
-export const openContactProfile = (id: string) => contactsUi.showProfile(id);
+/** Shows a person's "Thông tin tài khoản" (friend or not); my own id opens "Hồ sơ của bạn". `hint`: the name / avatar the
+ * caller already shows (message sender, group member), so the dialog has something to show while the profile loads. */
+export const openContactProfile = (id: string, hint: ProfileHint | null = null) => {
+  if (!id) return;
+  if (id === useEngine.getState().profile?.userId) contactsUi.showMyProfile();
+  else contactsUi.showProfile(id, hint);
+};
 
 /** Shows "Hồ sơ của bạn": the signed-in account's card (rail account menu). */
 export const openMyProfile = () => contactsUi.showMyProfile();
@@ -30,6 +35,7 @@ export function ContactsHosts() {
   const compose = useContactsUi((s) => s.groupCompose);
   const addFriend = useContactsUi((s) => s.addFriendOpen);
   const profileId = useContactsUi((s) => s.profileId);
+  const profileHint = useContactsUi((s) => s.profileHint);
   const myProfile = useContactsUi((s) => s.myProfileOpen);
 
   useEffect(() => {
@@ -46,7 +52,7 @@ export function ContactsHosts() {
   return (
     <>
       {addFriend && <AddFriendDialog onClose={contactsUi.closeAddFriend} />}
-      {profileId && <FriendProfileDialog key={profileId} id={profileId} onClose={contactsUi.closeProfile} />}
+      {profileId && <PersonProfileDialog key={profileId} id={profileId} hint={profileHint} onClose={contactsUi.closeProfile} />}
       {myProfile && <MyProfileDialog onClose={contactsUi.closeMyProfile} />}
       {compose && <CreateGroupSheet key={compose.id} request={compose} onClose={contactsUi.closeGroupCompose} />}
       {strangerDemo && <StrangerBarDemo />}

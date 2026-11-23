@@ -58,6 +58,8 @@ export interface ShellState {
   showQuickSwitcher: boolean;
   /** Search text of the conversation list column. */
   search: string;
+  /** Conversation the search is limited to ("Tìm kiếm tin nhắn" in the chat header), null to search everything. */
+  searchScope: string | null;
   /** Hidden chats listed after the PIN was entered; null while locked (hidden chats: later wave). */
   unlockedHiddenIds: string[] | null;
   /** Ticks: a view observing one performs the action when it changes. */
@@ -72,6 +74,7 @@ export const useShell = create<ShellState>()(() => ({
   showInspector: false,
   showQuickSwitcher: false,
   search: '',
+  searchScope: null,
   unlockedHiddenIds: null,
   searchFocusTick: 0,
   replyTick: 0,
@@ -88,6 +91,11 @@ export const shell = {
   },
   select: (selection: string | null) => set({ selection }),
   setSearch: (search: string) => set({ search }),
+  /** Leaves the search: its text and its conversation scope. */
+  clearSearch: () => set({ search: '', searchScope: null }),
+  /** Searches the messages of one conversation from the list column's search field. */
+  searchInConversation: (id: string) => set((s) => ({ searchScope: id, search: s.searchScope === id ? s.search : '', searchFocusTick: s.searchFocusTick + 1 })),
+  clearSearchScope: () => set({ searchScope: null }),
   focusSearch: () => set((s) => ({ searchFocusTick: s.searchFocusTick + 1 })),
   replyToLatest: () => set((s) => ({ replyTick: s.replyTick + 1 })),
   toggleQuickSwitcher: () => set((s) => ({ showQuickSwitcher: !s.showQuickSwitcher })),
@@ -104,7 +112,7 @@ export const shell = {
   open: (id: string) => {
     const s = get();
     if (!isConversationList(s.destination) || s.destination === 'hidden') shell.setDestination('inbox');
-    set({ search: '', selection: id });
+    set({ search: '', searchScope: null, selection: id });
   },
 
   /** Back to a fresh window: nothing of the previous account's window may carry over. */
@@ -115,6 +123,7 @@ export const shell = {
       showInspector: false,
       showQuickSwitcher: false,
       search: '',
+      searchScope: null,
       unlockedHiddenIds: null,
     }),
 };

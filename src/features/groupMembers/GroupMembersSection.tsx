@@ -3,7 +3,7 @@
 // official confirm with "Chặn người này tham gia lại"), the first 5 rows and "Xem tất cả (N)" opening a searchable list.
 // Self-loading from the conversation id; reloads when the group's member count changes.
 
-import { MessageCircle, Search, UserMinus, X } from 'lucide-react';
+import { MessageCircle, Search, UserMinus, UserRound, X } from 'lucide-react';
 import { useEffect, useMemo, useState, type MouseEvent } from 'react';
 import {
   foldText,
@@ -16,6 +16,7 @@ import {
 } from '../../engine/groupMembers';
 import { setEngine, useEngine } from '../../engine/store';
 import { Avatar } from '../../ui/Avatar';
+import { openContactProfile } from '../contacts/hosts';
 import { openContextMenu, type MenuItem } from '../../ui/Menu';
 import { Spinner } from '../../ui/Spinner';
 import { ZaloDialog } from '../calls/ZaloDialog';
@@ -84,7 +85,11 @@ const openChat = (m: GroupMember) => {
   if (!m.isMe) setEngine({ navigationRequest: m.id });
 };
 
+/** Zalo PC: tapping a member opens their profile (mine: "Hồ sơ của bạn"). */
+const openProfile = (m: GroupMember) => openContactProfile(m.id, { name: m.name, avatar: m.avatar });
+
 const rowMenu = (m: GroupMember, onRemove: () => void): MenuItem[] => [
+  { label: 'Xem thông tin', icon: UserRound, onSelect: () => openProfile(m) },
   ...(m.isMe ? [] : [{ label: 'Nhắn tin', icon: MessageCircle, onSelect: () => openChat(m) }]),
   ...(m.canRemove ? [{ kind: 'separator' as const }, { label: 'Xóa khỏi nhóm', icon: UserMinus, destructive: true, onSelect: onRemove }] : []),
 ];
@@ -97,10 +102,10 @@ function MemberRow({ member: m, onRemove }: { member: GroupMember; onRemove: () 
       className={`gm-row ${m.isMe ? 'is-me' : ''}`}
       role="button"
       tabIndex={0}
-      onClick={() => openChat(m)}
-      onKeyDown={(e) => e.key === 'Enter' && openChat(m)}
+      onClick={() => openProfile(m)}
+      onKeyDown={(e) => e.key === 'Enter' && openProfile(m)}
       onContextMenu={(e: MouseEvent) => openContextMenu(e, rowMenu(m, onRemove))}
-      title={m.isMe ? undefined : `Nhắn tin cho ${m.name}`}
+      title={m.isMe ? 'Hồ sơ của bạn' : `Xem thông tin ${m.name}`}
     >
       <span className="gm-avatar">
         <Avatar url={m.avatar} name={m.name} size={40} />

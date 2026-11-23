@@ -71,6 +71,37 @@
   color: var(--text-tertiary);
 }
 
+/* "Tìm kiếm tin nhắn": the conversation the search is limited to */
+.search-scope {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: none;
+  max-width: 45%;
+  height: 20px;
+  padding: 0 4px 0 7px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.search-scope-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 7px;
+  color: inherit;
+}
+
+.search-scope-clear:hover {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
 /* Tabs row */
 .conv-tabs {
   display: flex;
@@ -544,4 +575,95 @@
 
 .conv-row:hover .conv-row-time {
   display: none;
+}
+
+/* Message results of the list search (MessageSearchResults.tsx) */
+.msg-hits-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.msg-hits-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--accent);
+}
+
+.msg-hit {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 64px;
+  padding: 8px 16px;
+  text-align: left;
+  color: var(--text);
+}
+
+.msg-hit:hover {
+  background: var(--hover);
+}
+
+.msg-hit-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.msg-hit-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.msg-hit-name {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.msg-hit-semantic {
+  display: inline-flex;
+  flex: none;
+  color: var(--accent);
+}
+
+.msg-hit-text {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+.msg-hit-sender {
+  color: var(--text-tertiary);
+}
+
+.msg-hit-text mark {
+  background: color-mix(in srgb, #ffd43b 55%, transparent);
+  color: var(--text);
+  border-radius: 2px;
+}
+
+.msg-hits-empty,
+.msg-hits-hint {
+  padding: 16px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.msg-hits-footer {
+  padding: 8px 16px 12px;
+  font-size: 11px;
+  color: var(--text-tertiary);
 }

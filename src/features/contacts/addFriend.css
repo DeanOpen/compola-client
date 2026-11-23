@@ -481,3 +481,21 @@
   font-size: 13px;
   color: var(--ct-danger);
 }
+
+/* "Thông tin tài khoản" while loading / when the profile is unavailable, and request errors (PersonProfileDialog). */
+.af-profile-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 160px;
+}
+
+.af-profile-note {
+  font-size: 13px;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.af-profile-note.is-error {
+  color: var(--danger);
+}

@@ -1,6 +1,7 @@
 // Native chat pane for one conversation (Swift `ChatView`): header in the toolbar, pinned bar, message list, composer.
 
 import { StrangerRequestBar } from '../contacts/StrangerRequestBar';
+import { openContactProfile } from '../contacts/hosts';
 import { useMessageJumpRequest } from '../../engine/messageJump';
 import { SendPreviewSheet } from '../attach/SendPreviewSheet';
 import { ReminderDetailHost } from './cards/ReminderCard';
@@ -280,13 +281,18 @@ export function ChatView({ conversation }: { conversation: ConversationSummary }
  * Gọi video and Thông tin hội thoại (toggles the right panel). */
 function ChatHeader({ conversation, subtitle, typing, muted }: { conversation: ConversationSummary; subtitle: string; typing: boolean; muted: boolean }) {
   const showInspector = useShell((s) => s.showInspector);
+  const searching = useShell((s) => s.searchScope === conversation.id);
   return (
     <div className="toolbar chat-toolbar" data-tauri-drag-region>
       <div className="chat-header" data-tauri-drag-region>
-        <ConversationAvatar conversation={conversation} size={48} isSelf={false} />
+        <HeaderIdentity conversation={conversation}>
+          <ConversationAvatar conversation={conversation} size={48} isSelf={false} />
+        </HeaderIdentity>
         <div className="chat-header-text" data-tauri-drag-region>
           <div className="chat-header-name">
-            <span className="truncate">{conversation.name}</span>
+            <HeaderIdentity conversation={conversation} className="truncate">
+              {conversation.name}
+            </HeaderIdentity>
             {muted && <BellOff size={13} className="secondary" />}
           </div>
           {subtitle && <div className={`chat-header-sub truncate ${typing ? 'tint' : ''}`}>{subtitle}</div>}
@@ -294,11 +300,33 @@ function ChatHeader({ conversation, subtitle, typing, muted }: { conversation: C
       </div>
       <div className="toolbar-group">
         <HeaderButton icon={UserPlus} label={conversation.isGroup ? 'Thêm thành viên' : 'Tạo nhóm với người này'} disabled />
-        <HeaderButton icon={Search} label="Tìm kiếm tin nhắn" disabled />
+        <HeaderButton icon={Search} label="Tìm kiếm tin nhắn (⇧⌘F)" on={searching} onClick={() => shell.searchInConversation(conversation.id)} />
         <CallButtons conversation={conversation} />
         <HeaderButton icon={PanelRight} label="Thông tin hội thoại (⌥⌘I)" on={showInspector} onClick={() => shell.toggleInspector()} />
       </div>
     </div>
+  );
+}
+
+/** The header's avatar / name as a button (Zalo PC): a person's "Thông tin tài khoản", a group's info panel. My Cloud has
+ * neither, so it stays plain (and keeps dragging the window). */
+function HeaderIdentity({ conversation, className, children }: { conversation: ConversationSummary; className?: string; children: React.ReactNode }) {
+  const selfId = useEngine((s) => s.selfConversationId);
+  const showInspector = useShell((s) => s.showInspector);
+  if (conversation.id === selfId) return <span className={className}>{children}</span>;
+  const label = conversation.isGroup ? 'Thông tin nhóm' : `Xem thông tin ${conversation.name}`;
+  return (
+    <button
+      className={`chat-header-who ${className ?? ''}`}
+      title={label}
+      aria-label={label}
+      onClick={() => {
+        if (!conversation.isGroup) openContactProfile(conversation.id, { name: conversation.name, avatar: conversation.avatar });
+        else if (!showInspector) shell.toggleInspector();
+      }}
+    >
+      {children}
+    </button>
   );
 }
 

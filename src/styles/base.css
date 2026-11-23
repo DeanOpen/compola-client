@@ -262,26 +262,8 @@ a {
   animation: compola-slide-up 150ms ease-out both;
 }
 
-/* Scrollbars (macOS overlay look) */
-::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
-
-::-webkit-scrollbar-thumb {
-  background: transparent;
-  border-radius: 999px;
-  border: 3px solid transparent;
-  background-clip: content-box;
-}
-
-*:hover::-webkit-scrollbar-thumb {
-  background-color: var(--fill);
-}
-
-::-webkit-scrollbar-track {
-  background: transparent;
-}
+/* Scrollbars: WKWebView's native macOS overlay scrollbars. Any ::-webkit-scrollbar styling switches WebKit to legacy
+   scrollbars that reserve a gutter (rows and their selection stopped 10px short of the column edge), so none here. */
 
 /* Window drag region under the overlay title bar */
 .drag {
