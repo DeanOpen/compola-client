@@ -152,17 +152,30 @@ export const isJoined = (): Promise<boolean> => {
 export const joinedSync = () => joinedNow;
 
 /** Commands of the Rust engine (engine.rs `#[tauri::command]`). */
+/**
+ * The account on screen (multi-account, set by accounts.ts; null on single-account hosts). Engine commands name it
+ * explicitly: right after a switch, a call could otherwise reach Rust before `account_set_active` and hit the account
+ * that was on screen before (docs/multi-account.md §6: a missing `account` means the active one).
+ */
+let accountOnScreen: string | null = null;
+export const setAccountOnScreen = (id: string | null) => {
+  accountOnScreen = id;
+};
+/** `args` plus `account` when the host has accounts. */
+export const forAccount = (args: Record<string, unknown> = {}, account: string | null = accountOnScreen) =>
+  account ? { ...args, account } : args;
+
 export const commands = {
-  phase: async () => (await backend()).invoke<Phase>('engine_phase'),
+  phase: async () => (await backend()).invoke<Phase>('engine_phase', forAccount()),
   info: async () =>
     (await backend()).invoke<{ runtimeVersion: string | null; storage: string | null; recentLog: string[] }>('engine_info'),
-  refreshQr: async () => (await backend()).invoke('engine_refresh_qr'),
-  logout: async () => (await backend()).invoke('engine_logout'),
+  refreshQr: async () => (await backend()).invoke('engine_refresh_qr', forAccount()),
+  logout: async () => (await backend()).invoke('engine_logout', forAccount()),
   retryRuntime: async () => (await backend()).invoke('engine_retry_runtime'),
   showRenderer: async () => (await backend()).invoke('engine_show_renderer'),
   switchToSqlite: async () => (await backend()).invoke('engine_switch_to_sqlite'),
   /** Tells Rust which chat is on screen (notifications for it are suppressed); null when none. */
-  setOpenConversation: async (id: string | null) => (await backend()).invoke('ui_set_open_conversation', { id }),
+  setOpenConversation: async (id: string | null) => (await backend()).invoke('ui_set_open_conversation', forAccount({ id })),
   /** Whether notifications may show the message text. */
   /** Lets the media scheme serve these user-picked / pasted / dropped files (`?file=`) for 30 min; returns the count. */
   mediaAllowPreviews: async (paths: string[]) => (await backend()).invoke<number>('media_allow_previews', { paths }),
