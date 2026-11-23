@@ -1,9 +1,13 @@
 // Window content (Swift `RootView`): a splash while the client boots, the first-run setup (sign-in → phone sync →
 // welcome) or the main window. `setupPending` separates a fresh QR sign-in, which owes the user the sync and welcome
 // steps, from a restored session, which goes straight to the main window.
+// Joined to a Compola Server: the connection gate replaces all of it until the first connection, and a banner shows
+// while a dropped connection comes back (src/features/remote/RemoteGate.tsx).
 
 import { useEffect } from 'react';
+import { useRemote } from './engine/remote';
 import { useEngine } from './engine/store';
+import { RemoteBanner, RemoteConnectScreen, useRemoteGateActive } from './features/remote/RemoteGate';
 import { RuntimeSetupView } from './features/setup/RuntimeSetupView';
 import { SetupFlow } from './features/setup/SetupFlow';
 import { SplashView, appName } from './features/setup/SplashView';
@@ -14,7 +18,10 @@ import { MenuHost } from './ui/Menu';
 
 export default function App() {
   const phase = useEngine((s) => s.phase);
-  const setupPending = usePref('setupPending');
+  // A joined app skips the first-run steps (phone sync, welcome): they belong to the host's account.
+  const joined = useRemote((s) => s.mode === 'joined');
+  const setupPending = usePref('setupPending') && !joined;
+  const remoteGate = useRemoteGateActive();
 
   useEffect(() => {
     if (phase.kind === 'login') {
@@ -53,9 +60,12 @@ export default function App() {
       break;
   }
 
+  if (remoteGate) content = <RemoteConnectScreen />;
+
   return (
     <>
       {content}
+      <RemoteBanner />
       <MenuHost />
     </>
   );

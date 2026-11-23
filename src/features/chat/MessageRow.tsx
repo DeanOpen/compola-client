@@ -20,6 +20,7 @@ import {
 import { memo, type ReactNode, type RefObject } from 'react';
 import { copyPhoto, copyText, deleteForMe, pinMessage, recall, requestForward, requestUnpinMessage, setStarred } from '../../engine/messageActions';
 import { captionOf, copyableText, type ChatMessage } from '../../engine/models/chat';
+import { useIsViewer } from '../../engine/remote';
 import { Avatar } from '../../ui/Avatar';
 import { openContextMenu, openMenuBelow, type MenuItem } from '../../ui/Menu';
 import { BubbleContent } from './MessageContent';
@@ -75,7 +76,9 @@ function BubbleRow({ message, firstInGroup, lastInGroup, showStatus, isGroup, al
   const recalled = message.kind.type === 'recalled';
   const showsName = isGroup && !mine && firstInGroup;
   const myReactions = new Set(message.reactions.filter((r) => r.includesMe).map((r) => r.icon.emoji));
-  const menu = () => messageMenu(message, onReply, onReact);
+  // Joined to a Compola Server as a viewer: read and copy only.
+  const readOnly = useIsViewer();
+  const menu = () => messageMenu(message, onReply, onReact, readOnly);
 
   return (
     <div
@@ -99,7 +102,7 @@ function BubbleRow({ message, firstInGroup, lastInGroup, showStatus, isGroup, al
             </span>
           )}
           {/* Zalo PC: a like button on the bubble's corner; hovering it opens the six reactions. */}
-          {!recalled && (
+          {!recalled && !readOnly && (
             <div className="react-trigger">
               <button
                 className={`react-trigger-btn ${myReactions.size ? 'is-mine' : ''}`}
@@ -126,7 +129,7 @@ function BubbleRow({ message, firstInGroup, lastInGroup, showStatus, isGroup, al
           )}
           {/* Actions beside the bubble, aligned with its top edge: reply · forward · ⋯ */}
           <div className="hover-bar" role="toolbar" aria-label="Thao tác tin nhắn">
-            {!recalled && (
+            {!recalled && !readOnly && (
               <>
                 <BarButton title="Trả lời" onClick={() => onReply(message)}>
                   <Quote size={14} />
@@ -176,11 +179,25 @@ export function ReactionPicker({ mine, pick }: { mine: Set<string>; pick: (emoji
 /**
  * The official message menu, in its order: quick actions (reply, forward), copy, reactions, pin / star, then recall
  * and delete. Which items show comes from the official builder (`message.menu`); copying follows "Chặn chia sẻ" too.
+ * `readOnly` (a Compola Server viewer): copying only.
  */
-const messageMenu = (message: ChatMessage, onReply: (m: ChatMessage) => void, onReact: (emoji: string, m: ChatMessage) => void): MenuItem[] => {
+const messageMenu = (
+  message: ChatMessage,
+  onReply: (m: ChatMessage) => void,
+  onReact: (emoji: string, m: ChatMessage) => void,
+  readOnly = false,
+): MenuItem[] => {
   const a = message.menu;
   const items: MenuItem[] = [];
   const recalled = message.kind.type === 'recalled';
+  if (readOnly) {
+    if (recalled) return items;
+    if (a.isProtected) return [{ kind: 'label', label: 'Trò chuyện này đã bật Chặn chia sẻ' }];
+    const text = copyableText(message);
+    if (text) items.push({ label: 'Copy tin nhắn', icon: Copy, onSelect: () => void copyText(text, message.conversationId) });
+    if (message.kind.type === 'photo') items.push({ label: 'Copy hình ảnh', icon: ImageIcon, onSelect: () => void copyPhoto(message) });
+    return items;
+  }
   if (!recalled) {
     items.push({
       kind: 'reactions',

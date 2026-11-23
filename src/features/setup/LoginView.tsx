@@ -2,21 +2,29 @@
 // white card on a light blue background — the Compola logo and wordmark, "Đăng nhập tài khoản Zalo để kết nối với
 // Compola", a single "Với mã QR" tab, the QR in a bordered 240px box with its caption, then the numbered steps. The QR,
 // scan detection and confirmation come from the official client running underneath.
+// A second tab, "Compola Server", joins another Compola app's account instead (src/features/remote/JoinServer.tsx).
+// A joined app whose host is at the QR shows the host's QR here (only that tab), with "Rời máy chủ".
 // Wave 4 (docs/design-refs/wave4/login-setup): Telegram's compact QR card with numbered steps whose key words are bold,
 // an expired overlay inside the QR box, WhatsApp's trust line at the foot of the card.
 
-import { AlertTriangle, Info, Lock, RefreshCw, Smartphone } from 'lucide-react';
+import { AlertTriangle, Info, Lock, RefreshCw, Server, Smartphone } from 'lucide-react';
+import { useState } from 'react';
 import logo from '../../assets/compola-logo.svg';
 import { commands } from '../../engine/backend';
 import type { LoginState } from '../../engine/models/phase';
+import { remote, useRemote } from '../../engine/remote';
+import { JoinServer } from '../remote/JoinServer';
 import { Avatar } from '../../ui/Avatar';
 import { Spinner } from '../../ui/Spinner';
 import { BrandBackground } from './BrandBackground';
 import { appName } from './SplashView';
 
 export function LoginView({ state, notice }: { state: LoginState; notice: string | null }) {
-  const step = state.step;
   const refresh = () => void commands.refreshQr();
+  const joined = useRemote((s) => s.mode === 'joined');
+  const serverName = useRemote((s) => s.connection?.serverName || 'Compola Server');
+  const [tab, setTab] = useState<'qr' | 'server'>('qr');
+  const onServer = tab === 'server' && !joined;
   return (
     <BrandBackground>
       <div className="login-page fade-in">
@@ -25,76 +33,107 @@ export function LoginView({ state, notice }: { state: LoginState; notice: string
             <img src={logo} width={40} height={40} alt="" draggable={false} />
             <span className="login-wordmark">{appName}</span>
           </span>
-          <div className="login-lead">Đăng nhập tài khoản Zalo để kết nối với {appName}</div>
+          <div className="login-lead">
+            {onServer ? 'Đăng nhập Compola Server để dùng tài khoản Zalo chung' : joined ? `Đăng nhập tài khoản Zalo cho ${serverName}` : `Đăng nhập tài khoản Zalo để kết nối với ${appName}`}
+          </div>
         </div>
         <div className="login-card">
           <div className="login-tabs" role="tablist">
-            <span className="login-tab is-active" role="tab" aria-selected>
+            <button className={`login-tab ${!onServer ? 'is-active' : ''}`} role="tab" aria-selected={!onServer} onClick={() => setTab('qr')}>
               Với mã QR
+            </button>
+            {!joined && (
+              <button className={`login-tab ${onServer ? 'is-active' : ''}`} role="tab" aria-selected={onServer} onClick={() => setTab('server')}>
+                Compola Server
+              </button>
+            )}
+          </div>
+          {onServer ? (
+            <JoinServer onUseQr={() => setTab('qr')} />
+          ) : (
+            <QrBody state={state} notice={notice} refresh={refresh} />
+          )}
+          <div className="login-trust">
+            {onServer ? <Server size={12} /> : <Lock size={12} />}
+            <span>
+              {onServer
+                ? 'Phiên Zalo nằm trên máy chủ; máy này chỉ thấy những gì bạn được cấp quyền.'
+                : 'Tin nhắn đi thẳng tới máy chủ Zalo, không qua máy chủ nào khác.'}
             </span>
           </div>
-          <div className="login-body">
-            {notice && (
-              <div className="callout is-warning">
-                <AlertTriangle size={15} />
-                <span>{notice}</span>
-              </div>
-            )}
-            {state.isSecondQr && step.kind === 'waitingScan' && (
-              <div className="callout is-info">
-                <Info size={15} />
-                <span>
-                  <b>Bước 2/2.</b> Đã quét lần 1. Tài khoản của bạn cần quét thêm mã mới này để xác nhận thiết bị.
-                </span>
-              </div>
-            )}
-            <div className={`login-qr-box ${step.kind === 'waitingConfirm' || step.kind === 'failed' ? 'is-panel' : ''}`}>
-              <QrArea state={state} onRefresh={refresh} />
-            </div>
-            {step.kind === 'waitingConfirm' ? (
-              <div className="login-confirm-hint">
-                Chưa thấy yêu cầu trên điện thoại?{' '}
-                <button className="btn-link" onClick={refresh}>
-                  Dùng mã QR khác
-                </button>
-              </div>
-            ) : step.kind === 'failed' ? (
-              <div className="login-caption is-error">{step.message}</div>
-            ) : (
-              <>
-                <div className={`login-caption ${step.kind === 'expired' ? 'is-muted' : ''}`}>
-                  {step.kind === 'expired' ? 'Lấy mã mới rồi quét lại bằng Zalo trên điện thoại.' : `Chỉ dùng để đăng nhập ${appName} trên máy tính`}
-                </div>
-                <ol className="login-steps">
-                  <li>
-                    <span>
-                      Mở <b>Zalo</b> trên điện thoại
-                    </span>
-                  </li>
-                  <li>
-                    <span>
-                      Nhấn biểu tượng <b>QR</b> ở thanh tìm kiếm
-                    </span>
-                  </li>
-                  <li>
-                    <span>
-                      Quét mã và <b>xác nhận đăng nhập</b>
-                    </span>
-                  </li>
-                </ol>
-              </>
-            )}
-          </div>
-          <div className="login-trust">
-            <Lock size={12} />
-            <span>Tin nhắn đi thẳng tới máy chủ Zalo, không qua máy chủ nào khác.</span>
-          </div>
         </div>
-        <div className="login-footnote">
-          {appName} là ứng dụng độc lập, không liên kết với VNG hay Zalo. Ứng dụng chạy phần lõi chính thức của Zalo PC.
-        </div>
+        {joined ? (
+          <div className="login-footnote join-footnote">
+            <span>Máy này đang dùng tài khoản Zalo của {serverName}.</span>
+            <button className="btn-link" onClick={() => void remote.leave()}>
+              Rời máy chủ
+            </button>
+          </div>
+        ) : (
+          <div className="login-footnote">
+            {appName} là ứng dụng độc lập, không liên kết với VNG hay Zalo. Ứng dụng chạy phần lõi chính thức của Zalo PC.
+          </div>
+        )}
       </div>
     </BrandBackground>
+  );
+}
+
+function QrBody({ state, notice, refresh }: { state: LoginState; notice: string | null; refresh: () => void }) {
+  const step = state.step;
+  return (
+    <div className="login-body">
+      {notice && (
+        <div className="callout is-warning">
+          <AlertTriangle size={15} />
+          <span>{notice}</span>
+        </div>
+      )}
+      {state.isSecondQr && step.kind === 'waitingScan' && (
+        <div className="callout is-info">
+          <Info size={15} />
+          <span>
+            <b>Bước 2/2.</b> Đã quét lần 1. Tài khoản của bạn cần quét thêm mã mới này để xác nhận thiết bị.
+          </span>
+        </div>
+      )}
+      <div className={`login-qr-box ${step.kind === 'waitingConfirm' || step.kind === 'failed' ? 'is-panel' : ''}`}>
+        <QrArea state={state} onRefresh={refresh} />
+      </div>
+      {step.kind === 'waitingConfirm' ? (
+        <div className="login-confirm-hint">
+          Chưa thấy yêu cầu trên điện thoại?{' '}
+          <button className="btn-link" onClick={refresh}>
+            Dùng mã QR khác
+          </button>
+        </div>
+      ) : step.kind === 'failed' ? (
+        <div className="login-caption is-error">{step.message}</div>
+      ) : (
+        <>
+          <div className={`login-caption ${step.kind === 'expired' ? 'is-muted' : ''}`}>
+            {step.kind === 'expired' ? 'Lấy mã mới rồi quét lại bằng Zalo trên điện thoại.' : `Chỉ dùng để đăng nhập ${appName} trên máy tính`}
+          </div>
+          <ol className="login-steps">
+            <li>
+              <span>
+                Mở <b>Zalo</b> trên điện thoại
+              </span>
+            </li>
+            <li>
+              <span>
+                Nhấn biểu tượng <b>QR</b> ở thanh tìm kiếm
+              </span>
+            </li>
+            <li>
+              <span>
+                Quét mã và <b>xác nhận đăng nhập</b>
+              </span>
+            </li>
+          </ol>
+        </>
+      )}
+    </div>
   );
 }
 

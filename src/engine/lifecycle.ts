@@ -2,7 +2,7 @@
 
 import { resetStickers } from './stickers';
 import { startAddonRuntime } from './addons';
-import { backend, commands } from './backend';
+import { backend, commands, isJoined } from './backend';
 import { handleChat, sendText, stashFailedDraft } from './chat';
 import { dropComposerConfirms, handleCompose, handleScreenCapture } from './composer';
 import { obj, str } from './models/json';
@@ -13,6 +13,7 @@ import { handleConversationActions, republishConversationActions, resetConversat
 import { resetGroupMosaics } from './groupMosaic';
 import { handlePins, resetMessageActions, rewatchPins } from './messageActions';
 import type { Phase } from './models/phase';
+import { initRemote, remote, useRemote } from './remote';
 import { getEngine, resetAccount, setEngine } from './store';
 import './features';
 
@@ -47,6 +48,8 @@ export const startEngine = (): Promise<void> => {
   if (started) return started;
   started = (async () => {
     const b = await backend();
+    const joined = await isJoined();
+    await initRemote();
     await Promise.all([
       b.listen('compola://phase', (p) => setPhase(p as Phase)),
       b.listen('compola://state', dispatchState),
@@ -78,8 +81,20 @@ export const startEngine = (): Promise<void> => {
       }),
       b.listen('compola://screen-capture', handleScreenCapture),
     ]);
-    // Add-ons run in workers next to the UI (they get their events from Rust, not from this page's state).
-    void startAddonRuntime().catch((e) => console.warn('[addons] runtime failed to start', e));
+    if (joined) {
+      // The UI's state comes from the host: wait for the connection (the connection gate shows meanwhile), then
+      // read the phase and the replay like a local UI would.
+      try {
+        await remote.waitConnected();
+      } catch (e) {
+        console.warn('[remote] wait for the connection failed', e);
+      }
+      watchRemoteResync();
+    } else {
+      // Add-ons run in workers next to the UI (they get their events from Rust, not from this page's state). A joined
+      // app runs none: they act on the account, which lives on the host.
+      void startAddonRuntime().catch((e) => console.warn('[addons] runtime failed to start', e));
+    }
     try {
       setPhase(await commands.phase());
     } catch {
@@ -100,8 +115,32 @@ export const startEngine = (): Promise<void> => {
   return started;
 };
 
-/** Clears the session cookies and local client data, then shows a fresh QR. */
+/**
+ * Joined: events missed while the connection was down cannot be merged, so once it comes back the page reloads and
+ * resyncs from the host's replay; a changed access (role / scope) reloads too, since what the UI holds was filtered
+ * for the previous one.
+ */
+const watchRemoteResync = () => {
+  let dropped = false;
+  useRemote.subscribe((s, prev) => {
+    const c = s.connection;
+    if (!c || c === prev.connection) return;
+    const before = prev.connection?.access;
+    if (before && c.access && JSON.stringify(before) !== JSON.stringify(c.access)) location.reload();
+    else if (c.state !== 'connected') dropped = true;
+    else if (dropped) location.reload();
+  });
+};
+
+/**
+ * Clears the session cookies and local client data, then shows a fresh QR. Joined to a Compola Server: leaves the
+ * server instead (the Zalo account stays signed in on the host) and the app restarts.
+ */
 export const logOut = async () => {
+  if (await isJoined()) {
+    await remote.leave();
+    return;
+  }
   resetAccountState();
   await commands.logout();
 };

@@ -16,6 +16,7 @@ import {
 } from '../../engine/conversationActions';
 import { setConversationLabel } from '../../engine/conversations';
 import { cssColor } from '../../engine/models/conversations';
+import { hostSettingsLocked } from '../../engine/remote';
 import { getEngine } from '../../engine/store';
 import type { MenuItem } from '../../ui/Menu';
 import { Bell, BellOff } from 'lucide-react';
@@ -23,14 +24,19 @@ import { isConversationMuted, muteConversation, muteDurations, unmuteConversatio
 import { showUndoToast } from '../../engine/toast';
 import { openLabelManager } from './LabelManager';
 
-/** "Phân loại ▸": the labels (one per conversation; the checked one clears it) and the label manager. */
+/**
+ * "Phân loại ▸": the labels (one per conversation; the checked one clears it) and the label manager. Read only for a
+ * Compola Server user who is not an admin (Zalo labels are the host admins').
+ */
 export const labelMenu = (id: string): MenuItem => {
   const s = getEngine();
+  const locked = hostSettingsLocked();
   const current = s.extras.labelByConversation[id] ?? null;
   const labels: MenuItem[] = s.extras.labels.map((l) => ({
     label: l.name,
     dot: cssColor(l.colorHex) ?? undefined,
     checked: current === l.id,
+    disabled: locked,
     onSelect: () => setConversationLabel(id, current === l.id ? null : l.id),
   }));
   return {
@@ -41,7 +47,9 @@ export const labelMenu = (id: string): MenuItem => {
     items: [
       ...(labels.length ? labels : [{ label: 'Chưa có thẻ phân loại', disabled: true, onSelect: () => {} } as MenuItem]),
       { kind: 'separator' },
-      { label: 'Quản lý thẻ phân loại', icon: Settings2, onSelect: openLabelManager },
+      locked
+        ? { kind: 'label', label: 'Chỉ quản trị viên Compola Server đổi được phân loại' }
+        : { label: 'Quản lý thẻ phân loại', icon: Settings2, onSelect: openLabelManager },
     ],
   };
 };
@@ -64,8 +72,11 @@ export const conversationActionsMenu = (id: string, preset: MenuPreset = 'thread
   if (plan.read === 'markUnread') items.push({ label: 'Đánh dấu chưa đọc', icon: MailOpen, onSelect: () => void markConversationUnread(id) });
   items.push({ kind: 'separator' });
   if (plan.mute) items.push(muteMenuWithUndo(id));
-  if (plan.hide === 'hide') items.push({ label: 'Ẩn trò chuyện', icon: EyeOff, onSelect: () => setConversationPrompt({ kind: 'hide', id }) });
-  if (plan.hide === 'unhide') items.push({ label: 'Bỏ ẩn trò chuyện', icon: Eye, onSelect: () => setConversationPrompt({ kind: 'unhide', id }) });
+  // Hidden chats need the account's PIN: the host admins' on a Compola Server.
+  const pinLocked = hostSettingsLocked();
+  if (plan.hide === 'hide') items.push({ label: 'Ẩn trò chuyện', icon: EyeOff, disabled: pinLocked, onSelect: () => setConversationPrompt({ kind: 'hide', id }) });
+  if (plan.hide === 'unhide')
+    items.push({ label: 'Bỏ ẩn trò chuyện', icon: Eye, disabled: pinLocked, onSelect: () => setConversationPrompt({ kind: 'unhide', id }) });
   if (plan.canDelete) {
     items.push({ kind: 'separator' });
     items.push({ label: 'Xóa hội thoại', icon: Trash2, destructive: true, onSelect: () => requestDeleteConversation(id) });

@@ -7,6 +7,7 @@ import { Archive, ArrowLeft, ChevronDown, EyeOff, Lock, LockOpen, MoreHorizontal
 import { openAddFriend, openCreateGroup } from '../contacts/hosts';
 import { conversationActionsMenu } from '../conversationActions/menu';
 import { openLabelManager } from '../conversationActions/LabelManager';
+import { hostSettingsLocked } from '../../engine/remote';
 import { PINField } from '../conversationActions/ConversationPrompts';
 import { hiddenConversations, hiddenStateStallLimit, isHiddenConversation, relockHidden, unlockFromPINSearch } from '../../engine/conversationActions';
 import { openConversation } from '../../engine/chat';
@@ -324,7 +325,7 @@ function LabelFilterButton({ active }: { active: ConversationLabel | null }) {
           };
         }),
         { kind: 'separator' },
-        { label: 'Quản lý thẻ phân loại', onSelect: openLabelManager },
+        { label: 'Quản lý thẻ phân loại', disabled: hostSettingsLocked(), onSelect: openLabelManager },
       ],
       'end',
     );

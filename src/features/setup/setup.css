@@ -582,6 +582,7 @@
 .login-tabs {
   display: flex;
   justify-content: center;
+  gap: 32px;
   border-bottom: 1px solid var(--separator);
 }
 
@@ -592,6 +593,11 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.03em;
+  color: var(--text-secondary);
+}
+
+.login-tab:hover {
+  color: var(--text);
 }
 
 .login-tab.is-active {

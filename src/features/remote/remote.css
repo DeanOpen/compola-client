@@ -1,0 +1,397 @@
+/* Compola Server (docs/compola-server.md): the login card's join tab, the connection gate / banner of a joined app,
+   Settings › Compola Server and the read-only composer of a viewer. */
+
+/* MARK: Join tab (inside .login-card) */
+
+.join-body {
+  align-items: stretch;
+  gap: 14px;
+  padding-top: 20px;
+}
+
+.join-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.join-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 13px;
+}
+
+.join-field > span:first-child {
+  font-weight: 600;
+}
+
+.join-field-hint {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.join-input {
+  width: 100%;
+  height: 36px;
+  padding: 0 11px;
+  border: 1px solid var(--separator);
+  border-radius: 6px;
+  background: var(--content);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+}
+
+select.join-input {
+  appearance: auto;
+}
+
+.join-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.join-input::placeholder {
+  color: var(--text-placeholder);
+}
+
+.join-submit {
+  width: 100%;
+  margin-top: 2px;
+}
+
+.join-input.is-large {
+  height: 40px;
+  font-size: 15px;
+}
+
+/* "Máy chủ: <name> · đổi" (the resolved server), and the device signing in. */
+.join-server {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.join-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: var(--selected);
+  color: var(--text-info);
+  font-size: 13px;
+}
+
+.join-chip b {
+  font-weight: 600;
+}
+
+.join-chip .btn-link {
+  flex: none;
+  font-size: 13px;
+}
+
+.join-device {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.join-secondary {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+/* Provider tiles (Notion), when there are more than two SSO providers. */
+.join-tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.join-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 10px 6px 8px;
+  border: 1px solid var(--separator);
+  border-radius: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.join-tile:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+.join-tile-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--selected);
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.join-tile-name {
+  max-width: 100%;
+}
+
+.join-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.join-divider::before,
+.join-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--separator);
+}
+
+.join-sso {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.join-sso-button {
+  width: 100%;
+  height: 36px;
+}
+
+.join-waiting {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 0 4px;
+  text-align: center;
+}
+
+.join-waiting-title {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.join-hint {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+/* Browser sign-in (incident.io "Sign in with Slack"): Compola ⇄ server, the code in boxes, its expiry. */
+.join-browser {
+  align-items: center;
+  text-align: center;
+}
+
+.join-logos {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.join-logos-arrow {
+  color: var(--text-secondary);
+}
+
+.join-logos-server {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: var(--selected);
+  color: var(--accent);
+}
+
+.join-browser-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.join-code {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 52px;
+}
+
+.join-code-box {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 48px;
+  border: 1px solid var(--separator);
+  border-radius: 8px;
+  background: var(--content);
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.join-code-dash {
+  color: var(--text-secondary);
+  font-size: 20px;
+}
+
+.join-hint.is-error {
+  color: var(--danger);
+}
+
+.join-cancel {
+  color: var(--text-secondary);
+}
+
+.join-actions {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 16px;
+}
+
+.join-actions .btn-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.join-footnote {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* MARK: Connection gate and banner (joined app) */
+
+.remote-gate {
+  max-width: 380px;
+  text-align: center;
+}
+
+.remote-gate-error {
+  font-size: 13px;
+  color: var(--danger);
+}
+
+.remote-gate-identity {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+
+.remote-gate-identity b {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.remote-gate-actions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
+
+.remote-banner {
+  position: fixed;
+  top: 8px;
+  left: 50%;
+  z-index: 900;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100vw - 180px);
+  padding: 4px 6px 4px 12px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--warning) 18%, var(--content));
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+  color: color-mix(in srgb, var(--warning) 50%, var(--text));
+  font-size: 12.5px;
+  font-weight: 600;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.remote-banner .btn {
+  height: 22px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 12px;
+}
+
+/* MARK: Settings › Compola Server */
+
+.rs-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  padding: 14px;
+}
+
+.rs-form .is-wide {
+  grid-column: 1 / -1;
+}
+
+/* Sessions (Framer "Sessions" + Airtable): an icon with the online dot, the person on line 1, the device on line 2,
+   "Ngắt" on the right. */
+.rs-session-icon {
+  position: relative;
+}
+
+.rs-session-dot {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  box-shadow: 0 0 0 2px var(--st-bg, var(--content));
+}
+
+.rs-session-person {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.rs-session-person b {
+  font-weight: 600;
+}
+
+.rs-session-username {
+  color: var(--text-secondary);
+}
+
+/* MARK: Read-only composer (viewer role) */
+
+.composer-readonly {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 52px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--content);
+  color: var(--text-secondary);
+  font-size: 13px;
+}

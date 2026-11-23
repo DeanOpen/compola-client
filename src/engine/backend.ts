@@ -18,7 +18,9 @@ export type EngineEvent =
   /** ZaloCap outcome: `{kind: send|sendToMe|share|shareText|noPermission|failed, …}`. */
   | 'compola://screen-capture'
   /** Automation (MCP, schedules, add-ons): `{kind: changed|message|schedule|toolCall, …}` (src-tauri/src/automation). */
-  | 'compola://automation';
+  | 'compola://automation'
+  /** Compola Server (src/engine/remote.ts): `{kind: changed|connection|joinProgress|access, …}`. */
+  | 'compola://remote';
 
 export interface Backend {
   readonly isMock: boolean;
@@ -37,11 +39,72 @@ export const mockRequested = (() => {
 
 export const usesMock = mockRequested || !insideTauri;
 
+type RawInvoke = <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
+
+// MARK: - Joined to a Compola Server (docs/compola-server.md, "Joined app — Tauri commands")
+
+/** Commands a joined UI still runs on this machine (besides every `remote_*`). */
+const joinedLocal = new Set([
+  'ui_widen_window',
+  'clipboard_paste_files',
+  'media_allow_previews',
+  'notification_authorization',
+  'notification_request_authorization',
+  'ui_set_open_conversation',
+  'ui_set_shows_preview',
+  'calls_status',
+]);
+
+/** Commands a joined UI runs through their `remote_*` counterpart (same arguments). */
+const joinedRewritten: Record<string, string> = {
+  engine_call_with_files: 'remote_call_with_files',
+  media_save: 'remote_media_save',
+  media_open_file: 'remote_media_open_file',
+  engine_logout: 'remote_leave',
+};
+
+/** Only make sense on the machine signed in to Zalo. */
+const joinedRefused = new Set(['screen_capture_start', 'call_show_window', 'engine_show_renderer', 'engine_switch_to_sqlite', 'engine_eval']);
+
+/** The automation commands the host serves to joined apps (with their access applied). */
+const joinedHostAutomation = new Set(['automation_search', 'automation_search_status', 'automation_conversations', 'automation_messages']);
+
+export const joinedRefusal = 'Tính năng này chỉ dùng được trên máy chủ Compola Server.';
+
+const routeJoined = <T>(raw: RawInvoke, command: string, args?: Record<string, unknown>): Promise<T> => {
+  if (command.startsWith('remote_') || joinedLocal.has(command)) return raw<T>(command, args);
+  const rewritten = joinedRewritten[command];
+  if (rewritten) return raw<T>(rewritten, args);
+  if (
+    joinedRefused.has(command) ||
+    ((command.startsWith('automation_') || command.startsWith('ai_clients_')) && !joinedHostAutomation.has(command))
+  ) {
+    // Rejected like a Tauri command error (a string).
+    return Promise.reject(joinedRefusal);
+  }
+  return raw<T>('remote_invoke', { command, args: args ?? {} });
+};
+
+const readJoined = (raw: RawInvoke): Promise<boolean> =>
+  raw<{ mode?: string } | null>('remote_status').then(
+    (s) => s?.mode === 'joined',
+    () => false,
+  );
+
+/** The real app's answer, read while its backend is created. */
+let tauriJoined: Promise<boolean> | null = null;
+let joinedPromise: Promise<boolean> | null = null;
+let joinedNow = false;
+
 const tauriBackend = async (): Promise<Backend> => {
   const [{ invoke }, { listen }] = await Promise.all([import('@tauri-apps/api/core'), import('@tauri-apps/api/event')]);
+  const raw: RawInvoke = (command, args) => invoke(command, args);
+  // Asked once: joining or leaving a server restarts the app.
+  tauriJoined = readJoined(raw);
+  const joined = await tauriJoined;
   return {
     isMock: false,
-    invoke: (command, args) => invoke(command, args),
+    invoke: joined ? (command, args) => routeJoined(raw, command, args) : raw,
     listen: async (event, handler) => listen(event, (e) => handler(e.payload)),
   };
 };
@@ -54,6 +117,25 @@ export const backend = (): Promise<Backend> => {
   }
   return backendPromise;
 };
+
+/**
+ * Whether this app is joined to a Compola Server (its UI then talks to the host; the local engine does not run).
+ * Asked once per launch. The mock answers too (its commands are not routed).
+ */
+export const isJoined = (): Promise<boolean> => {
+  if (!joinedPromise) {
+    joinedPromise = backend()
+      .then((b) => (b.isMock || !tauriJoined ? readJoined((c, a) => b.invoke(c, a)) : tauriJoined))
+      .then((joined) => {
+        joinedNow = joined;
+        return joined;
+      });
+  }
+  return joinedPromise;
+};
+
+/** `isJoined()` once it resolved (false before). */
+export const joinedSync = () => joinedNow;
 
 /** Commands of the Rust engine (engine.rs `#[tauri::command]`). */
 export const commands = {

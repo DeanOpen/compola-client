@@ -4,9 +4,11 @@
 // live in the list column's tabs and the stranger row.
 
 import { Cloud, HardDrive, LogOut, MessageCircle, RefreshCw, Settings, SquareUser, UserRound, type LucideIcon } from 'lucide-react';
-import { useMemo, type MouseEvent } from 'react';
+import { useMemo, useState, type MouseEvent } from 'react';
 import { useContacts } from '../engine/contacts';
 import { logOut } from '../engine/lifecycle';
+import { deviceTitle, useRemote, userTitle } from '../engine/remote';
+import { LeaveServerAlert } from '../features/remote/RemoteGate';
 import { openMyProfile } from '../features/contacts/hosts';
 import { openSettings } from '../features/settings/hosts';
 import { openTransfer } from '../features/transfer/hosts';
@@ -29,6 +31,12 @@ export function Rail() {
   const counts = useMemo(() => unreadCounts(useEngine.getState()), [conversations, extras, actions]);
   const name = profile?.displayName || 'Tài khoản của tôi';
   const contacts = useContacts();
+  // Joined to a Compola Server: no phone sync (the account lives on the host), and "log out" leaves the server.
+  const joined = useRemote((s) => s.mode === 'joined');
+  const serverName = useRemote((s) => s.connection?.serverName);
+  const remoteUser = useRemote((s) => s.connection?.user ?? null);
+  const device = useRemote((s) => (s.connection ? deviceTitle(s.connection.deviceName, s.connection.deviceId) : ''));
+  const [confirmLeave, setConfirmLeave] = useState(false);
 
   const onSelfChat = !!selfId && selection === selfId && isConversationList(destination);
   const messagesActive = isConversationList(destination) && !onSelfChat;
@@ -37,11 +45,20 @@ export function Rail() {
     const items: MenuItem[] = [
       // Who is signed in (wave 4, after Snowflake's account menu): name, then the number.
       { kind: 'label', label: profile?.phone ? `${name} · ${profile.phone}` : name },
+      // Joined: who is signed in to the server (a person's account) and, separately, this device.
+      ...(joined
+        ? ([
+            { kind: 'label', label: `Đăng nhập với tư cách ${userTitle(remoteUser)}` },
+            { kind: 'label', label: `Thiết bị: ${device}` },
+          ] as MenuItem[])
+        : []),
       { label: 'Hồ sơ của bạn', icon: UserRound, onSelect: openMyProfile },
-      { label: 'Đồng bộ tin nhắn từ điện thoại…', icon: RefreshCw, disabled: !canStartTransfer, onSelect: openTransfer },
+      ...(joined ? [] : [{ label: 'Đồng bộ tin nhắn từ điện thoại…', icon: RefreshCw, disabled: !canStartTransfer, onSelect: openTransfer }]),
       { label: 'Cài đặt', icon: Settings, shortcut: '⌘,', onSelect: openSettings },
       { kind: 'separator' },
-      { label: 'Đăng xuất', icon: LogOut, destructive: true, onSelect: () => void logOut() },
+      joined
+        ? { label: 'Rời Compola Server', icon: LogOut, destructive: true, onSelect: () => setConfirmLeave(true) }
+        : { label: 'Đăng xuất', icon: LogOut, destructive: true, onSelect: () => void logOut() },
     ];
     openMenuBelow(e.currentTarget, items);
   };
@@ -85,6 +102,7 @@ export function Rail() {
         <RailItem icon={HardDrive} label="zCloud" selected={destination === 'zcloud'} onClick={() => shell.setDestination('zcloud')} />
         <RailItem icon={Settings} label="Cài đặt (⌘,)" selected={false} onClick={() => openSettings()} />
       </div>
+      {confirmLeave && <LeaveServerAlert serverName={serverName} onClose={() => setConfirmLeave(false)} />}
     </nav>
   );
 }

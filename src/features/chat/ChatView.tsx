@@ -4,13 +4,14 @@ import { StrangerRequestBar } from '../contacts/StrangerRequestBar';
 import { useMessageJumpRequest } from '../../engine/messageJump';
 import { SendPreviewSheet } from '../attach/SendPreviewSheet';
 import { ReminderDetailHost } from './cards/ReminderCard';
-import { BellOff, MessageSquareDashed, PanelRight, Search, Upload, UserPlus, type LucideIcon } from 'lucide-react';
+import { BellOff, Eye, MessageSquareDashed, PanelRight, Search, Upload, UserPlus, type LucideIcon } from 'lucide-react';
 import { CallButtons } from '../calls/CallButtons';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { onFileDrop } from '../../engine/backend';
 import { markRead, sendText, stashFailedDraft, takeFailedDraft } from '../../engine/chat';
 import { clipboardFiles, reportComposer, sendPaths } from '../../engine/composer';
 import { pinnedMessage } from '../../engine/messageActions';
+import { useIsViewer } from '../../engine/remote';
 import { appendDraft, isStandalone, type ChatMessage, type ComposerDraft } from '../../engine/models/chat';
 import { type ConversationSummary } from '../../engine/models/conversations';
 import { pinnedLabel, type PinnedItem } from '../../engine/models/outcomes';
@@ -33,9 +34,12 @@ const emptyDraft: ComposerDraft = { text: '', mentions: [], replyTo: null };
 export function ChatView({ conversation }: { conversation: ConversationSummary }) {
   const [pendingPaste, setPendingPaste] = useState<string[] | null>(null);
   const [dropping, setDropping] = useState(false);
+  // Joined to a Compola Server with the viewer role: nothing can be sent (the host refuses it anyway).
+  const readOnly = useIsViewer();
   // Files dropped anywhere on the window go to the open conversation (photos as photos, the rest as files). Several
   // files, or a drop with ⌥ held, open the send preview first (remove items, add a caption).
   useEffect(() => {
+    if (readOnly) return;
     let off: (() => void) | undefined;
     let alive = true;
     let option = false;
@@ -58,7 +62,7 @@ export function ChatView({ conversation }: { conversation: ConversationSummary }
       window.removeEventListener('keydown', key);
       window.removeEventListener('keyup', key);
     };
-  }, [conversation.id]);
+  }, [conversation.id, readOnly]);
   const id = conversation.id;
   const loaded = useEngine((s) => s.messages[id]);
   const typingName = useEngine((s) => s.typing[id]);
@@ -214,18 +218,26 @@ export function ChatView({ conversation }: { conversation: ConversationSummary }
         <ToastView conversationId={id} bottom={0} />
         {/* Hides itself for friends and blocked people. */}
         {!conversation.isGroup && id !== selfId && <StrangerRequestBar conversationId={id} name={conversation.name} />}
-        <Composer
-        name={conversation.name}
-        conversationId={id}
-        isGroup={conversation.isGroup}
-        draft={draft}
-        onDraftChange={setDraft}
-        typingName={typingName ?? null}
-        focusTick={focusTick}
-        onSend={send}
-        onSendLike={sendLike}
-          onPasteFiles={() => void clipboardFiles().then((paths) => paths.length && setPendingPaste(paths))}
-        />
+        {readOnly ? (
+          // Styled in features/remote/remote.css.
+          <div className="composer-readonly" role="note">
+            <Eye size={15} />
+            <span>Bạn chỉ có quyền xem cuộc trò chuyện này</span>
+          </div>
+        ) : (
+          <Composer
+            name={conversation.name}
+            conversationId={id}
+            isGroup={conversation.isGroup}
+            draft={draft}
+            onDraftChange={setDraft}
+            typingName={typingName ?? null}
+            focusTick={focusTick}
+            onSend={send}
+            onSendLike={sendLike}
+            onPasteFiles={() => void clipboardFiles().then((paths) => paths.length && setPendingPaste(paths))}
+          />
+        )}
       </div>
       {dropping && (
         <div className="chat-drop-overlay fade-in">

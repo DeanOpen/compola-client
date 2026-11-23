@@ -20,6 +20,7 @@ import {
   Lock,
   LogOut,
   Monitor,
+  Network,
   Moon,
   Palette,
   RefreshCw,
@@ -64,10 +65,13 @@ import { accents, appearances, setAppearancePref, textSizes, useAppearancePrefs,
 import { transferBlockedText } from '../../engine/transfer';
 import { AddonSettings, McpSettings, ScheduleSettings } from './AutomationSettings';
 import { SearchSettings } from './SearchSettings';
+import { adminOnlyHint, deviceTitle, useHostSettingsLocked, useRemote, userTitle } from '../../engine/remote';
+import { LeaveServerAlert } from '../remote/RemoteGate';
+import { ServerSettings } from '../remote/ServerSettings';
 import './settings.css';
 import './automation.css';
 
-export type SettingsTab = 'general' | 'appearance' | 'notifications' | 'privacy' | 'sticker' | 'account' | 'mcp' | 'schedules' | 'addons' | 'search' | 'engine';
+export type SettingsTab = 'general' | 'appearance' | 'notifications' | 'privacy' | 'sticker' | 'account' | 'mcp' | 'schedules' | 'addons' | 'search' | 'engine' | 'server';
 
 interface TabInfo {
   id: SettingsTab;
@@ -90,6 +94,13 @@ const tabs: TabInfo[] = [
   { id: 'schedules', title: 'Lịch tự động', icon: CalendarClock, subtitle: 'Hẹn giờ gửi tin nhắn và chạy công cụ theo lịch cron.', keywords: 'cron lịch hẹn giờ tự động gửi tin nhắn định kỳ schedule' },
   { id: 'search', title: 'Tìm kiếm', icon: TextSearch, subtitle: 'Tìm tin nhắn không phân biệt dấu và theo ý nghĩa (RAG).', keywords: 'tìm kiếm search rag embeddings ollama ý nghĩa chỉ mục index' },
   { id: 'addons', title: 'Add-on', icon: Puzzle, subtitle: 'Mở rộng Compola bằng các tiện ích JavaScript.', keywords: 'add-on addon plugin tiện ích mở rộng trả lời tự động từ khoá tóm tắt' },
+  {
+    id: 'server',
+    title: 'Compola Server',
+    icon: Network,
+    subtitle: 'Chia sẻ tài khoản Zalo này cho cả nhóm qua mạng.',
+    keywords: 'compola server máy chủ chia sẻ nhóm nhân viên quản trị ldap sso đăng nhập lan tailscale thiết bị',
+  },
   { id: 'engine', title: 'Engine', icon: Cpu, subtitle: 'Mã Zalo PC chính thức chạy ẩn bên dưới Compola.', keywords: 'sqlite indexeddb renderer nhật ký log lưu trữ' },
 ];
 
@@ -97,8 +108,11 @@ const tabs: TabInfo[] = [
 const navGroups: { title: string; ids: SettingsTab[] }[] = [
   { title: 'Ứng dụng', ids: ['general', 'appearance', 'notifications', 'privacy', 'sticker'] },
   { title: 'Tài khoản', ids: ['account'] },
-  { title: 'Nâng cao', ids: ['search', 'mcp', 'schedules', 'addons', 'engine'] },
+  { title: 'Nâng cao', ids: ['server', 'search', 'mcp', 'schedules', 'addons', 'engine'] },
 ];
+
+/** Sections that act on this machine's own engine: hidden while joined to a Compola Server (the host refuses them). */
+const localOnlyTabs: SettingsTab[] = ['mcp', 'schedules', 'addons', 'search', 'engine'];
 
 const fold = (t: string) =>
   t
@@ -107,13 +121,16 @@ const fold = (t: string) =>
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/đ/g, 'd');
 
-export function SettingsDialog({ tab, onTab, onClose }: { tab: SettingsTab; onTab: (t: SettingsTab) => void; onClose: () => void }) {
+export function SettingsDialog({ tab: requested, onTab, onClose }: { tab: SettingsTab; onTab: (t: SettingsTab) => void; onClose: () => void }) {
   useEscape(true, onClose);
   const [query, setQuery] = useState('');
   const profile = useEngine((s) => s.profile);
-  const current = tabs.find((t) => t.id === tab) ?? tabs[0];
+  const joined = useRemote((s) => s.mode === 'joined');
+  const available = joined ? tabs.filter((t) => !localOnlyTabs.includes(t.id)) : tabs;
+  const current = available.find((t) => t.id === requested) ?? available[0];
+  const tab = current.id;
   const q = fold(query.trim());
-  const matches = (t: TabInfo) => !q || fold(`${t.title} ${t.keywords}`).includes(q);
+  const matches = (t: TabInfo) => available.includes(t) && (!q || fold(`${t.title} ${t.keywords}`).includes(q));
   const visible = tabs.filter(matches);
   return createPortal(
     <div className="sheet-backdrop fade-in" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
@@ -181,6 +198,7 @@ export function SettingsDialog({ tab, onTab, onClose }: { tab: SettingsTab; onTa
             {tab === 'addons' && <AddonSettings />}
             {tab === 'search' && <SearchSettings />}
             {tab === 'engine' && <EngineSettings />}
+            {tab === 'server' && <ServerSettings />}
           </div>
         </section>
       </div>
@@ -226,6 +244,11 @@ function Callout({ tone, icon: Icon, title, detail, action }: { tone: 'info' | '
       {action}
     </div>
   );
+}
+
+/** Joined to a Compola Server without the admin role: the account's settings are the host admins'. */
+function HostSettingsNote() {
+  return <Callout tone="info" icon={Lock} title={adminOnlyHint} detail="Cài đặt này áp dụng cho tài khoản Zalo trên máy chủ, cho mọi người dùng chung." />;
 }
 
 export function Toggle({ on, disabled, onChange, label }: { on: boolean; disabled?: boolean; onChange: (on: boolean) => void; label: string }) {
@@ -408,6 +431,7 @@ function ThemeThumb({ kind }: { kind: Appearance }) {
 
 function NotificationSettings() {
   const s = useNotifications();
+  const locked = useHostSettingsLocked();
   useEffect(() => notificationSettingsDidAppear(), []);
   // Back from System Settings ("Mở Cài đặt…"): the permission may have changed.
   useEffect(() => {
@@ -444,15 +468,16 @@ function NotificationSettings() {
         />
       )}
       {s.authorization === 'unavailable' && <Callout tone="info" icon={Info} title={`Thông báo chỉ hoạt động khi chạy ${appName}.app.`} />}
+      {locked && <HostSettingsNote />}
       <Section
         title="Tin nhắn"
         footer="Zalo quyết định khi nào báo tin mới (tắt thông báo hội thoại, nhóm hay cá nhân, đang mở ứng dụng…). Chế độ Tập trung / Không làm phiền của macOS vẫn được áp dụng."
       >
         <Row label="Thông báo tin nhắn mới" detail="Nhận được thông báo mỗi khi có tin nhắn mới">
-          <Toggle label="Thông báo tin nhắn mới" on={s.enabled} disabled={!s.isLoaded} onChange={setNotificationsEnabled} />
+          <Toggle label="Thông báo tin nhắn mới" on={s.enabled} disabled={!s.isLoaded || locked} onChange={setNotificationsEnabled} />
         </Row>
         <Row label="Phát âm thanh khi có tin nhắn & thông báo mới" detail={s.enabled ? undefined : 'Bật thông báo tin nhắn mới để dùng tuỳ chọn này'}>
-          <Toggle label="Phát âm thanh khi có tin nhắn & thông báo mới" on={s.sound} disabled={!s.isLoaded || !s.enabled} onChange={setNotificationSound} />
+          <Toggle label="Phát âm thanh khi có tin nhắn & thông báo mới" on={s.sound} disabled={!s.isLoaded || !s.enabled || locked} onChange={setNotificationSound} />
         </Row>
         <Row label="Hiện nội dung tin nhắn" detail="Tắt để chỉ hiện “Bạn có tin nhắn mới”">
           <Toggle label="Hiện nội dung tin nhắn" on={s.showsPreview} onChange={setMessagePreview} />
@@ -469,13 +494,13 @@ function NotificationSettings() {
           </span>
         </div>
       </Section>
-      <MutedConversations />
+      <MutedConversations locked={locked} />
     </>
   );
 }
 
 /** Conversations whose notifications are off, with a way to turn them back on (hidden chats stay out). */
-function MutedConversations() {
+function MutedConversations({ locked }: { locked: boolean }) {
   const settings = useNotifications();
   const engine = useEngine();
   const muted = engine.conversationActions.hiddenKnown ? activeMutes(settings).filter((m) => !isHidden(engine, m.id)) : [];
@@ -491,7 +516,7 @@ function MutedConversations() {
             <div className="st-row-label truncate">{nameOf(m.id)}</div>
             <div className="st-row-detail">{muteDescription(m.info)}</div>
           </div>
-          <button className="st-button" onClick={() => unmuteConversation(m.id)}>
+          <button className="st-button" disabled={locked} title={locked ? adminOnlyHint : undefined} onClick={() => unmuteConversation(m.id)}>
             Bật lại
           </button>
         </div>
@@ -504,34 +529,38 @@ function MutedConversations() {
 
 function PrivacySettings() {
   const state = useEngine((s) => s.conversationActions);
+  const locked = useHostSettingsLocked();
   return (
-    <Section title="Thiết lập ẩn trò chuyện">
-      {state.loaded && state.hiddenEnabled ? (
-        // Swift `HiddenChatSettingsSection`: set the PIN, or change / reset it (the flows run in ConversationPrompts).
-        state.hasHiddenPIN ? (
-          <>
-            <Row label="Đổi mã PIN" detail="Đổi mã PIN cho trò chuyện ẩn">
-              <button className="btn btn-glass btn-small" onClick={() => setConversationPrompt({ kind: 'pinSettings', flow: 'changePIN' })}>
-                Đổi mã PIN
+    <>
+      {locked && <HostSettingsNote />}
+      <Section title="Thiết lập ẩn trò chuyện">
+        {state.loaded && state.hiddenEnabled ? (
+          // Swift `HiddenChatSettingsSection`: set the PIN, or change / reset it (the flows run in ConversationPrompts).
+          state.hasHiddenPIN ? (
+            <>
+              <Row label="Đổi mã PIN" detail="Đổi mã PIN cho trò chuyện ẩn">
+                <button className="btn btn-glass btn-small" disabled={locked} onClick={() => setConversationPrompt({ kind: 'pinSettings', flow: 'changePIN' })}>
+                  Đổi mã PIN
+                </button>
+              </Row>
+              <Row label="Đặt lại mã PIN" detail="Tất cả trò chuyện đang ẩn sẽ bị xóa và không thể khôi phục">
+                <button className="btn btn-glass btn-small btn-danger" disabled={locked} onClick={() => setConversationPrompt({ kind: 'pinSettings', flow: 'resetPIN' })}>
+                  Đặt lại mã PIN
+                </button>
+              </Row>
+            </>
+          ) : (
+            <Row label="Ẩn trò chuyện" detail="Đặt mã PIN cho các cuộc trò chuyện riêng tư để tránh người khác nhìn thấy trên máy của bạn">
+              <button className="btn btn-prominent btn-small" disabled={locked} onClick={() => setConversationPrompt({ kind: 'pinSettings', flow: 'setPIN' })}>
+                Cài đặt mã PIN
               </button>
             </Row>
-            <Row label="Đặt lại mã PIN" detail="Tất cả trò chuyện đang ẩn sẽ bị xóa và không thể khôi phục">
-              <button className="btn btn-glass btn-small btn-danger" onClick={() => setConversationPrompt({ kind: 'pinSettings', flow: 'resetPIN' })}>
-                Đặt lại mã PIN
-              </button>
-            </Row>
-          </>
+          )
         ) : (
-          <Row label="Ẩn trò chuyện" detail="Đặt mã PIN cho các cuộc trò chuyện riêng tư để tránh người khác nhìn thấy trên máy của bạn">
-            <button className="btn btn-prominent btn-small" onClick={() => setConversationPrompt({ kind: 'pinSettings', flow: 'setPIN' })}>
-              Cài đặt mã PIN
-            </button>
-          </Row>
-        )
-      ) : (
-        <Row label={<span className="st-muted">{state.loaded ? 'Tính năng ẩn trò chuyện chưa được bật cho tài khoản này.' : 'Đang tải thiết lập từ Zalo…'}</span>} />
-      )}
-    </Section>
+          <Row label={<span className="st-muted">{state.loaded ? 'Tính năng ẩn trò chuyện chưa được bật cho tài khoản này.' : 'Đang tải thiết lập từ Zalo…'}</span>} />
+        )}
+      </Section>
+    </>
   );
 }
 
@@ -539,6 +568,7 @@ function PrivacySettings() {
 
 /** "Gợi ý Sticker": the official `auto_sticker` flag (sticker-adapter.js `suggestSetting` / `setSuggestSetting`). */
 function StickerSettings() {
+  const locked = useHostSettingsLocked();
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -576,11 +606,14 @@ function StickerSettings() {
   };
 
   return (
-    <Section title="Gợi ý Sticker" footer={failed ? <span className="st-warning">Không thể đổi cài đặt này lúc này. Hãy thử lại sau.</span> : undefined}>
-      <Row label="Hiện gợi ý Sticker phù hợp với nội dung tin nhắn đang soạn">
-        <Toggle label="Gợi ý Sticker" on={enabled ?? true} disabled={enabled === null || busy} onChange={(on) => void change(on)} />
-      </Row>
-    </Section>
+    <>
+      {locked && <HostSettingsNote />}
+      <Section title="Gợi ý Sticker" footer={failed ? <span className="st-warning">Không thể đổi cài đặt này lúc này. Hãy thử lại sau.</span> : undefined}>
+        <Row label="Hiện gợi ý Sticker phù hợp với nội dung tin nhắn đang soạn">
+          <Toggle label="Gợi ý Sticker" on={enabled ?? true} disabled={enabled === null || busy || locked} onChange={(on) => void change(on)} />
+        </Row>
+      </Section>
+    </>
   );
 }
 
@@ -591,6 +624,11 @@ function AccountSettings({ onClose }: { onClose: () => void }) {
   const canStartTransfer = useEngine((s) => s.canStartTransfer);
   const blocked = useEngine((s) => s.transferStartBlockedReason);
   const [confirmLogout, setConfirmLogout] = useState(false);
+  // Joined to a Compola Server: the account is signed in on the host; this machine can only leave the server.
+  const joined = useRemote((s) => s.mode === 'joined');
+  const serverName = useRemote((s) => s.connection?.serverName);
+  const remoteUser = useRemote((s) => s.connection?.user ?? null);
+  const device = useRemote((s) => (s.connection ? deviceTitle(s.connection.deviceName, s.connection.deviceId) : ''));
   return (
     <>
       <div className="st-profile-card">
@@ -606,41 +644,68 @@ function AccountSettings({ onClose }: { onClose: () => void }) {
           </span>
         </div>
       </div>
-      <Section title="Sao lưu & đồng bộ">
-        <div className="st-row">
-          <span className="st-icon-tile">
-            <Smartphone size={18} />
-          </span>
-          <div className="st-row-text">
-            <div className="st-row-label">Đồng bộ tin nhắn từ điện thoại</div>
-            <div className="st-row-detail">
-              {canStartTransfer ? 'Đưa lịch sử trò chuyện từ điện thoại sang máy Mac này.' : blocked ? transferBlockedText(blocked) : 'Đang chuẩn bị…'}
+      {!joined && (
+        <Section title="Sao lưu & đồng bộ">
+          <div className="st-row">
+            <span className="st-icon-tile">
+              <Smartphone size={18} />
+            </span>
+            <div className="st-row-text">
+              <div className="st-row-label">Đồng bộ tin nhắn từ điện thoại</div>
+              <div className="st-row-detail">
+                {canStartTransfer ? 'Đưa lịch sử trò chuyện từ điện thoại sang máy Mac này.' : blocked ? transferBlockedText(blocked) : 'Đang chuẩn bị…'}
+              </div>
             </div>
+            <button
+              className="st-button is-primary"
+              disabled={!canStartTransfer}
+              onClick={() => {
+                onClose();
+                openTransfer();
+              }}
+            >
+              Đồng bộ ngay
+            </button>
           </div>
-          <button
-            className="st-button is-primary"
-            disabled={!canStartTransfer}
-            onClick={() => {
-              onClose();
-              openTransfer();
-            }}
-          >
-            Đồng bộ ngay
-          </button>
-        </div>
-      </Section>
-      <Section title="Đăng xuất" tone="danger">
-        <div className="st-row">
-          <div className="st-row-text">
-            <div className="st-row-label">Đăng xuất khỏi {appName}</div>
-            <div className="st-row-detail">Dữ liệu trên máy này được xoá; lần sau cần quét mã QR để đăng nhập lại.</div>
+        </Section>
+      )}
+      {joined ? (
+        <>
+          <Section title="Compola Server">
+            <Row label="Đăng nhập với tư cách">
+              <span className="st-value">{userTitle(remoteUser)}</span>
+            </Row>
+            <Row label="Thiết bị">
+              <span className="st-value">{device}</span>
+            </Row>
+          </Section>
+          <Section title="Rời máy chủ" tone="danger">
+            <div className="st-row">
+              <div className="st-row-text">
+                <div className="st-row-label">Rời Compola Server</div>
+                <div className="st-row-detail">Tài khoản Zalo vẫn đăng nhập trên {serverName || 'máy chủ'}. Ứng dụng khởi động lại và dùng riêng trên máy này.</div>
+              </div>
+              <button className="st-button is-danger" onClick={() => setConfirmLogout(true)}>
+                <LogOut size={14} /> Rời máy chủ
+              </button>
+            </div>
+          </Section>
+        </>
+      ) : (
+        <Section title="Đăng xuất" tone="danger">
+          <div className="st-row">
+            <div className="st-row-text">
+              <div className="st-row-label">Đăng xuất khỏi {appName}</div>
+              <div className="st-row-detail">Dữ liệu trên máy này được xoá; lần sau cần quét mã QR để đăng nhập lại.</div>
+            </div>
+            <button className="st-button is-danger" disabled={!profile} onClick={() => setConfirmLogout(true)}>
+              <LogOut size={14} /> Đăng xuất
+            </button>
           </div>
-          <button className="st-button is-danger" disabled={!profile} onClick={() => setConfirmLogout(true)}>
-            <LogOut size={14} /> Đăng xuất
-          </button>
-        </div>
-      </Section>
-      {confirmLogout && (
+        </Section>
+      )}
+      {confirmLogout && joined && <LeaveServerAlert serverName={serverName} onClose={() => setConfirmLogout(false)} />}
+      {confirmLogout && !joined && (
         <Alert
           title="Đăng xuất?"
           message="Bạn sẽ cần quét mã QR bằng Zalo trên điện thoại để đăng nhập lại."
