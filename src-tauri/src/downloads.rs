@@ -131,6 +131,7 @@ impl Failure {
             E::NameNotResolved => Self::net("ERR_NAME_NOT_RESOLVED", 34),
             E::Connect => Self::net("ERR_CONNECTION_FAILED", 33),
             E::Tls => Self::net("ERR_SSL_PROTOCOL_ERROR", 36),
+            E::TooLarge => Self::too_large(),
             E::Other(detail) => {
                 log::debug!("download transport error: {detail}");
                 Self::net("ERR_CONNECTION_FAILED", 33)

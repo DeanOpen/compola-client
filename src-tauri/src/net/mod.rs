@@ -547,10 +547,34 @@ pub enum FetchError {
     NameNotResolved,
     Connect,
     Tls,
+    /// The body exceeded the transport's limit.
+    TooLarge,
     Other(String),
 }
 
 impl FetchError {
+    /// A helper failure (upstream timeout / DNS / TLS text as Go reports it).
+    fn from_helper(e: fingerprint::Error) -> Self {
+        match e {
+            fingerprint::Error::TooLarge => FetchError::TooLarge,
+            fingerprint::Error::Unavailable => FetchError::Other("fingerprint helper connection lost".into()),
+            fingerprint::Error::Failed(msg) => {
+                let lower = msg.to_ascii_lowercase();
+                if is_timeout_message(&msg) {
+                    FetchError::Timeout
+                } else if lower.contains("no such host") || lower.contains("lookup ") {
+                    FetchError::NameNotResolved
+                } else if lower.contains("tls") || lower.contains("certificate") || lower.contains("x509") {
+                    FetchError::Tls
+                } else if lower.contains("connection refused") || lower.contains("dial ") {
+                    FetchError::Connect
+                } else {
+                    FetchError::Other(msg)
+                }
+            }
+        }
+    }
+
     fn from_reqwest(e: reqwest::Error) -> Self {
         let mut chain = e.to_string();
         let mut source = std::error::Error::source(&e);
@@ -576,6 +600,7 @@ impl FetchError {
 
 enum StreamBody {
     Live(reqwest::Response),
+    Helper(fingerprint::HelperStream),
     Buffered(Option<Vec<u8>>),
 }
 
@@ -595,6 +620,7 @@ impl StreamingResponse {
     pub async fn chunk(&mut self) -> Result<Option<Vec<u8>>, FetchError> {
         match &mut self.body {
             StreamBody::Live(r) => r.chunk().await.map(|c| c.map(|b| b.to_vec())).map_err(FetchError::from_reqwest),
+            StreamBody::Helper(h) => h.next_chunk().await.map_err(FetchError::from_helper),
             StreamBody::Buffered(b) => Ok(b.take().filter(|b| !b.is_empty())),
         }
     }
@@ -621,16 +647,26 @@ pub async fn fetch(
     }
 
     if let Some(helper) = fingerprint::FingerprintProxy::shared().ready(Duration::from_secs(3)).await {
-        match helper.perform("GET", url.as_str(), &headers, &[], Some(head_timeout)).await {
-            Ok(r) => {
+        // Streamed, never followed: a 3xx comes back complete so the caller re-issues the hop with its own headers.
+        let mut request = fingerprint::Request::new("GET", url.as_str());
+        request.headers = headers.clone();
+        request.follow = false;
+        request.first_byte_ms = head_timeout.as_millis() as u64;
+        let started = match tokio::time::timeout(head_timeout, helper.stream(&request)).await {
+            Err(_) => return Err(FetchError::Timeout),
+            Ok(r) => r,
+        };
+        match started {
+            Ok(fingerprint::StreamStart::Head(head, body)) => {
+                jar.store_from_headers(url, &head.headers);
+                return Ok(StreamingResponse { status: head.status, headers: head.headers, body: StreamBody::Helper(body) });
+            }
+            Ok(fingerprint::StreamStart::Complete(r)) => {
                 jar.store_from_headers(url, &r.headers);
                 return Ok(StreamingResponse { status: r.status, headers: r.headers, body: StreamBody::Buffered(Some(r.body)) });
             }
             Err(fingerprint::Error::Unavailable) => log::warn!("fingerprint helper unavailable — reqwest fallback"),
-            Err(fingerprint::Error::Failed(msg)) => {
-                return Err(if is_timeout_message(&msg) { FetchError::Timeout } else { FetchError::Other(msg) });
-            }
-            Err(fingerprint::Error::TooLarge) => return Err(FetchError::Other("body too large".into())),
+            Err(e) => return Err(FetchError::from_helper(e)),
         }
     }
 
