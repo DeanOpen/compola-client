@@ -170,16 +170,11 @@ export const joinedSync = () => joinedNow;
 
 /** Commands of the Rust engine (engine.rs `#[tauri::command]`). */
 /**
- * The account on screen (multi-account, set by accounts.ts; null on single-account hosts). Engine commands name it
- * explicitly: right after a switch, a call could otherwise reach Rust before `account_set_active` and hit the account
- * that was on screen before (docs/multi-account.md §6: a missing `account` means the active one).
+ * `args` plus `account` (default: the account on screen, activeAccount.ts; none on single-account hosts). Engine
+ * commands name it explicitly: right after a switch, a call could otherwise reach Rust before `account_set_active`
+ * and hit the account that was on screen before (docs/multi-account.md §6: a missing `account` means the active one).
  */
-let accountOnScreen: string | null = null;
-export const setAccountOnScreen = (id: string | null) => {
-  accountOnScreen = id;
-};
-/** `args` plus `account` when the host has accounts. */
-export const forAccount = (args: Record<string, unknown> = {}, account: string | null = accountOnScreen) =>
+export const forAccount = (args: Record<string, unknown> = {}, account: string | null = activeAccountId()) =>
   account ? { ...args, account } : args;
 
 export const commands = {
