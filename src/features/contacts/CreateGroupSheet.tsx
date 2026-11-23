@@ -1,10 +1,12 @@
-// "Tạo nhóm": the official group compose (CREATE_GROUP_COMPOSE) as a native sheet (Swift CreateGroupSheet.swift) — group photo
-// and name, friends to pick ("Trò chuyện gần đây" then A–Z), the picks as removable chips. Rules and limits are the official ones
-// (engine/groupCreate.ts); "Tạo nhóm" runs the official create, then the new group opens.
+// "Tạo nhóm": the official group compose (CREATE_GROUP_COMPOSE) as a Zalo PC-style dialog (Swift CreateGroupSheet.swift; wave-4
+// refs in docs/design-refs/wave4/create-group). Group photo + name on top, a search, tabs Tất cả / Trò chuyện gần đây / Phân loại,
+// then two panes: the friends to pick (round checkboxes, A–Z letters) and the picks ("Đã chọn N/100", × to remove). Rules and
+// limits are the official ones (engine/groupCreate.ts); "Tạo nhóm" runs the official create, then the new group opens.
 
-import { Ban, Camera, CheckCircle2, Circle, Search, Trash2, Users, XCircle } from 'lucide-react';
+import { Ban, Camera, Check, ChevronDown, Search, Tag, Trash2, UserRound, Users, X, XCircle } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { useContacts } from '../../engine/contacts';
+import { usesMock } from '../../engine/backend';
+import { contactFold, useContacts } from '../../engine/contacts';
 import {
   blockedText,
   clampGroupName,
@@ -33,6 +35,7 @@ import { Spinner } from '../../ui/Spinner';
 import { useVisibleFriends } from './ContactsView';
 import type { GroupComposeRequest } from './contactsUi';
 import './contacts.css';
+import './createGroup.css';
 
 /** Why the group was not created. `closes`: the official compose closes after this one (quota check). */
 interface Problem {
@@ -41,6 +44,18 @@ interface Problem {
   closes: boolean;
 }
 
+/** The list tab: everyone, the recent 1:1 chats, or the friends of one "Phân loại" label. */
+type Tab = { kind: 'all' } | { kind: 'recent' } | { kind: 'label'; id: string };
+
+/** Mock-only dev aid: `&cgTab=recent|label` opens the sheet on that tab (screenshots). */
+const initialTab = (): Tab => {
+  if (!usesMock) return { kind: 'all' };
+  const t = new URLSearchParams(location.search).get('cgTab');
+  if (t === 'recent') return { kind: 'recent' };
+  if (t === 'label') return { kind: 'label', id: 'l-work' };
+  return { kind: 'all' };
+};
+
 export function CreateGroupSheet({ request, onClose }: { request: GroupComposeRequest; onClose: () => void }) {
   const friendsLoaded = useContacts((s) => s.friendsLoaded);
   const allFriends = useContacts((s) => s.friends);
@@ -48,11 +63,13 @@ export function CreateGroupSheet({ request, onClose }: { request: GroupComposeRe
   const conversations = useEngine((s) => s.conversations);
   const actions = useEngine((s) => s.conversationActions);
   const selfId = useEngine((s) => s.selfConversationId);
+  const labels = useEngine((s) => s.extras.labels);
   const friends = useVisibleFriends();
 
   const [limits, setLimits] = useState<GroupCreateLimits>(defaultLimits);
   const [name, setName] = useState('');
   const [query, setQuery] = useState('');
+  const [tab, setTab] = useState<Tab>(initialTab);
   const [selection, setSelection] = useState<string[]>(request.members);
   const [avatar, setAvatar] = useState<GroupAvatarImage | null>(null);
   const [creating, setCreating] = useState(false);
@@ -62,7 +79,7 @@ export function CreateGroupSheet({ request, onClose }: { request: GroupComposeRe
   const nameInput = useRef<HTMLInputElement>(null);
   const searchInput = useRef<HTMLInputElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
-  const chipsRef = useRef<HTMLDivElement>(null);
+  const pickedRef = useRef<HTMLDivElement>(null);
 
   const roster = useMemo(
     () => makeRoster(friends, visibleConversations(useEngine.getState()), selfId, limits.officialAccounts),
@@ -70,6 +87,8 @@ export function CreateGroupSheet({ request, onClose }: { request: GroupComposeRe
   );
   const nameIsValid = isValidGroupName(limits, name);
   const canCreate = selection.length > 1 && nameIsValid && !creating;
+  const atLimit = selection.length >= limits.maxMembers;
+  const label = tab.kind === 'label' ? (labels.find((l) => l.id === tab.id) ?? null) : null;
 
   useEffect(() => {
     nameInput.current?.focus();
@@ -91,9 +110,15 @@ export function CreateGroupSheet({ request, onClose }: { request: GroupComposeRe
     };
   }, []);
 
+  // A label deleted meanwhile takes its tab with it.
   useEffect(() => {
-    const el = chipsRef.current;
-    if (el) el.scrollTo({ left: el.scrollWidth, behavior: 'smooth' });
+    if (tab.kind === 'label' && !label && useEngine.getState().extras.loaded) setTab({ kind: 'all' });
+  }, [tab, label, labels]);
+
+  // The newest pick scrolls into view at the bottom of the "Đã chọn" pane.
+  useEffect(() => {
+    const el = pickedRef.current;
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
   }, [selection.length]);
 
   const flash = (text: string) => {
@@ -155,57 +180,80 @@ export function CreateGroupSheet({ request, onClose }: { request: GroupComposeRe
 
   // MARK: List
 
-  const searching = query.trim().length > 0;
+  const needle = contactFold(query).trim();
+  const matches = (p: RosterPerson) => !needle || p.sortKey.includes(needle) || p.zaloKey.includes(needle);
+  const labelPeople = (): RosterPerson[] => {
+    if (!label) return [];
+    const ids = new Set(label.convIds);
+    return roster.friends.filter((p) => ids.has(p.id));
+  };
+
   const row = (person: RosterPerson, keyPrefix = '') => {
     const blocked = limits.blocked.has(person.id);
     const checked = selection.includes(person.id);
+    const unavailable = !checked && !blocked && atLimit;
     return (
       <button
         key={keyPrefix + person.id}
-        className={`compose-row ${blocked ? 'is-blocked' : ''}`}
+        className={`cg-row ${checked ? 'is-checked' : ''} ${blocked ? 'is-blocked' : ''} ${unavailable ? 'is-unavailable' : ''}`}
         onClick={() => toggle(person.id)}
         aria-label={person.name}
         aria-pressed={checked}
+        title={blocked ? blockedText : unavailable ? overLimitText(limits) : undefined}
       >
-        {blocked ? (
-          <Ban size={18} className="compose-check" />
-        ) : checked ? (
-          <CheckCircle2 size={18} className="compose-check is-checked" fill="currentColor" stroke="#fff" />
-        ) : (
-          <Circle size={18} className="compose-check" />
-        )}
-        <Avatar url={person.avatar} name={person.name} size={34} />
-        <span className="compose-row-text">
-          <span className="truncate">{person.name}</span>
-          {blocked && <span className="compose-row-sub">Đã chặn</span>}
+        <span className={`cg-check ${checked ? 'is-on' : ''}`} aria-hidden>
+          {blocked ? <Ban size={14} /> : checked ? <Check size={12} strokeWidth={3} /> : null}
+        </span>
+        <Avatar url={person.avatar} name={person.name} size={36} />
+        <span className="cg-row-text">
+          <span className="cg-row-name truncate">{person.name}</span>
+          {blocked && <span className="cg-row-sub">Đã chặn</span>}
         </span>
       </button>
     );
   };
 
+  const noResults = (
+    <ContentUnavailable icon={Search} title={`Không có kết quả cho “${query.trim()}”`} description="Hãy kiểm tra chính tả hoặc thử tìm kiếm khác." />
+  );
+
   let list: ReactNode;
   if (!friendsLoaded || !hiddenKnown) {
     list = (
-      <div className="contacts-loading">
+      <div className="cg-loading">
         <Spinner size={14} />
         <span>Đang tải danh sách bạn bè…</span>
       </div>
     );
   } else if (roster.friends.length === 0) {
     list = <ContentUnavailable icon={Users} title="Chưa có bạn bè" description="Nhóm được tạo từ danh sách bạn bè của bạn." />;
-  } else if (searching) {
-    const results = rosterMatching(roster, query);
-    list = results.length ? (
-      <div className="compose-list">{results.map((p) => row(p))}</div>
+  } else if (tab.kind === 'recent') {
+    const people = roster.recent.filter(matches);
+    list = people.length ? (
+      <div className="cg-list">{people.map((p) => row(p, 'recent-'))}</div>
+    ) : needle ? (
+      noResults
     ) : (
-      <ContentUnavailable icon={Search} title={`Không có kết quả cho “${query.trim()}”`} description="Hãy kiểm tra chính tả hoặc thử tìm kiếm khác." />
+      <ContentUnavailable icon={UserRound} title="Chưa có trò chuyện gần đây" description="Các cuộc trò chuyện 1-1 mới nhất với bạn bè sẽ hiện ở đây." />
     );
+  } else if (tab.kind === 'label') {
+    const people = labelPeople().filter(matches);
+    list = people.length ? (
+      <div className="cg-list">{people.map((p) => row(p, 'label-'))}</div>
+    ) : needle ? (
+      noResults
+    ) : (
+      <ContentUnavailable icon={Tag} title="Không có bạn bè trong thẻ này" description="Gắn thẻ phân loại cho cuộc trò chuyện 1-1 để lọc bạn bè ở đây." />
+    );
+  } else if (needle) {
+    const results = rosterMatching(roster, query);
+    list = results.length ? <div className="cg-list">{results.map((p) => row(p))}</div> : noResults;
   } else {
     list = (
-      <div className="compose-list">
+      <div className="cg-list">
         {roster.recent.length > 0 && (
           <>
-            <div className="compose-heading" role="heading" aria-level={3}>
+            <div className="cg-heading" role="heading" aria-level={3}>
               Trò chuyện gần đây
             </div>
             {roster.recent.map((p) => row(p, 'recent-'))}
@@ -213,7 +261,7 @@ export function CreateGroupSheet({ request, onClose }: { request: GroupComposeRe
         )}
         {rosterSections(roster).map((section) => (
           <div key={section.title}>
-            <div className="compose-heading" role="heading" aria-level={3}>
+            <div className="cg-heading" role="heading" aria-level={3}>
               {section.title}
             </div>
             {section.people.map((p) => row(p))}
@@ -223,22 +271,44 @@ export function CreateGroupSheet({ request, onClose }: { request: GroupComposeRe
     );
   }
 
+  // MARK: Tabs
+
+  const labelMenu = (el: Element) =>
+    openMenuBelow(
+      el,
+      labels.length
+        ? labels.map((l) => ({
+            label: l.name,
+            dot: l.colorHex,
+            checked: tab.kind === 'label' && tab.id === l.id,
+            onSelect: () => setTab({ kind: 'label', id: l.id }),
+          }))
+        : [{ label: 'Chưa có thẻ phân loại', disabled: true, onSelect: () => {} }],
+    );
+
   const avatarFace = avatar ? (
     <img src={avatar.dataUrl} alt="" draggable={false} />
   ) : (
-    <span className="compose-avatar-empty">
-      <Camera size={18} />
+    <span className="cg-avatar-empty">
+      <Camera size={20} />
     </span>
   );
 
-  return (
-    <Sheet onClose={cancel} width={440} height={640}>
-      <div className={`compose ${creating ? 'is-creating' : ''}`}>
-        <div className="compose-title">Tạo nhóm</div>
+  const remaining = Math.max(0, limits.maxMembers - selection.length);
 
-        <div className="compose-identity">
+  return (
+    <Sheet onClose={cancel} width={720} height={620}>
+      <div className={`cg ${creating ? 'is-creating' : ''}`}>
+        <div className="cg-header">
+          <div className="cg-title">Tạo nhóm</div>
+          <button className="cg-close" onClick={cancel} aria-label="Đóng" title="Đóng" disabled={creating}>
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="cg-identity">
           <button
-            className="compose-avatar"
+            className="cg-avatar"
             title={avatar ? 'Ảnh đại diện của nhóm' : 'Chọn ảnh đại diện cho nhóm (hoặc kéo ảnh vào đây)'}
             aria-label="Ảnh đại diện nhóm"
             disabled={creating}
@@ -269,10 +339,10 @@ export function CreateGroupSheet({ request, onClose }: { request: GroupComposeRe
               e.target.value = '';
             }}
           />
-          <div className="compose-name">
+          <div className="cg-name">
             <input
               ref={nameInput}
-              className={`compose-field ${nameIsValid ? '' : 'is-invalid'}`}
+              className={`cg-name-field ${nameIsValid ? '' : 'is-invalid'}`}
               value={name}
               placeholder="Nhập tên nhóm..."
               disabled={creating}
@@ -282,12 +352,14 @@ export function CreateGroupSheet({ request, onClose }: { request: GroupComposeRe
               }}
               aria-label="Tên nhóm"
             />
-            <div className={`compose-name-hint ${nameIsValid ? '' : 'is-invalid'}`}>{nameIsValid ? 'Để trống để dùng tên các thành viên' : invalidNameText}</div>
+            <div className={`cg-name-hint ${nameIsValid ? '' : 'is-invalid'}`}>
+              {nameIsValid ? 'Để trống để dùng tên các thành viên' : invalidNameText}
+            </div>
           </div>
         </div>
 
-        <label className="ct-search compose-search">
-          <Search size={15} className="ct-search-icon" />
+        <label className="cg-search">
+          <Search size={15} className="cg-search-icon" />
           <input
             ref={searchInput}
             value={query}
@@ -298,43 +370,92 @@ export function CreateGroupSheet({ request, onClose }: { request: GroupComposeRe
             aria-label="Nhập tên bạn bè"
           />
           {query && (
-            <button className="ct-search-clear" onClick={() => setQuery('')} aria-label="Xoá tìm kiếm">
-              <XCircle size={15} fill="currentColor" stroke="var(--ct-layer)" />
+            <button className="cg-search-clear" onClick={() => setQuery('')} aria-label="Xoá tìm kiếm">
+              <XCircle size={15} fill="currentColor" stroke="var(--surface)" />
             </button>
           )}
         </label>
 
-        {selection.length > 0 && (
-          <div className="compose-chips" ref={chipsRef}>
-            {selection.map((id) => {
-              const person = personOf(id);
-              return (
-                <span key={id} className="compose-chip">
-                  <Avatar url={person?.avatar} name={person?.name ?? ''} size={20} />
-                  <span className="truncate">{person?.name ?? 'Người dùng Zalo'}</span>
-                  <button onClick={() => toggle(id)} aria-label={`Bỏ chọn ${person?.name ?? ''}`} disabled={creating}>
-                    <XCircle size={13} fill="currentColor" stroke="var(--ct-selected)" />
-                  </button>
+        <div className="cg-tabs" role="tablist">
+          <button role="tab" aria-selected={tab.kind === 'all'} className={`cg-tab ${tab.kind === 'all' ? 'is-active' : ''}`} onClick={() => setTab({ kind: 'all' })}>
+            Tất cả
+          </button>
+          <button
+            role="tab"
+            aria-selected={tab.kind === 'recent'}
+            className={`cg-tab ${tab.kind === 'recent' ? 'is-active' : ''}`}
+            onClick={() => setTab({ kind: 'recent' })}
+          >
+            Trò chuyện gần đây
+          </button>
+          <button
+            role="tab"
+            aria-selected={tab.kind === 'label'}
+            aria-haspopup="menu"
+            className={`cg-tab cg-tab-menu ${tab.kind === 'label' ? 'is-active' : ''}`}
+            onClick={(e) => labelMenu(e.currentTarget)}
+          >
+            {label && <span className="cg-tab-dot" style={{ background: label.colorHex }} />}
+            <span className="truncate">{label ? label.name : 'Phân loại'}</span>
+            <ChevronDown size={13} />
+          </button>
+        </div>
+
+        <div className="cg-body">
+          <div className="cg-pane cg-pane-list">{list}</div>
+
+          <aside className="cg-pane cg-pane-picked" aria-label="Đã chọn">
+            <div className="cg-picked-head">
+              <span>
+                Đã chọn{' '}
+                <span className="nums">
+                  {selection.length}/{limits.maxMembers}
                 </span>
-              );
-            })}
-          </div>
-        )}
+              </span>
+              {selection.length > 0 && (
+                <button className="cg-link" onClick={() => setSelection([])} disabled={creating}>
+                  Bỏ chọn tất cả
+                </button>
+              )}
+            </div>
+            {selection.length === 0 ? (
+              <div className="cg-picked-empty">
+                <Users size={28} strokeWidth={1.5} />
+                <span>Chọn ít nhất 2 người bạn để tạo nhóm</span>
+              </div>
+            ) : (
+              <div className="cg-picked-list" ref={pickedRef}>
+                {selection.map((id) => {
+                  const person = personOf(id);
+                  const shown = person?.name ?? 'Người dùng Zalo';
+                  return (
+                    <div key={id} className="cg-picked">
+                      <Avatar url={person?.avatar} name={shown} size={28} />
+                      <span className="cg-picked-name truncate">{shown}</span>
+                      <button className="cg-picked-remove" onClick={() => toggle(id)} aria-label={`Bỏ chọn ${shown}`} title="Bỏ chọn" disabled={creating}>
+                        <X size={13} />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            <div className={`cg-picked-foot ${atLimit ? 'is-limit' : ''}`}>
+              {atLimit ? `Đã đạt giới hạn ${limits.maxMembers} thành viên` : `Có thể thêm ${remaining} người nữa`}
+            </div>
+          </aside>
+        </div>
 
-        <div className="compose-body">{list}</div>
-
-        <div className="compose-footer">
-          {notice && <div className="compose-notice fade-in">{notice.text}</div>}
-          <div className="compose-footer-row">
-            <span className="compose-count nums">{selection.length < 2 ? 'Chọn ít nhất 2 người' : `Đã chọn ${selection.length}/${limits.maxMembers}`}</span>
-            <span style={{ flex: 1 }} />
-            <button className="ct-btn ct-btn-secondary" onClick={cancel} disabled={creating}>
-              Hủy
-            </button>
-            <button className="ct-btn ct-btn-primary ct-btn-min" onClick={() => void create()} disabled={!canCreate}>
-              {creating ? <Spinner size={13} className="on-accent" /> : 'Tạo nhóm'}
-            </button>
-          </div>
+        <div className="cg-footer">
+          <span className={`cg-footer-note ${notice ? 'is-notice' : ''}`} role="status">
+            {notice ? notice.text : selection.length < 2 ? 'Chọn ít nhất 2 người' : ''}
+          </span>
+          <button className="ct-btn ct-btn-secondary" onClick={cancel} disabled={creating}>
+            Hủy
+          </button>
+          <button className="ct-btn ct-btn-primary ct-btn-min" onClick={() => void create()} disabled={!canCreate}>
+            {creating ? <Spinner size={13} className="on-accent" /> : 'Tạo nhóm'}
+          </button>
         </div>
       </div>
 

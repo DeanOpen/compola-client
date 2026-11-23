@@ -279,7 +279,7 @@ let groupSeq = 0;
 registerMockAdapter('__zaloGroupCreate', {
   info: () => ({
     status: 'ok',
-    maxMembers: 100,
+    maxMembers: Number(new URLSearchParams(location.search).get('groupMax')) || 100, // &groupMax=N: the limit warning
     maxNameLength: 50,
     nameRegex: '`|~|!|@|#|%|\\*|\\^|\\$',
     blocked,
