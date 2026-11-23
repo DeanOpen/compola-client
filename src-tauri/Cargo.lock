@@ -2913,6 +2913,7 @@ dependencies = [
  "cookie",
  "cookie_store",
  "dirs 6.0.0",
+ "fallible-iterator",
  "futures-util",
  "hex",
  "hkdf",
