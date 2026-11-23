@@ -74,6 +74,8 @@ pub fn run() {
         .register_asynchronous_uri_scheme_protocol(host::SCHEME, host::protocol::handle)
         .register_asynchronous_uri_scheme_protocol(media::protocol::SCHEME, media::protocol::handle)
         .manage(host::Hosts::default())
+        // A crashed WebContent process (one webview) is reloaded by its own account only (docs/multi-account.md §11).
+        .on_web_content_process_terminate(|webview| account::renderer_terminated(webview.app_handle(), webview.label()))
         .setup(|app| {
             // Multi-account registry (docs/multi-account.md): an install from before it becomes the `default` account,
             // nothing moves.

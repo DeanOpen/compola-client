@@ -80,7 +80,15 @@ struct Inner {
     /// Every `zstate` the main page posted since it loaded, so a reloaded UI can catch up (`engine_replay`): the host
     /// scripts post changes, not full state.
     replay: std::collections::VecDeque<Value>,
+    /// Recent renderer crashes of this account (`renderer_terminated`), for the restart backoff.
+    crashes: std::collections::VecDeque<std::time::Instant>,
 }
+
+/// Restart delay after the n-th renderer crash within `CRASH_WINDOW` (1st: 1 s, then doubling, at most 60 s).
+pub fn crash_restart_delay(recent_crashes: usize) -> Duration {
+    Duration::from_secs((1u64 << recent_crashes.saturating_sub(1).min(6)).min(60))
+}
+const CRASH_WINDOW: Duration = Duration::from_secs(600);
 
 /// Bound of the replay log (events); the oldest non-conversation events go first.
 const REPLAY_CAP: usize = 4000;
@@ -142,6 +150,41 @@ impl Engine {
         if !self.is_booted() {
             self.boot(info);
         }
+    }
+
+    /// A WebContent process of this account died (WebKit crash, jetsam, killed): only this account's renderer is
+    /// reloaded — the other accounts run in their own processes and are unaffected. Repeated crashes back off.
+    pub fn renderer_terminated(self: &Arc<Self>, host: &Arc<Host>) {
+        let delay = {
+            let mut st = self.inner.lock();
+            let now = std::time::Instant::now();
+            st.crashes.retain(|t| now.duration_since(*t) < CRASH_WINDOW);
+            st.crashes.push_back(now);
+            crash_restart_delay(st.crashes.len())
+        };
+        log::warn!("[{}] renderer process terminated — reloading in {}s", host.label, delay.as_secs());
+        self.log_line(&format!("[compola] renderer process terminated ({}) — reloading", host.label));
+        let weak = Arc::downgrade(self);
+        let label = host.label.clone();
+        let kind = host.kind;
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(delay).await;
+            let Some(engine) = weak.upgrade() else { return };
+            let Some(main) = engine.main_process() else { return };
+            match kind {
+                HostKind::Main => {
+                    // Only when the host is still the one that crashed (not replaced by a shutdown / re-boot meanwhile).
+                    let Some(host) = main.host().filter(|h| h.label == label) else { return };
+                    let page = if main.has_session() { Page::Main } else { Page::Login };
+                    host.load(page, &main.page_query(false));
+                }
+                HostKind::Worker => {
+                    if main.has_session() && main.worker().is_some_and(|w| w.label == label) {
+                        main.start_shared_worker();
+                    }
+                }
+            }
+        });
     }
 
     /// Stops the account's renderers (account removed or disabled, app exit).

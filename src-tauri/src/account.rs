@@ -572,6 +572,23 @@ pub fn accounts(app: &AppHandle) -> Arc<Accounts> {
     app.state::<Arc<Accounts>>().inner().clone()
 }
 
+/// A webview's WebContent process died (macOS): the UI window reloads; a hidden renderer is restarted by its own
+/// account's engine only (docs/multi-account.md §11).
+pub fn renderer_terminated(app: &AppHandle, label: &str) {
+    if label == "main" {
+        log::warn!("UI window process terminated — reloading");
+        if let Some(w) = app.get_webview_window("main") {
+            let _ = w.reload();
+        }
+        return;
+    }
+    let Some(host) = app.try_state::<crate::host::Hosts>().and_then(|h| h.get(label)) else { return };
+    match engine_of_host(app, &host) {
+        Some(engine) => engine.renderer_terminated(&host),
+        None => log::warn!("[{label}] renderer terminated, no engine"),
+    }
+}
+
 /// The switcher list (`accounts_list`): Compola Server's `hello.accounts` and `GET /api/admin/accounts`.
 pub fn list(app: &AppHandle) -> Option<AccountList> {
     Some(app.try_state::<Arc<Accounts>>()?.list())
@@ -1116,6 +1133,16 @@ mod tests {
         assert_eq!(server_forwarding("a1b2c3d4e"), Some(true));
         set_server_multi_account(false);
         assert_eq!(server_forwarding("a1b2c3d4e"), None);
+    }
+
+    #[test]
+    fn crash_restarts_back_off() {
+        use crate::engine::crash_restart_delay as d;
+        assert_eq!(d(1).as_secs(), 1);
+        assert_eq!(d(2).as_secs(), 2);
+        assert_eq!(d(4).as_secs(), 8);
+        assert_eq!(d(7).as_secs(), 60);
+        assert_eq!(d(50).as_secs(), 60);
     }
 
     #[test]
