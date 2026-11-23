@@ -23,6 +23,7 @@ import { reportComposer, sendFiles, sendMedia } from '../../../engine/composer';
 import type { ComposerDraft, MentionCandidate } from '../../../engine/models/chat';
 import { Avatar } from '../../../ui/Avatar';
 import { openMenuBelow } from '../../../ui/Menu';
+import { openCreatePoll } from '../../poll/pollSheets';
 import { insertMention, mentionQueryAt, rebaseMentions, tokenAt, type MentionQuery } from './mentions';
 
 const lineHeight = 19;
@@ -194,7 +195,7 @@ export function Composer({
       { label: 'Danh thiếp của tôi', icon: ContactRound, disabled: true, onSelect: () => {} },
       { kind: 'separator' },
       { label: 'Nhắc hẹn', icon: AlarmClock, disabled: true, onSelect: () => {} },
-      ...(isGroup ? [{ label: 'Bình chọn', icon: BarChart3, disabled: true, onSelect: () => {} }] : []),
+      ...(isGroup ? [{ label: 'Bình chọn', icon: BarChart3, onSelect: () => openCreatePoll(conversationId) }] : []),
       { label: 'Sticker', icon: Sticker, disabled: true, onSelect: () => {} },
       { label: 'Emoji', icon: Smile, shortcut: '⌃⌘Space', disabled: true, onSelect: () => {} },
     ]);

@@ -1,5 +1,6 @@
 // Results of adapter calls (Swift: `MessageActionOutcome`, `ComposerOutcome`, `CardActionOutcome`) and the pinned list.
 
+import { cardSheetTypes, parseCardSheet } from './cardSheets';
 import { arr, obj, optStr, str, url, webLink, type Json } from './json';
 
 export const defaultPending =
@@ -83,15 +84,13 @@ export type CardActionOutcome =
   | { kind: 'openProfile'; id: string }
   | { kind: 'openURL'; url: string }
   | { kind: 'copy'; text: string }
-  /** A native sheet the official action opens (alias, group invite, poll…): `effect` is kept for the later sheet ports. */
+  /** A native sheet the official action opens (alias, group invite, stickers, poll, side-bar tab): see models/cardSheets.ts. */
   | { kind: 'present'; effect: Json }
   | { kind: 'unsupported'; text: string }
   | { kind: 'locked'; text: string }
   | { kind: 'failed'; text: string }
   | { kind: 'pending'; text: string };
 
-/** Effect types the card-sheet ports (CardSheetModels.swift, later wave) will present natively. */
-const sheetEffects = new Set(['alias', 'groupInvite', 'stickerCategory', 'poll', 'sidebarTab', 'reminder', 'groupPreview']);
 
 export const parseCardActionOutcome = (v: unknown): CardActionOutcome => {
   const root = obj(v);
@@ -112,7 +111,7 @@ export const parseCardActionOutcome = (v: unknown): CardActionOutcome => {
         const link = webLink(effect.url);
         return link ? { kind: 'openURL', url: link } : { kind: 'unsupported', text: defaultUnsupported };
       }
-      if (sheetEffects.has(type)) return { kind: 'present', effect };
+      if (cardSheetTypes.has(type)) return parseCardSheet(effect) ? { kind: 'present', effect } : { kind: 'unsupported', text: defaultUnsupported };
       return { kind: 'unsupported', text: defaultUnsupported };
     }
     case 'unsupported':
