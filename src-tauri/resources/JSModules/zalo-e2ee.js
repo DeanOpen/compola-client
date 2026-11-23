@@ -1,7 +1,7 @@
 /*
  * zalo-e2ee.js — Compola glue around the vendored libsignal-protocol build.
  *
- * Loaded after vendor/libsignal-protocol.js inside JSRuntime (JavaScriptCore).
+ * Expects a libsignal-protocol build (window.libsignal) loaded first; the vendored copy was removed (VNG code, not redistributed).
  * Publishes `globalThis.ZaloE2EE`; every function returns a Promise and takes or
  * returns only strings, numbers and plain objects so Swift can marshal them.
  *
