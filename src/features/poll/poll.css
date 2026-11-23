@@ -1,0 +1,422 @@
+/* Group polls (Swift PollViews.swift): the chat card, the vote / voter sheet and the create sheet. Zalo PC look:
+   white card, 8px radius, subtle border, compact 14px density (dialog chrome in dialog.css). */
+
+.poll-message {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  max-width: 300px;
+}
+
+.poll-event {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 2px;
+  font-size: 12px;
+  color: var(--zp-text-secondary);
+}
+
+.poll-event-link {
+  flex: none;
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+.poll-live-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 300px;
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid var(--zp-border-subtle);
+  background: var(--zp-surface);
+  color: var(--zp-text);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+/* The chat's card chrome is replaced by the flat card above. */
+.poll-live-card.card-chrome {
+  background: var(--zp-surface);
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.poll-fallback {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.poll-fallback-spinner {
+  margin-left: auto;
+  align-self: flex-end;
+}
+
+.poll-failed {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.poll-title {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.clamp-4 {
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.poll-pinned {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--zp-link);
+}
+
+.poll-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+  color: var(--zp-text-secondary);
+}
+
+.poll-setting {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.poll-setting svg {
+  flex: none;
+  width: 13px;
+}
+
+.poll-setting.is-alert {
+  color: var(--zp-danger);
+}
+
+.poll-voters-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  align-self: flex-start;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--zp-link);
+}
+
+.poll-voters-link:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.poll-voters-link:disabled {
+  opacity: 1;
+}
+
+.poll-options {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.poll-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.poll-choice {
+  flex: none;
+  display: inline-flex;
+}
+
+.poll-option-body {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 7px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--zp-border-subtle);
+  background: var(--zp-surface);
+  overflow: hidden;
+}
+
+.poll-option-bar {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--zp-bar);
+  transition: width 0.25s ease;
+}
+
+.poll-option-bar.is-full {
+  background: var(--zp-bar-full);
+}
+
+.poll-option-text {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.poll-option-tick,
+.poll-option-count {
+  position: relative;
+  flex: none;
+}
+
+.poll-option-count {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--zp-text-secondary);
+}
+
+.poll-more {
+  font-size: 11.5px;
+  color: var(--zp-text-secondary);
+}
+
+.poll-vote-button {
+  width: 100%;
+  height: 30px;
+  font-weight: 600;
+  color: var(--zp-link);
+}
+
+/* Sheets */
+.poll-sheet-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 100%;
+  min-height: 160px;
+  font-size: 12.5px;
+}
+
+.poll-error {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--zp-danger);
+}
+
+.poll-vote-page,
+.poll-voters,
+.poll-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+}
+
+.poll-sheet-question {
+  font-size: 17px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.poll-byline,
+.poll-hint {
+  font-size: 11.5px;
+  color: var(--zp-text-secondary);
+}
+
+.poll-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--zp-text-secondary);
+}
+
+.poll-added {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.poll-added-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.poll-input {
+  flex: 1;
+}
+
+.poll-textarea {
+  height: auto;
+  min-height: 56px;
+  padding: 8px 12px;
+  resize: vertical;
+  line-height: 1.35;
+}
+
+.poll-remove {
+  flex: none;
+  width: 22px;
+  height: 22px;
+}
+
+.poll-field-error {
+  padding-left: 25px;
+  font-size: 11px;
+  color: var(--zp-danger);
+}
+
+.poll-form .poll-field-error {
+  padding-left: 0;
+}
+
+.poll-add {
+  align-self: flex-start;
+}
+
+.poll-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.poll-field-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--zp-text-secondary);
+}
+
+.poll-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--zp-hover);
+  font-size: 12.5px;
+  color: var(--zp-text-secondary);
+}
+
+.poll-disclosure {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  align-self: flex-start;
+}
+
+.poll-settings-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--zp-hover);
+}
+
+.poll-divider {
+  height: 1px;
+  background: var(--zp-border-subtle);
+}
+
+.poll-switch-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+}
+
+.poll-switch-row.is-disabled {
+  opacity: 0.45;
+}
+
+.poll-switch-label {
+  flex: 1;
+}
+
+.poll-date {
+  width: auto;
+}
+
+/* macOS-style switch */
+.app-switch {
+  appearance: none;
+  -webkit-appearance: none;
+  flex: none;
+  position: relative;
+  width: 32px;
+  height: 18px;
+  margin: 0;
+  border-radius: 999px;
+  background: var(--zp-border);
+  transition: background 0.15s ease;
+}
+
+.app-switch::after {
+  content: '';
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  transition: transform 0.15s ease;
+}
+
+.app-switch:checked {
+  background: var(--zp-primary);
+}
+
+.app-switch:checked::after {
+  transform: translateX(14px);
+}
+
+/* Voters */
+.poll-voter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.poll-voter-heading {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.poll-voter {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  min-width: 0;
+}
+
+.poll-voter-me {
+  flex: none;
+  font-size: 11px;
+  color: var(--zp-text-secondary);
+}

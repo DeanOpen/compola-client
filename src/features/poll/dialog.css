@@ -1,0 +1,197 @@
+/* Zalo PC-style dialogs, buttons and fields for the poll and card sheets (docs/zalo-pc-style.md): white surface,
+   a title bar with ×, Hủy + a primary button bottom-right, compact 14px density. Tokens fall back to the spec values
+   until the shared tokens land. */
+
+:root {
+  --zp-primary: var(--primary, #0068ff);
+  --zp-primary-pressed: var(--primary-pressed, #005ae0);
+  --zp-selected: var(--selected, #e5f1ff);
+  --zp-hover: var(--hover-bg, #f1f2f4);
+  --zp-subtle: var(--subtle, #ebecf0);
+  --zp-surface: #ffffff;
+  --zp-text: #081b3a;
+  --zp-text-secondary: #7589a3;
+  --zp-border: rgba(0, 0, 0, 0.15);
+  --zp-border-subtle: rgba(0, 0, 0, 0.1);
+  --zp-danger: #c31818;
+  --zp-warning: #e05a00;
+  --zp-link: #0068ff;
+  --zp-bar: rgba(0, 104, 255, 0.14);
+  --zp-bar-full: rgba(0, 104, 255, 0.26);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --zp-selected: #1f344d;
+    --zp-hover: rgba(255, 255, 255, 0.05);
+    --zp-subtle: #2c323a;
+    --zp-surface: #22262b;
+    --zp-text: #dfe2e7;
+    --zp-text-secondary: #9facbc;
+    --zp-border: rgba(255, 255, 255, 0.2);
+    --zp-border-subtle: rgba(255, 255, 255, 0.15);
+    --zp-danger: #e94949;
+    --zp-warning: #ff7e29;
+    --zp-link: #66a6ff;
+    --zp-bar: rgba(102, 166, 255, 0.18);
+    --zp-bar-full: rgba(102, 166, 255, 0.32);
+  }
+}
+
+/* The shared Sheet frame, flattened for these dialogs. */
+.sheet:has(> .zp-dialog) {
+  border-radius: 8px;
+  background: var(--zp-surface);
+  border: 1px solid var(--zp-border);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.zp-dialog {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  color: var(--zp-text);
+  font-size: 14px;
+  background: var(--zp-surface);
+}
+
+.zp-dialog-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 48px;
+  padding: 0 8px 0 16px;
+  border-bottom: 1px solid var(--zp-border-subtle);
+}
+
+.zp-dialog-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 16px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zp-icon-btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  color: var(--zp-text);
+}
+
+.zp-icon-btn:hover:not(:disabled) {
+  background: var(--zp-hover);
+}
+
+.zp-dialog-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.zp-dialog-footer {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--zp-border-subtle);
+}
+
+.zp-dialog-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.zp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 32px;
+  min-width: 72px;
+  padding: 0 16px;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.zp-btn-primary {
+  background: var(--zp-primary);
+  color: #fff;
+}
+
+.zp-btn-primary:hover:not(:disabled) {
+  background: var(--zp-primary-pressed);
+}
+
+.zp-btn-secondary {
+  background: var(--zp-subtle);
+  color: var(--zp-text);
+}
+
+.zp-btn-secondary:hover:not(:disabled) {
+  background: var(--zp-border-subtle);
+}
+
+.zp-btn-tonal {
+  background: var(--zp-selected);
+  color: var(--zp-primary);
+}
+
+.zp-btn-tonal:hover:not(:disabled) {
+  filter: brightness(0.97);
+}
+
+.zp-btn-small {
+  height: 28px;
+  min-width: 0;
+  padding: 0 12px;
+  font-size: 13px;
+}
+
+.zp-btn-link {
+  color: var(--zp-link);
+  font-weight: 500;
+}
+
+.zp-btn-link:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.zp-input {
+  width: 100%;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--zp-border);
+  border-radius: 8px;
+  background: var(--zp-surface);
+  color: var(--zp-text);
+  outline: none;
+  font-size: 14px;
+}
+
+.zp-input::placeholder {
+  color: var(--zp-text-secondary);
+}
+
+.zp-input:focus {
+  border-color: var(--zp-primary-pressed);
+}
+
+.zp-input:focus-visible {
+  outline: none;
+}
