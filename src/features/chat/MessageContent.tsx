@@ -68,7 +68,7 @@ export function BubbleContent({ message, firstInGroup, lastInGroup }: ContentPro
       return (
         <div className="media-stack">
           {showText && bubble(<MessageText message={message} />, { tail: false })}
-          <LinkCard title={k.title} url={k.url} thumbnail={k.thumbnail} description={k.description} source={k.source} />
+          <LinkCard title={k.title} url={k.url} thumbnail={k.thumbnail} description={k.description} source={k.source} conversationId={message.conversationId} />
         </div>
       );
     }

@@ -22,6 +22,7 @@ import { arr, obj, str, webLink } from '../../../engine/models/json';
 import { locationMapUrl, type CardButton, type ChatMessage, type ContactCard, type ECard, type LocationInfo, type OAPart, type PollInfo } from '../../../engine/models/chat';
 import { setEngine } from '../../../engine/store';
 import { openExternal } from '../../../engine/system';
+import { openCardLink } from '../../../engine/cardSheets';
 import { formatBytes } from '../../setup/RuntimeSetupView';
 import { Avatar } from '../../../ui/Avatar';
 import { RemoteImage } from '../../../ui/RemoteImage';
@@ -163,10 +164,10 @@ export function ContactCardView({ card }: { card: ContactCard; conversationId: s
 
 // MARK: - Link, location
 
-export function LinkCard({ title, url, thumbnail, description, source }: { title: string; url: string | null; thumbnail: string | null; description: string; source: string }) {
+export function LinkCard({ title, url, thumbnail, description, source, conversationId }: { title: string; url: string | null; thumbnail: string | null; description: string; source: string; conversationId?: string }) {
   const site = source || host(url);
   return (
-    <button className="link-card card-chrome" disabled={!webLink(url)} title={url ?? ''} onClick={() => void openExternal(url)}>
+    <button className="link-card card-chrome" disabled={!webLink(url)} title={url ?? ''} onClick={() => (conversationId ? openCardLink(url, conversationId) : void openExternal(url))}>
       {thumbnail && <RemoteImage url={thumbnail} className="link-card-thumb" placeholder={<span />} />}
       <span className="link-card-body">
         <span className="link-card-title clamp-2">{title || url || 'Liên kết'}</span>
