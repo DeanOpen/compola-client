@@ -117,7 +117,12 @@ function HostSignedOut({ serverName }: { serverName: string }) {
   );
 }
 
-function QrBody({ state, notice, refresh }: { state: LoginState; notice: string | null; refresh: () => void }) {
+/**
+ * The QR card's body (notice, second-scan hint, QR / confirm / failed panel, caption and steps). Also shown by
+ * Settings › Compola Server › Tài khoản Zalo, where an admin signs the host in (`refresh` = a new QR on the host),
+ * and as the add-account sheet's content (features/accounts).
+ */
+export function QrBody({ state, notice, refresh }: { state: LoginState; notice: string | null; refresh: () => void }) {
   const step = state.step;
   return (
     <div className="login-body">

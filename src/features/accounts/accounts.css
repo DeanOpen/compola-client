@@ -1,0 +1,181 @@
+/* Account column at the top of the rail */
+.account-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 0 0 10px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.18);
+  width: 100%;
+}
+
+.account-item {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 48px;
+  border-radius: 12px;
+}
+
+.account-item .avatar {
+  box-shadow: 0 0 0 2px transparent;
+  transition: transform var(--motion-fast);
+}
+
+.account-item:not(.is-active):hover .avatar {
+  transform: scale(1.06);
+}
+
+.account-item.is-active .avatar {
+  box-shadow: 0 0 0 2px #fff;
+}
+
+.account-item.is-out .avatar {
+  opacity: 0.5;
+  filter: grayscale(0.6);
+}
+
+/* Discord-style pill on the rail's left edge: the account on screen */
+.account-pill {
+  position: absolute;
+  left: -12px;
+  top: 50%;
+  width: 4px;
+  height: 0;
+  border-radius: 0 3px 3px 0;
+  background: #fff;
+  transform: translateY(-50%);
+  transition: height var(--motion-fast);
+}
+
+.account-item.is-active .account-pill {
+  height: 32px;
+}
+
+.account-item:not(.is-active):hover .account-pill {
+  height: 12px;
+}
+
+.account-item .rail-badge {
+  top: 0;
+  right: 2px;
+}
+
+.account-state {
+  position: absolute;
+  right: 4px;
+  bottom: 2px;
+  display: inline-flex;
+  border-radius: 50%;
+  background: var(--warning);
+  color: #fff;
+  padding: 1px;
+}
+
+.account-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1.5px dashed rgba(255, 255, 255, 0.6);
+  color: #fff;
+}
+
+.account-add:hover {
+  background: var(--navbar-hover);
+  border-style: solid;
+}
+
+/* Add account sheet */
+.add-account-body {
+  padding: 4px 20px 20px;
+}
+
+.add-account-lead {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.add-account-wait {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 40px 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+/* Settings ▸ Tài khoản */
+.accounts-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--separator);
+}
+
+.accounts-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.accounts-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.accounts-sub {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.accounts-key {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-tertiary);
+}
+
+.accounts-icon {
+  width: 26px;
+  height: 26px;
+}
+
+.accounts-icon.is-danger {
+  color: var(--danger);
+}
+
+.accounts-current {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  padding: 0 6px;
+}
+
+.accounts-add {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 12px 14px;
+  font-size: 13.5px;
+  color: var(--accent);
+  text-align: left;
+}
+
+.accounts-add .accounts-key {
+  margin-left: auto;
+}
+
+.accounts-add:disabled {
+  color: var(--text-tertiary);
+}

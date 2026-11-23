@@ -553,8 +553,10 @@ pub fn engine_info(engine: EngineState<'_>) -> Value {
 /// Calls `window[target][method](...args)` in the main renderer page (the host-script adapters:
 /// `__zaloChat`, `__zaloCompose`, `__zaloPoll`, …) and returns its JSON result.
 #[tauri::command]
-pub async fn engine_call(engine: EngineState<'_>, target: String, method: String, args: Vec<Value>) -> Result<Value, String> {
-    engine.call_adapter(&target, &method, args).await
+pub async fn engine_call(app: AppHandle, engine: EngineState<'_>, target: String, method: String, args: Vec<Value>) -> Result<Value, String> {
+    let result = engine.call_adapter(&target, &method, args.clone()).await;
+    crate::remote::record_local_call(&app, "engine_call", &target, &method, &args, result.is_ok());
+    result
 }
 
 /// Development aid: evaluates an async function body in the main renderer page.
@@ -627,7 +629,9 @@ pub async fn engine_call_with_files(
             None => return Ok(Value::Null),
         },
     };
-    engine.call_adapter_with_files(&target, &method, args, paths).await
+    let result = engine.call_adapter_with_files(&target, &method, args.clone(), paths).await;
+    crate::remote::record_local_call(&app, "engine_call_with_files", &target, &method, &args, result.is_ok());
+    result
 }
 
 /// The native open panel of the file buttons (`pick`: `media` = images + movies, anything else = any file); None when

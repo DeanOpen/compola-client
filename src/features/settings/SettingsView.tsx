@@ -2,6 +2,7 @@
 // StickerSettings.swift), laid out like Zalo PC's settings dialog: a list of sections on the left, the section's grouped
 // rows on the right. Notification and sticker rows read / write the official client's own settings.
 
+import { AccountsSettings } from '../accounts/AccountsSettings';
 import { setConversationPrompt } from '../../engine/conversationActions';
 import { setStickerSuggest } from '../../engine/stickers';
 import {
@@ -192,7 +193,12 @@ export function SettingsDialog({ tab: requested, onTab, onClose }: { tab: Settin
             {tab === 'notifications' && <NotificationSettings />}
             {tab === 'privacy' && <PrivacySettings />}
             {tab === 'sticker' && <StickerSettings />}
-            {tab === 'account' && <AccountSettings onClose={onClose} />}
+            {tab === 'account' && (
+              <>
+                <AccountsSettings />
+                <AccountSettings onClose={onClose} />
+              </>
+            )}
             {tab === 'mcp' && <McpSettings />}
             {tab === 'schedules' && <ScheduleSettings />}
             {tab === 'addons' && <AddonSettings />}
@@ -209,7 +215,7 @@ export function SettingsDialog({ tab: requested, onTab, onClose }: { tab: Settin
 
 // MARK: - Building blocks
 
-export function Section({ title, description, footer, children, tone }: { title?: string; description?: ReactNode; footer?: ReactNode; children: ReactNode; tone?: 'danger' }) {
+export function Section({ title, description, footer, children, tone }: { title?: ReactNode; description?: ReactNode; footer?: ReactNode; children: ReactNode; tone?: 'danger' }) {
   return (
     <div className={`st-section ${tone === 'danger' ? 'is-danger' : ''}`}>
       {title && <div className="st-section-title">{title}</div>}

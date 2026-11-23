@@ -4,7 +4,9 @@
 // live in the list column's tabs and the stranger row.
 
 import { Cloud, HardDrive, LogOut, MessageCircle, RefreshCw, Settings, SquareUser, UserRound, type LucideIcon } from 'lucide-react';
-import { useMemo, useState, type MouseEvent } from 'react';
+import { useEffect, useMemo, useState, type MouseEvent } from 'react';
+import { startAccounts, useAccounts } from '../engine/accounts';
+import { AccountRail } from '../features/accounts/AccountRail';
 import { useContacts } from '../engine/contacts';
 import { logOut } from '../engine/lifecycle';
 import { deviceTitle, useRemote, userTitle } from '../engine/remote';
@@ -37,6 +39,9 @@ export function Rail() {
   const remoteUser = useRemote((s) => s.connection?.user ?? null);
   const device = useRemote((s) => (s.connection ? deviceTitle(s.connection.deviceName, s.connection.deviceId) : ''));
   const [confirmLeave, setConfirmLeave] = useState(false);
+  // The host lists the accounts (multi-account builds); a joined client sees only the ones granted to it.
+  const multiAccount = useAccounts((s) => s.accounts.length > 0);
+  useEffect(() => void startAccounts(), []);
 
   const onSelfChat = !!selfId && selection === selfId && isConversationList(destination);
   const messagesActive = isConversationList(destination) && !onSelfChat;
@@ -66,9 +71,14 @@ export function Rail() {
   return (
     <nav className="rail" aria-label="Điều hướng">
       <div className="rail-titlebar" data-tauri-drag-region />
-      <button className="rail-avatar" onClick={accountMenu} title={name} aria-label={`Tài khoản ${name}`}>
-        <Avatar url={profile?.avatar} name={name} size={48} />
-      </button>
+      {multiAccount ? (
+        // Several Zalo accounts: a column of avatars (features/accounts); the one on screen opens this menu.
+        <AccountRail activeMenu={accountMenu} activeUnread={counts.inbox + counts.strangers} />
+      ) : (
+        <button className="rail-avatar" onClick={accountMenu} title={name} aria-label={`Tài khoản ${name}`}>
+          <Avatar url={profile?.avatar} name={name} size={48} />
+        </button>
+      )}
       <div className="rail-group">
         <RailItem
           icon={MessageCircle}

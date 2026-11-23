@@ -18,7 +18,7 @@ import {
   type MockConversation,
 } from './mockData';
 
-import { mockAdapters, mockCommands, runMockBootHooks, setMockContext } from './registry';
+import { mockAdapters, mockCommands, runMockBootHooks, setMockAccountBoot, setMockContext } from './registry';
 
 // Feature mocks of the later waves register themselves (mock/registry.ts).
 import.meta.glob('./features/*.ts', { eager: true });
@@ -146,6 +146,18 @@ export const createMockBackend = (): Backend => {
     publishChat(convId, false, [m]);
     return m;
   };
+
+  // Multi-account mock (features/accounts.ts): the same mock data seen by another account — its profile and a subset
+  // of the conversations.
+  setMockAccountBoot((user, ids) => {
+    setPhase({ kind: 'ready' });
+    emit('compola://state', { page: 'main', user });
+    const pick = ids ? [...convs.values()].filter((c) => ids.includes(c.id)) : [...convs.values()];
+    publishConversations(pick, true);
+    publishExtras();
+    publishConvActions();
+    runMockBootHooks();
+  });
 
   const boot = () => {
     emit('compola://state', { page: 'main', user: ME });

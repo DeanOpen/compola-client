@@ -2,7 +2,7 @@
 // addresses to join with, the first admin of the admin console, signed-in devices). On a joined app: the server, who is
 // signed in with which access, and "Rời máy chủ".
 
-import { Check, Copy, ExternalLink, Globe, LogOut, Monitor } from 'lucide-react';
+import { Check, Copy, Globe, LogOut, Monitor } from 'lucide-react';
 import { useEffect, useState, type FormEvent } from 'react';
 import { formatTime } from '../../engine/automation';
 import {
@@ -23,11 +23,15 @@ import { Alert } from '../../ui/Overlays';
 import { Spinner } from '../../ui/Spinner';
 import { LeaveServerAlert } from './RemoteGate';
 import { Row, Section, Toggle } from '../settings/SettingsView';
+import { ServerAdminPage, ServerAdminSection, type AdminPage } from './admin/ServerAdmin';
 import './remote.css';
 
 export function ServerSettings() {
   const mode = useRemote((s) => s.mode);
-  return mode === 'joined' ? <JoinedSettings /> : <HostSettings />;
+  // A "Quản trị máy chủ" sub-page replaces the pane's content until "‹ Quản trị máy chủ".
+  const [page, setPage] = useState<AdminPage | null>(null);
+  if (page) return <ServerAdminPage page={page} onBack={() => setPage(null)} />;
+  return mode === 'joined' ? <JoinedSettings onAdmin={setPage} /> : <HostSettings onAdmin={setPage} />;
 }
 
 function CopyButton({ text }: { text: string }) {
@@ -60,7 +64,7 @@ function Problem({ text }: { text: string | null }) {
 
 const kindTitle = (kind: string) => (kind === 'tailscale' ? 'Tailscale' : kind === 'public' ? 'Public' : 'LAN');
 
-function HostSettings() {
+function HostSettings({ onAdmin }: { onAdmin: (page: AdminPage) => void }) {
   const revision = useRemote((s) => s.revision);
   const [state, setState] = useState<RemoteState | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -92,8 +96,9 @@ function HostSettings() {
     <>
       <ListenerSection host={host} />
       {host.running && <AddressesSection host={host} />}
-      {host.running && <AdminSection host={host} />}
-      {host.running && <SessionsSection sessions={host.sessions} />}
+      {/* With an admin, the native admin screens (remote_api as the owner); before that, the first admin's form. */}
+      {host.running && (host.hasAdmin ? <ServerAdminSection onOpen={onAdmin} /> : <AdminSetup />)}
+      {host.running && !host.hasAdmin && <SessionsSection sessions={host.sessions} />}
     </>
   );
 }
@@ -211,35 +216,6 @@ function AddressesSection({ host }: { host: RemoteHost }) {
   );
 }
 
-function AdminSection({ host }: { host: RemoteHost }) {
-  const [problem, setProblem] = useState<string | null>(null);
-  const [opening, setOpening] = useState(false);
-  if (!host.hasAdmin) return <AdminSetup />;
-  return (
-    <>
-      <Section title="Quản trị">
-        <Row label="Trang quản trị" detail="Người dùng, nhóm, quyền truy cập, đăng nhập LDAP / SSO, thiết bị và nhật ký.">
-          <button
-            className="st-button is-primary"
-            disabled={opening}
-            onClick={() => {
-              setOpening(true);
-              setProblem(null);
-              void remote
-                .adminOpen()
-                .catch((e) => setProblem(errorText(e)))
-                .finally(() => setOpening(false));
-            }}
-          >
-            <ExternalLink size={14} /> Mở trang quản trị
-          </button>
-        </Row>
-      </Section>
-      <Problem text={problem} />
-    </>
-  );
-}
-
 function AdminSetup() {
   const [username, setUsername] = useState('admin');
   const [displayName, setDisplayName] = useState('');
@@ -353,7 +329,7 @@ function SessionsSection({ sessions }: { sessions: RemoteSession[] }) {
 
 const connectionTitle = (state: string | undefined) => (state === 'connected' ? 'Đã kết nối' : state === 'connecting' ? 'Đang kết nối…' : 'Mất kết nối');
 
-function JoinedSettings() {
+function JoinedSettings({ onAdmin }: { onAdmin: (page: AdminPage) => void }) {
   const connection = useRemote((s) => s.connection);
   const [confirmLeave, setConfirmLeave] = useState(false);
   const access = connection?.access;
@@ -370,6 +346,7 @@ function JoinedSettings() {
           <span className="st-value">{access ? scopeSummary(access.scope) : '—'}</span>
         </Row>
       </Section>
+      {access?.role === 'admin' && <ServerAdminSection onOpen={onAdmin} />}
       <Section title="Máy chủ">
         <Row label="Tên">
           <span className="st-value">{connection?.serverName || '—'}</span>

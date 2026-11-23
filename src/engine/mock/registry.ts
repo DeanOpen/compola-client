@@ -47,3 +47,11 @@ export const setMockContext = (c: MockContext) => {
 export const runMockBootHooks = () => {
   for (const hook of bootHooks) hook(mockContext());
 };
+
+/** Multi-account mock: re-posts the signed-in state as another account (`user`, the conversations `ids` it has). */
+type AccountBoot = (user: Json, ids: string[] | null) => void;
+let accountBoot: AccountBoot | null = null;
+export const setMockAccountBoot = (fn: AccountBoot) => {
+  accountBoot = fn;
+};
+export const mockAccountBoot: AccountBoot = (user, ids) => accountBoot?.(user, ids);
