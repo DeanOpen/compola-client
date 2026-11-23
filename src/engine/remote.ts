@@ -244,8 +244,6 @@ export const remote = {
   setServer: (config: RemoteServerConfig) => call<void>('remote_set_server', { config }),
   /** Creates the first admin of the admin console (only while there is none). */
   adminSetup: (admin: { username: string; password: string; displayName: string }) => call<void>('remote_admin_setup', admin),
-  /** Opens the admin console in the browser, signed in as the owner; returns the one-time link. */
-  adminOpen: () => call<string>('remote_admin_open'),
   kick: (sessionId: string) => call<void>('remote_kick', { sessionId }),
 
   // Joining
