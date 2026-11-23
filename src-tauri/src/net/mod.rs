@@ -501,6 +501,36 @@ impl NetworkProxy {
     }
 }
 
+/// Fingerprint-helper request for callers without a `NetworkProxy` (the media loader), with the client cookie jar
+/// like `NetworkProxy::request`. `Ok(None)`: the helper is not running — the caller uses its own fallback transport.
+/// `Err`: an upstream failure reported by the helper.
+pub async fn perform_via_helper(
+    app: &AppHandle,
+    method: &str,
+    url: &url::Url,
+    mut headers: Vec<(String, String)>,
+    body: &[u8],
+    timeout: Option<Duration>,
+    wait: Duration,
+) -> Result<Option<HttpResponse>, String> {
+    let Some(helper) = fingerprint::FingerprintProxy::shared().ready(wait).await else { return Ok(None) };
+    let jar = app.try_state::<Arc<CookieJar>>().map(|j| j.inner().clone());
+    if let Some(cookie) = jar.as_ref().and_then(|j| j.header_for(url)) {
+        headers.push(("cookie".into(), cookie));
+    }
+    match helper.perform(method, url.as_str(), &headers, body, timeout).await {
+        Ok(r) => {
+            if let Some(jar) = &jar {
+                jar.store_from_headers(url, &r.headers);
+            }
+            Ok(Some(r))
+        }
+        Err(fingerprint::Error::Unavailable) => Ok(None),
+        Err(fingerprint::Error::Failed(msg)) => Err(msg),
+        Err(fingerprint::Error::TooLarge) => Err("body too large".into()),
+    }
+}
+
 /// Transport-error text that means the request timed out (reqwest: "operation timed out"; the helper's Go stack:
 /// "context deadline exceeded" / "Client.Timeout exceeded").
 pub fn is_timeout_message(message: &str) -> bool {

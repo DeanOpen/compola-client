@@ -9,6 +9,7 @@ mod engine;
 mod host;
 mod installer;
 mod main_process;
+mod media;
 mod net;
 mod notifications;
 mod platform;
@@ -65,6 +66,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .register_asynchronous_uri_scheme_protocol(host::SCHEME, host::protocol::handle)
+        .register_asynchronous_uri_scheme_protocol(media::protocol::SCHEME, media::protocol::handle)
         .manage(host::Hosts::default())
         .manage(Arc::new(shared_worker::SharedWorkerRouter::default()))
         .manage(Arc::new(net::cookies::CookieJar::load(platform::app_support().join("cookies.json"))))
@@ -84,6 +86,7 @@ pub fn run() {
             engine::engine_retry_runtime,
             engine::engine_show_renderer,
             engine::engine_switch_to_sqlite,
+            media::media_save,
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application")
