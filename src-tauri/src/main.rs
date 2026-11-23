@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    compola_tauri_lib::run()
+    compola_lib::run()
 }
