@@ -14,7 +14,8 @@
   flex-direction: column;
   align-items: center;
   flex: none;
-  width: 64px;
+  /* macOS 26's traffic lights span ~61px from their 12px inset: the rail is wide enough to hold them. */
+  width: 76px;
   padding-bottom: 8px;
   background: var(--navbar);
   color: #fff;
