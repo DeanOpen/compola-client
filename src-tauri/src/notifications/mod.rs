@@ -155,13 +155,15 @@ pub mod policy {
 struct Live {
     host: Weak<Host>,
     tag: String,
+    /// The account whose renderer created it (`None`: a Compola Server host's notification on a joined app).
+    account: Option<String>,
 }
 
 pub struct Notifier {
     app: AppHandle,
     live: Mutex<HashMap<String, Live>>,
-    /// The conversation the UI shows (set by the UI side; `None` when unknown).
-    open_conversation: Mutex<Option<String>>,
+    /// The conversation the UI shows and its account (set by the UI side; `None` when unknown).
+    open_conversation: Mutex<Option<(String, String)>>,
     /// "Show message preview" setting of the UI.
     shows_preview: AtomicBool,
     focus_wired: AtomicBool,
@@ -183,9 +185,9 @@ pub fn install(app: &AppHandle, reg: &mut Registry) {
     if un::available() {
         let app = app.clone();
         let _ = app.clone().run_on_main_thread(move || {
-            un::init(Box::new(move |id, conv, response| {
+            un::init(Box::new(move |id, account, conv, response| {
                 if let Some(n) = app.try_state::<Arc<Notifier>>() {
-                    n.handle_response(&id, &conv, response);
+                    n.handle_response(&id, Some(&account), &conv, response);
                 }
             }));
         });
@@ -229,27 +231,42 @@ pub fn deliver_remote(app: &AppHandle, title: String, body: String, tag: String,
     if un::available() && !REMOTE_UN_WIRED.swap(true, Ordering::SeqCst) {
         let handler_app = app.clone();
         let _ = app.run_on_main_thread(move || {
-            un::init(Box::new(move |id, conv, response| {
+            un::init(Box::new(move |id, _account, conv, response| {
                 if let Some(n) = handler_app.try_state::<Arc<Notifier>>() {
-                    n.handle_response(&id, &conv, response);
+                    n.handle_response(&id, None, &conv, response);
                 }
             }));
         });
     }
     let id = uuid::Uuid::new_v4().to_string().to_uppercase();
-    n.live.lock().insert(id.clone(), Live { host: Weak::new(), tag: tag.clone() });
+    n.live.lock().insert(id.clone(), Live { host: Weak::new(), tag: tag.clone(), account: None });
     n.deliver(NotificationRequest { title, body, tag, silent, icon: None }, id, image);
 }
 
-/// The UI reports the conversation on screen (suppression backstop); `None` when none is open.
-#[allow(dead_code)]
-pub fn set_open_conversation(app: &AppHandle, id: Option<String>) {
+/// The UI reports the conversation on screen of `account` (suppression backstop); `None` when none is open.
+pub fn set_open_conversation(app: &AppHandle, account: &str, id: Option<String>) {
     #[cfg(target_os = "macos")]
     if let Some(conv) = &id {
-        un::clear_delivered(conv);
+        un::clear_delivered(account, conv);
     }
     if let Some(n) = app.try_state::<Arc<Notifier>>() {
-        *n.open_conversation.lock() = id;
+        *n.open_conversation.lock() = id.map(|c| (account.to_owned(), c));
+    }
+}
+
+/// `"<account name> · <title>"` when several accounts are registered (docs/multi-account.md §5).
+fn account_title(app: &AppHandle, account: &str, title: &str) -> String {
+    let Some(accounts) = app.try_state::<Arc<crate::account::Accounts>>() else { return title.to_owned() };
+    let registry = accounts.registry();
+    if registry.accounts.len() < 2 {
+        return title.to_owned();
+    }
+    match registry.get(account) {
+        Some(r) => {
+            let name = r.display_name().map(str::to_owned).unwrap_or_else(|| format!("Tài khoản {}", r.order + 1));
+            format!("{name} · {title}")
+        }
+        None => title.to_owned(),
     }
 }
 
@@ -299,7 +316,8 @@ impl Notifier {
     fn create(self: &Arc<Self>, args: &[Value], host: &Arc<Host>) -> Option<String> {
         let request = NotificationRequest::parse(args)?;
         let id = uuid::Uuid::new_v4().to_string().to_uppercase();
-        self.live.lock().insert(id.clone(), Live { host: Arc::downgrade(host), tag: request.tag.clone() });
+        let account = host.account.id().to_owned();
+        self.live.lock().insert(id.clone(), Live { host: Arc::downgrade(host), tag: request.tag.clone(), account: Some(account.clone()) });
         let this = self.clone();
         let deliver_id = id.clone();
         let asar = host.asar.clone();
@@ -317,7 +335,11 @@ impl Notifier {
                 }
                 None => None,
             };
-            crate::remote::forward_notification(&this.app, &request.title, &request.body, &request.tag, request.silent, image.as_deref());
+            // Compola Server shares the default account only until its account dimension lands (§7).
+            if account == crate::account::DEFAULT_ID {
+                crate::remote::forward_notification(&this.app, &request.title, &request.body, &request.tag, request.silent, image.as_deref());
+            }
+            let request = NotificationRequest { title: account_title(&this.app, &account, &request.title), ..request };
             this.deliver(request, deliver_id, image);
         });
         Some(id)
@@ -329,13 +351,13 @@ impl Notifier {
     fn close(&self, id: Option<&str>) {
         let Some(id) = id else { return };
         let Some(entry) = self.live.lock().remove(id) else { return };
-        self.push("_noti_on-close", id, Some(&entry));
+        self.push("_noti_on-close", id, entry.account.as_deref(), Some(&entry));
     }
 
-    fn push(&self, channel: &str, id: &str, entry: Option<&Live>) {
-        let host = entry
-            .and_then(|e| e.host.upgrade())
-            .or_else(|| self.app.state::<Hosts>().get(crate::main_process::MAIN_LABEL));
+    fn push(&self, channel: &str, id: &str, account: Option<&str>, entry: Option<&Live>) {
+        let fallback_label = crate::account::AccountPaths::new(&crate::platform::app_support(), account.unwrap_or(crate::account::DEFAULT_ID))
+            .label(crate::main_process::MAIN_LABEL);
+        let host = entry.and_then(|e| e.host.upgrade()).or_else(|| self.app.state::<Hosts>().get(&fallback_label));
         if let Some(host) = host {
             host.send(channel, vec![json!({ "id": id, "tag": entry.map(|e| e.tag.as_str()).unwrap_or("") })]);
         }
@@ -353,7 +375,15 @@ impl Notifier {
 
     fn deliver(self: &Arc<Self>, request: NotificationRequest, id: String, image: Option<Vec<u8>>) {
         let (active, visible) = self.ui_window_state();
-        let open = self.open_conversation.lock().clone();
+        // Only the active account's conversation can be on screen.
+        let account = self.live.lock().get(&id).and_then(|l| l.account.clone());
+        let active_account = self.app.try_state::<Arc<crate::account::Accounts>>().map(|a| a.active_id());
+        let open = self
+            .open_conversation
+            .lock()
+            .clone()
+            .filter(|(a, _)| Some(a) == account.as_ref() && Some(a) == active_account.as_ref())
+            .map(|(_, c)| c);
         if policy::should_suppress(active, visible, open.as_deref(), &request.tag, user_idle_seconds()) {
             log::info!("notification suppressed: conversation is open and the app is in use");
             return;
@@ -377,6 +407,7 @@ impl Notifier {
                     title: &request.title,
                     body: &body,
                     conversation: &request.tag,
+                    account: account.as_deref(),
                     silent: request.silent,
                     image: image_file.as_deref(),
                 };
@@ -405,7 +436,7 @@ impl Notifier {
                 let _ = std::fs::remove_file(f);
             }
             match response {
-                Ok(r) => this.handle_response(&id, &request.tag, r),
+                Ok(r) => this.handle_response(&id, account.as_deref(), &request.tag, r),
                 Err(e) => {
                     log::warn!("notification failed: {e}");
                     this.live.lock().remove(&id);
@@ -419,33 +450,41 @@ impl Notifier {
         let this = self.clone();
         tauri::async_runtime::spawn(async move {
             tokio::time::sleep(Duration::from_millis(60)).await;
-            let live = this.live.lock().get(&id).map(|e| Live { host: e.host.clone(), tag: e.tag.clone() });
+            let live = this.live.lock().get(&id).map(|e| Live { host: e.host.clone(), tag: e.tag.clone(), account: e.account.clone() });
             if let Some(entry) = live {
-                this.push("_noti_on-show", &id, Some(&entry));
+                this.push("_noti_on-show", &id, entry.account.as_deref(), Some(&entry));
             }
         });
     }
 
-    fn handle_response(&self, id: &str, conv_id: &str, response: Response) {
+    /// `account`: the banner's account (`None`: a Compola Server host's banner on a joined app).
+    fn handle_response(&self, id: &str, account: Option<&str>, conv_id: &str, response: Response) {
         let entry = self.live.lock().remove(id);
+        let account = entry.as_ref().and_then(|e| e.account.clone()).or_else(|| account.map(str::to_owned));
         match response {
             Response::Click => {
                 #[cfg(target_os = "macos")]
-                un::clear_delivered(conv_id);
+                un::clear_delivered(account.as_deref().unwrap_or(crate::account::DEFAULT_ID), conv_id);
                 self.bring_app_to_front();
-                emit_ui(&self.app, "compola://notification-click", json!({ "id": id, "convId": conv_id }));
+                // A banner of another account shows that account first.
+                if let (Some(a), Some(accounts)) = (&account, self.app.try_state::<Arc<crate::account::Accounts>>()) {
+                    if let Err(e) = accounts.set_active(a) {
+                        log::warn!("notification click: account {a}: {e}");
+                    }
+                }
+                emit_ui(&self.app, "compola://notification-click", json!({ "id": id, "convId": conv_id, "account": account }));
                 // The official click handler (`_onNotiClicked`) opens the conversation in the client state.
-                self.push("_noti_on-click", id, entry.as_ref());
+                self.push("_noti_on-click", id, account.as_deref(), entry.as_ref());
             }
             Response::Reply(text) => {
                 if !text.is_empty() && !conv_id.is_empty() {
-                    emit_ui(&self.app, "compola://notification-reply", json!({ "id": id, "convId": conv_id, "text": text }));
+                    emit_ui(&self.app, "compola://notification-reply", json!({ "id": id, "convId": conv_id, "text": text, "account": account }));
                 }
             }
             Response::Dismissed => {}
         }
         if entry.is_some() {
-            self.push("_noti_on-close", id, entry.as_ref());
+            self.push("_noti_on-close", id, account.as_deref(), entry.as_ref());
         }
     }
 
@@ -573,7 +612,19 @@ mod tests {
     fn notification_center_is_gated_outside_a_bundle() {
         // `currentNotificationCenter` would raise outside an app bundle: the test binary must take the fallback.
         assert!(!un::available());
-        un::clear_delivered("g1"); // a no-op, not a crash
+        un::clear_delivered("default", "g1"); // a no-op, not a crash
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn banner_threads_carry_the_account() {
+        assert_eq!(un::thread_id("a1b2c3d4e", "g42"), "a1b2c3d4e:g42");
+        assert_eq!(un::parse_thread("a1b2c3d4e:g42"), ("a1b2c3d4e".to_owned(), "g42".to_owned()));
+        assert_eq!(un::parse_thread("default:"), ("default".to_owned(), String::new()));
+        // Banners delivered before multi-account belong to the default account.
+        assert_eq!(un::parse_thread("g42"), ("default".to_owned(), "g42".to_owned()));
+        assert_eq!(un::parse_thread("zalo"), ("default".to_owned(), String::new()));
+        assert_eq!(un::parse_thread("x:y"), ("default".to_owned(), "x:y".to_owned()));
     }
 
     #[test]

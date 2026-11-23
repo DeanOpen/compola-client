@@ -679,8 +679,10 @@ pub fn engine_switch_to_sqlite(app: AppHandle, account: Option<String>) -> Resul
 
 /// The UI reports the conversation on screen (notification suppression backstop).
 #[tauri::command]
-pub fn ui_set_open_conversation(app: AppHandle, id: Option<String>) {
-    crate::notifications::set_open_conversation(&app, id);
+pub fn ui_set_open_conversation(app: AppHandle, account: Option<String>, id: Option<String>) -> Result<(), String> {
+    let account = crate::account::accounts(&app).registry().resolve(account.as_deref())?;
+    crate::notifications::set_open_conversation(&app, &account, id);
+    Ok(())
 }
 
 /// The UI's "show message preview in notifications" setting.

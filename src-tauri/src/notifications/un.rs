@@ -29,8 +29,25 @@ pub const REPLY_ACTION: &str = "app.compola.message.reply";
 /// Thread of notifications without a conversation (`threadIdentifier` must not be empty to group).
 const NO_THREAD: &str = "zalo";
 
-/// What the delegate hands back: request id, conversation id, response.
-pub type Responder = Box<dyn Fn(String, String, Response) + Send + Sync>;
+/// What the delegate hands back: request id, account id, conversation id, response.
+pub type Responder = Box<dyn Fn(String, String, String, Response) + Send + Sync>;
+
+/// `threadIdentifier` of a banner: `<account>:<conversation>` (docs/multi-account.md §5), so clearing is per account.
+pub fn thread_id(account: &str, conversation: &str) -> String {
+    format!("{account}:{conversation}")
+}
+
+/// `(account, conversation)` of a `threadIdentifier`. Banners from before multi-account (a bare conversation id or
+/// `zalo`) belong to `default`.
+pub fn parse_thread(thread: &str) -> (String, String) {
+    if let Some((account, conv)) = thread.split_once(':') {
+        if crate::account::valid_id(account) {
+            return (account.to_owned(), conv.to_owned());
+        }
+    }
+    let conv = if thread == NO_THREAD { "" } else { thread };
+    (crate::account::DEFAULT_ID.to_owned(), conv.to_owned())
+}
 
 static RESPONDER: OnceLock<Responder> = OnceLock::new();
 
@@ -85,8 +102,7 @@ define_class!(
         ) {
             let request = response.notification().request();
             let id = request.identifier().to_string();
-            let thread = request.content().threadIdentifier().to_string();
-            let conv = if thread == NO_THREAD { String::new() } else { thread };
+            let (account, conv) = parse_thread(&request.content().threadIdentifier().to_string());
             let action = response.actionIdentifier().to_string();
             let outcome = if action == REPLY_ACTION {
                 let any: &AnyObject = response.as_ref();
@@ -97,7 +113,7 @@ define_class!(
                 Some(Response::Dismissed)
             };
             if let (Some(outcome), Some(responder)) = (outcome, RESPONDER.get()) {
-                responder(id, conv, outcome);
+                responder(id, account, conv, outcome);
             }
             handler.call(());
         }
@@ -168,6 +184,8 @@ pub struct Banner<'a> {
     pub title: &'a str,
     pub body: &'a str,
     pub conversation: &'a str,
+    /// The account the banner belongs to (`None`: a Compola Server host's banner on a joined app).
+    pub account: Option<&'a str>,
     pub silent: bool,
     pub image: Option<&'a Path>,
 }
@@ -184,7 +202,12 @@ fn add(banner: Banner<'_>) -> oneshot::Receiver<Result<(), String>> {
     let content = UNMutableNotificationContent::new();
     content.setTitle(&NSString::from_str(banner.title));
     content.setBody(&NSString::from_str(banner.body));
-    content.setThreadIdentifier(&NSString::from_str(if banner.conversation.is_empty() { NO_THREAD } else { banner.conversation }));
+    let thread = match banner.account {
+        Some(account) => thread_id(account, banner.conversation),
+        None if banner.conversation.is_empty() => NO_THREAD.to_owned(),
+        None => banner.conversation.to_owned(),
+    };
+    content.setThreadIdentifier(&NSString::from_str(&thread));
     content.setCategoryIdentifier(&NSString::from_str(MESSAGE_CATEGORY));
     if !banner.silent {
         content.setSound(Some(&UNNotificationSound::defaultSound()));
@@ -212,18 +235,19 @@ fn add(banner: Banner<'_>) -> oneshot::Receiver<Result<(), String>> {
     rx
 }
 
-/// Drops the delivered banners of a conversation the user has now opened.
-pub fn clear_delivered(conversation: &str) {
+/// Drops the delivered banners of a conversation of `account` the user has now opened.
+pub fn clear_delivered(account: &str, conversation: &str) {
     if !available() || conversation.is_empty() {
         return;
     }
+    let account = account.to_owned();
     let conversation = conversation.to_owned();
     let block = RcBlock::new(move |delivered: NonNull<NSArray<UNNotification>>| {
         let delivered = unsafe { delivered.as_ref() };
         let ids: Vec<Retained<NSString>> = delivered
             .iter()
             .map(|n| n.request())
-            .filter(|r| r.content().threadIdentifier().to_string() == conversation)
+            .filter(|r| parse_thread(&r.content().threadIdentifier().to_string()) == (account.clone(), conversation.clone()))
             .map(|r| r.identifier())
             .collect();
         if !ids.is_empty() {
