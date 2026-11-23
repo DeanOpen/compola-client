@@ -1,21 +1,24 @@
-// Floating glass composer (Swift `ChatComposer` + `ComposerTextView`): typing indicator, reply banner, @mention
-// suggestions, then one row of "+" menu, text capsule and send / like button.
+// The Zalo PC composer (docs/zalo-pc-style.md §4; logic from Swift `ChatComposer` + `ComposerTextView`): typing
+// indicator, the icon toolbar row (Sticker, Hình ảnh, Đính kèm file, Chụp màn hình, Gửi danh thiếp, Nhắc hẹn, Định dạng,
+// ⋯), the reply bar, @mention suggestions, then the input with emoji and GỬI (or 👍 while empty).
 // Keys: Return sends (never while an IME composition is open — Vietnamese Telex), Shift/Option+Return inserts a newline,
 // ↑ ↓ Return/Tab Esc drive the mention list while it is open. Mentions are atomic tokens.
 
 import {
   AlarmClock,
-  ArrowUp,
   BarChart3,
   Camera,
   ContactRound,
   ImageIcon,
   MessageCircleMore,
+  MoreHorizontal,
   Paperclip,
-  Plus,
+  Quote,
   Smile,
   Sticker,
+  Type,
   X,
+  type LucideIcon,
 } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { mentionCandidates } from '../../../engine/chat';
@@ -175,104 +178,118 @@ export function Composer({
     }
   };
 
-  const plusMenu = (el: Element) =>
-    openMenuBelow(el, [
-      {
-        label: 'Ảnh hoặc Video',
-        icon: ImageIcon,
-        onSelect: () => void sendMedia(conversationId).then((o) => reportComposer(o, conversationId)),
-      },
-      {
-        label: 'Tệp',
-        icon: Paperclip,
-        onSelect: () => void sendFiles(conversationId).then((o) => reportComposer(o, conversationId)),
-      },
-      {
-        kind: 'submenu',
-        label: 'Chụp màn hình',
-        icon: Camera,
-        items: [
-          { label: 'Chụp kèm cửa sổ Compola', onSelect: () => startScreenCapture(conversationId, true) },
-          { label: 'Chụp không kèm cửa sổ Compola', onSelect: () => startScreenCapture(conversationId, false) },
-        ],
-      },
-      { label: 'Danh thiếp của tôi', icon: ContactRound, disabled: true, onSelect: () => {} },
-      { kind: 'separator' },
-      { label: 'Nhắc hẹn', icon: AlarmClock, disabled: true, onSelect: () => {} },
-      ...(isGroup ? [{ label: 'Bình chọn', icon: BarChart3, disabled: true, onSelect: () => {} }] : []),
-      { label: 'Sticker', icon: Sticker, disabled: true, onSelect: () => {} },
-      { label: 'Emoji', icon: Smile, shortcut: '⌃⌘Space', disabled: true, onSelect: () => {} },
-    ]);
+  const placeholder = isGroup ? `Nhập @, tin nhắn tới ${name}` : `Nhập tin nhắn tới ${name}`;
+  const attach = (kind: 'media' | 'files') =>
+    void (kind === 'media' ? sendMedia(conversationId) : sendFiles(conversationId)).then((o) => reportComposer(o, conversationId));
 
   return (
     <div className="composer">
       {typingName && (
-        <div className="composer-typing glass fade-in">
+        <div className="composer-typing fade-in">
           <MessageCircleMore size={13} style={{ animation: 'compola-pulse 1.4s ease-in-out infinite' }} />
           {typingName} đang soạn tin…
         </div>
       )}
+      <div className="composer-toolbar" role="toolbar" aria-label="Công cụ soạn tin">
+        <ToolButton icon={Sticker} label="Gửi Sticker" disabled />
+        <ToolButton icon={ImageIcon} label="Gửi hình ảnh" onClick={() => attach('media')} />
+        <ToolButton icon={Paperclip} label="Đính kèm File" onClick={() => attach('files')} />
+        <ToolButton
+          icon={Camera}
+          label="Chụp màn hình"
+          onClick={(el) =>
+            openMenuBelow(el, [
+              { label: 'Chụp kèm cửa sổ Compola', onSelect: () => startScreenCapture(conversationId, true) },
+              { label: 'Chụp không kèm cửa sổ Compola', onSelect: () => startScreenCapture(conversationId, false) },
+            ])
+          }
+        />
+        <ToolButton icon={ContactRound} label="Gửi danh thiếp" disabled />
+        <ToolButton icon={AlarmClock} label="Tạo nhắc hẹn" disabled />
+        <ToolButton icon={Type} label="Định dạng tin nhắn" disabled />
+        <ToolButton
+          icon={MoreHorizontal}
+          label="Tiện ích khác"
+          onClick={(el) =>
+            openMenuBelow(el, [
+              ...(isGroup ? [{ label: 'Tạo bình chọn', icon: BarChart3, disabled: true, onSelect: () => {} }] : []),
+              { label: 'Emoji', icon: Smile, shortcut: '⌃⌘Space', disabled: true, onSelect: () => {} },
+            ])
+          }
+        />
+      </div>
       {draft.replyTo && (
-        <div className="composer-reply glass slide-up">
-          <span className="composer-reply-bar" />
+        <div className="composer-reply slide-up">
           <span className="composer-reply-text">
-            <span className="composer-reply-title">Trả lời {draft.replyTo.isMine ? 'chính mình' : draft.replyTo.senderName}</span>
+            <span className="composer-reply-title">
+              <Quote size={12} /> Trả lời {draft.replyTo.isMine ? 'chính mình' : draft.replyTo.senderName}
+            </span>
             <span className="composer-reply-body truncate">{draft.replyTo.text || 'Tin nhắn'}</span>
           </span>
-          <button className="icon-button" style={{ width: 22, height: 22 }} onClick={() => onDraftChange({ ...draft, replyTo: null })} title="Hủy trả lời" aria-label="Hủy trả lời">
-            <X size={13} />
+          <button className="icon-button" style={{ width: 24, height: 24 }} onClick={() => onDraftChange({ ...draft, replyTo: null })} title="Hủy trả lời" aria-label="Hủy trả lời">
+            <X size={14} />
           </button>
         </div>
       )}
       {suggestionsOpen && <MentionSuggestions candidates={candidates} selected={selected} setSelected={setSelected} pick={pick} />}
       <div className="composer-row">
-        <div className="composer-field glass">
-          <button className="icon-button composer-icon composer-plus" onClick={(e) => plusMenu(e.currentTarget)} title="Thêm" aria-label="Thêm">
-            <Plus size={19} strokeWidth={2.3} />
-          </button>
-          <div className="composer-input" style={{ height }}>
-            <div className="composer-mirror" ref={mirror} aria-hidden>
-              {renderMirror(draft)}
-            </div>
-            <textarea
-              ref={field}
-              rows={1}
-              value={draft.text}
-              placeholder={`Tin nhắn tới ${name}`}
-              aria-label="Nhập tin nhắn"
-              spellCheck
-              onChange={(e) => update(e.target.value, e.target.selectionStart)}
-              onKeyDown={onKeyDown}
-              onCompositionStart={() => (composing.current = true)}
-              onCompositionEnd={() => (composing.current = false)}
-              onSelect={(e) => refreshQuery(draft.text, e.currentTarget.selectionStart)}
-              onScroll={(e) => mirror.current && (mirror.current.scrollTop = e.currentTarget.scrollTop)}
-              onPaste={(e) => {
-                // Plain text only, like the Swift field.
-                const text = e.clipboardData.getData('text/plain');
-                if (!text) return;
-                e.preventDefault();
-                const el = e.currentTarget;
-                const s = el.selectionStart;
-                pendingCaret.current = s + text.length;
-                update(draft.text.slice(0, s) + text + draft.text.slice(el.selectionEnd), s + text.length);
-              }}
-            />
+        <div className="composer-input" style={{ height }}>
+          <div className="composer-mirror" ref={mirror} aria-hidden>
+            {renderMirror(draft)}
           </div>
-          {isEmpty && (
-            <button className="icon-button composer-icon composer-like" onClick={onSendLike} title="Gửi biểu tượng thích" aria-label="Gửi biểu tượng thích">
-              👍
-            </button>
-          )}
-          <button className="icon-button composer-icon" disabled title="Gửi Sticker" aria-label="Gửi Sticker">
-            <Smile size={18} />
-          </button>
+          <textarea
+            ref={field}
+            rows={1}
+            value={draft.text}
+            placeholder={placeholder}
+            aria-label="Nhập tin nhắn"
+            spellCheck
+            onChange={(e) => update(e.target.value, e.target.selectionStart)}
+            onKeyDown={onKeyDown}
+            onCompositionStart={() => (composing.current = true)}
+            onCompositionEnd={() => (composing.current = false)}
+            onSelect={(e) => refreshQuery(draft.text, e.currentTarget.selectionStart)}
+            onScroll={(e) => mirror.current && (mirror.current.scrollTop = e.currentTarget.scrollTop)}
+            onPaste={(e) => {
+              // Plain text only, like the Swift field.
+              const text = e.clipboardData.getData('text/plain');
+              if (!text) return;
+              e.preventDefault();
+              const el = e.currentTarget;
+              const s = el.selectionStart;
+              pendingCaret.current = s + text.length;
+              update(draft.text.slice(0, s) + text + draft.text.slice(el.selectionEnd), s + text.length);
+            }}
+          />
         </div>
-        <button className="composer-send" onClick={onSend} disabled={isEmpty} title="Gửi" aria-label="Gửi tin nhắn">
-          <ArrowUp size={17} strokeWidth={2.8} />
+        <button className="icon-button composer-icon" disabled title="Biểu cảm" aria-label="Biểu cảm">
+          <Smile size={20} strokeWidth={1.8} />
         </button>
+        {isEmpty ? (
+          <button className="icon-button composer-icon composer-like" onClick={onSendLike} title="Gửi nhanh biểu tượng cảm xúc" aria-label="Gửi biểu tượng thích">
+            👍
+          </button>
+        ) : (
+          <button className="composer-send" onClick={onSend} title="Gửi (Enter)" aria-label="Gửi tin nhắn">
+            GỬI
+          </button>
+        )}
       </div>
     </div>
+  );
+}
+
+function ToolButton({ icon: Icon, label, disabled = false, onClick }: { icon: LucideIcon; label: string; disabled?: boolean; onClick?: (el: HTMLButtonElement) => void }) {
+  return (
+    <button
+      className="composer-tool"
+      disabled={disabled}
+      title={disabled ? `${label} — chưa hỗ trợ trên phiên bản này` : label}
+      aria-label={label}
+      onClick={(e) => onClick?.(e.currentTarget)}
+    >
+      <Icon size={20} strokeWidth={1.7} />
+    </button>
   );
 }
 

@@ -374,7 +374,12 @@ export const createMockBackend = (): Backend => {
         }
         case 'login':
           setPhase(login({ kind: 'generating' }));
-          setTimeout(() => setPhase(login({ kind: 'waitingScan' })), 700);
+          setTimeout(() => {
+            setPhase(login({ kind: 'waitingScan' }));
+            // Dev aid: `&login=confirm|expired|failed|qr2` shows that login state.
+            const state = params.get('login');
+            if (state) (window as unknown as Record<string, (s: string) => void>).__mockLogin(state);
+          }, 700);
           return;
         case 'signingIn':
           setPhase({ kind: 'signingIn' });
@@ -435,6 +440,7 @@ export const createMockBackend = (): Backend => {
         case 'engine_retry_runtime':
         case 'ui_set_open_conversation':
         case 'ui_set_shows_preview':
+        case 'ui_widen_window':
           return undefined as T;
         case 'media_save':
           return args.destPath as T;

@@ -1,109 +1,140 @@
-/* Brand + system tokens (Swift: Theme.swift `ZaloTheme`, ChatStyle.swift `ChatPalette`). Light / dark via
-   prefers-color-scheme; "Liquid Glass" surfaces are translucent fills + backdrop-filter. */
+/* Compola in the Zalo PC style (docs/zalo-pc-style.md): tokens taken from the official Zalo PC stylesheets (light theme,
+   and its dark theme under prefers-color-scheme). Older names (`--glass-*`, `--content`…) are kept as aliases so every
+   surface follows the same palette: "glass" surfaces are plain elevated panels in this style. */
 
 :root {
   color-scheme: light dark;
 
+  /* Brand */
   --accent: #0068ff;
   --accent-pressed: #005ae0;
+  --navbar: #005ae0;
+  --navbar-hover: rgba(0, 0, 0, 0.15);
+  --navbar-selected: rgba(0, 0, 0, 0.25);
   --accent-tonal: #e5f1ff;
-  --accent-soft: rgba(0, 104, 255, 0.16);
-  --accent-faint: rgba(0, 104, 255, 0.1);
+  --accent-soft: #c7e0ff;
+  --accent-faint: #e5f1ff;
+  --accent-selected: #e5f1ff;
+  --accent-hover: #f1f2f4;
   --on-accent: #ffffff;
   --ink: #081b3a;
 
-  --window: #f2f2f4;
+  /* Layers */
+  --window: #ffffff;
   --content: #ffffff;
-  --text: rgba(0, 0, 0, 0.88);
-  --text-secondary: rgba(60, 60, 67, 0.62);
-  --text-tertiary: rgba(60, 60, 67, 0.34);
+  --surface: #ffffff;
+  --selected: #e5f1ff;
+  --hover: #f1f2f4;
+  --subtle: #ebecf0;
+  --chat-bg: #ebecf0;
+  --login-bg: #e8f3ff;
+
+  /* Text */
+  --text: #081b3a;
+  --text-secondary: #5a6981;
+  --text-tertiary: #8b96a7;
+  --text-placeholder: #77859c;
+  --text-quote: #44546f;
+
+  /* Lines and fills */
+  --border: rgba(0, 0, 0, 0.15);
   --separator: rgba(0, 0, 0, 0.1);
-  --fill: rgba(120, 120, 128, 0.16);
-  --fill-quaternary: rgba(120, 120, 128, 0.1);
-  --hover: rgba(0, 0, 0, 0.05);
-  --primary-faint: rgba(0, 0, 0, 0.05);
+  --fill: #ebecf0;
+  --fill-quaternary: #f1f2f4;
+  --primary-faint: #f1f2f4;
 
-  --bubble-in: #e9e9eb;
-  --bubble-out: var(--accent);
-  --card: var(--bubble-in);
-
-  --danger: #ff3b30;
-  --warning: #ff9500;
-  --success: #34c759;
-  --star: #ffcc00;
-
-  --glass-bg: rgba(255, 255, 255, 0.62);
-  --glass-bg-strong: rgba(255, 255, 255, 0.82);
-  --glass-border: rgba(255, 255, 255, 0.7);
-  --glass-edge: rgba(0, 0, 0, 0.08);
-  --glass-shadow: 0 8px 28px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06);
-  --glass-blur: blur(28px) saturate(180%);
-
-  --sidebar-bg: rgba(246, 246, 248, 0.68);
-  --dim: rgba(0, 0, 0, 0.12);
-
-  --radius-s: 8px;
-  --radius-m: 12px;
-  --radius-l: 16px;
-  --radius-xl: 22px;
-
-  /* Selected rows: accent tinted 12%; hover 6% (docs/design-refs). */
-  --accent-selected: rgba(0, 104, 255, 0.12);
-  --accent-hover: rgba(0, 104, 255, 0.06);
-  /* My bubbles: Zalo tonal with dark text in light mode, solid blue in dark mode. */
+  /* Messages */
   --bubble-mine: #e5f1ff;
   --bubble-mine-text: #081b3a;
-  --bubble-mine-meta: rgba(8, 27, 58, 0.5);
+  --bubble-mine-meta: #5a6981;
+  --bubble-mine-selected: #c7e0ff;
   --bubble-theirs: #ffffff;
-  --chat-bg: #e9eef5;
-  --chat-bar-bg: rgba(255, 255, 255, 0.9);
-  --panel-shadow: 0 1px 2px rgba(0, 0, 0, 0.05), 0 0 0 0.5px rgba(0, 0, 0, 0.06);
-  --sidebar-solid: #f4f6f9;
-  --motion-fast: 150ms ease-out;
-  --motion-sheet: 220ms cubic-bezier(0.2, 0.9, 0.3, 1.15);
+  --bubble-in: #ffffff;
+  --quote: #c7e0ff;
+  --bubble-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
 
-  --font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', 'Segoe UI', Roboto, sans-serif;
-  --font-rounded: ui-rounded, 'SF Pro Rounded', -apple-system, BlinkMacSystemFont, sans-serif;
-  --toolbar-h: 52px;
+  /* States */
+  --danger: #c31818;
+  --badge: #e5484d;
+  --warning: #e0ac00;
+  --success: #37b361;
+  --star: #ffcc00;
+
+  /* Elevated surfaces (menus, popovers, sheets) */
+  --glass-bg: #ffffff;
+  --glass-bg-strong: #ffffff;
+  --glass-border: rgba(0, 0, 0, 0.08);
+  --glass-edge: rgba(0, 0, 0, 0.06);
+  --glass-shadow: 0 4px 16px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08);
+  --glass-blur: none;
+  --chat-bar-bg: #ffffff;
+  --sidebar-bg: #ffffff;
+  --panel-shadow: none;
+  --dim: rgba(0, 0, 0, 0.4);
+
+  --radius-s: 4px;
+  --radius-m: 8px;
+  --radius-l: 12px;
+  --radius-xl: 16px;
+
+  --motion-fast: 150ms ease-out;
+  --motion-sheet: 200ms cubic-bezier(0.2, 0.9, 0.3, 1.1);
+
+  --font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+  --font-rounded: -apple-system, BlinkMacSystemFont, 'SF Pro Rounded', 'Segoe UI', Roboto, sans-serif;
+  --toolbar-h: 68px;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --accent-tonal: rgba(0, 104, 255, 0.22);
-    --accent-soft: rgba(64, 140, 255, 0.24);
-    --accent-faint: rgba(64, 140, 255, 0.14);
+    --navbar: #121416;
+    --navbar-hover: rgba(255, 255, 255, 0.08);
+    --navbar-selected: rgba(255, 255, 255, 0.12);
+    --accent-tonal: #1f344d;
+    --accent-soft: #1f344d;
+    --accent-faint: #1f344d;
+    --accent-selected: #1f344d;
+    --accent-hover: rgba(255, 255, 255, 0.05);
+    --ink: #dfe2e7;
 
     --window: #22262b;
-    --content: #1c1f23;
-    --text: rgba(255, 255, 255, 0.92);
-    --text-secondary: rgba(235, 235, 245, 0.6);
-    --text-tertiary: rgba(235, 235, 245, 0.3);
+    --content: #22262b;
+    --surface: #22262b;
+    --selected: #1f344d;
+    --hover: rgba(255, 255, 255, 0.05);
+    --subtle: #1d2025;
+    --chat-bg: #16191d;
+    --login-bg: #16191d;
+
+    --text: #dfe2e7;
+    --text-secondary: #9facbc;
+    --text-tertiary: #738296;
+    --text-placeholder: #738296;
+    --text-quote: #b6c1ce;
+
+    --border: rgba(255, 255, 255, 0.15);
     --separator: rgba(255, 255, 255, 0.1);
-    --fill: rgba(120, 120, 128, 0.32);
-    --fill-quaternary: rgba(120, 120, 128, 0.18);
-    --hover: rgba(255, 255, 255, 0.06);
-    --primary-faint: rgba(255, 255, 255, 0.06);
+    --fill: #2f343a;
+    --fill-quaternary: rgba(255, 255, 255, 0.05);
+    --primary-faint: rgba(255, 255, 255, 0.05);
 
-    --bubble-in: #3b3b3b;
+    --bubble-mine: #1f344d;
+    --bubble-mine-text: #dfe2e7;
+    --bubble-mine-meta: #9facbc;
+    --bubble-mine-selected: #111e2c;
+    --bubble-theirs: #22262b;
+    --bubble-in: #22262b;
+    --quote: #111e2c;
+    --bubble-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
 
-    --glass-bg: rgba(42, 47, 53, 0.6);
-    --glass-bg-strong: rgba(42, 47, 53, 0.85);
-    --glass-border: rgba(255, 255, 255, 0.1);
-    --glass-edge: rgba(0, 0, 0, 0.4);
-    --glass-shadow: 0 10px 30px rgba(0, 0, 0, 0.45), 0 1px 2px rgba(0, 0, 0, 0.3);
-
-    --sidebar-bg: rgba(42, 47, 53, 0.66);
-    --accent-selected: rgba(64, 140, 255, 0.2);
-    --accent-hover: rgba(64, 140, 255, 0.09);
-    --bubble-mine: #0068ff;
-    --bubble-mine-text: #ffffff;
-    --bubble-mine-meta: rgba(255, 255, 255, 0.72);
-    --bubble-theirs: #2c3137;
-    --chat-bg: #181b1f;
-    --chat-bar-bg: rgba(44, 49, 55, 0.92);
-    --panel-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 0 0 0.5px rgba(255, 255, 255, 0.06);
-    --sidebar-solid: #2a2f35;
-    --dim: rgba(0, 0, 0, 0.32);
+    --glass-bg: #2b3036;
+    --glass-bg-strong: #2b3036;
+    --glass-border: rgba(255, 255, 255, 0.08);
+    --glass-edge: rgba(255, 255, 255, 0.06);
+    --glass-shadow: 0 6px 20px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.3);
+    --chat-bar-bg: #22262b;
+    --sidebar-bg: #22262b;
+    --dim: rgba(0, 0, 0, 0.55);
   }
 }
 

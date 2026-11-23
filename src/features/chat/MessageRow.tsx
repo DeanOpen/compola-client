@@ -24,6 +24,7 @@ import { Avatar } from '../../ui/Avatar';
 import { openContextMenu, openMenuBelow, type MenuItem } from '../../ui/Menu';
 import { Popover } from '../../ui/Overlays';
 import { BubbleContent } from './MessageContent';
+import { statusText } from './format';
 import { ECardView, NoticeRow } from './cards/Cards';
 import { ReactionChips } from './ReactionChips';
 
@@ -71,7 +72,7 @@ export const MessageRow = memo(function MessageRow(props: Props) {
 /** Quick reactions of the hover toolbar (the full six are in the picker and the context menu). */
 const quickReactions = ['❤️', '👍', '😆', '😮'];
 
-function BubbleRow({ message, isGroup, firstInGroup, lastInGroup, onReply, onReact }: Props) {
+function BubbleRow({ message, firstInGroup, lastInGroup, showStatus, isGroup, onReply, onReact }: Props) {
   const mine = message.isMine;
   const [pickerOpen, setPickerOpen] = useState(false);
   const reactButton = useRef<HTMLButtonElement>(null);
@@ -86,8 +87,8 @@ function BubbleRow({ message, isGroup, firstInGroup, lastInGroup, onReply, onRea
       data-message-id={message.id}
       onContextMenu={(e) => openContextMenu(e, menu())}
     >
-      {!mine && isGroup && (
-        <div className="bubble-avatar">{lastInGroup && <Avatar url={message.senderAvatar} name={message.senderName} size={28} />}</div>
+      {!mine && (
+        <div className="bubble-avatar">{firstInGroup && <Avatar url={message.senderAvatar} name={message.senderName} size={40} />}</div>
       )}
       <div className="bubble-column">
         {showsName && <div className="bubble-sender">{message.senderName}</div>}
@@ -135,6 +136,7 @@ function BubbleRow({ message, isGroup, firstInGroup, lastInGroup, onReply, onRea
             </BarButton>
           </div>
         </div>
+        {mine && showStatus && <div className={`bubble-status-line ${message.status === 'failed' ? 'is-failed' : ''}`}>{statusText[message.status]}</div>}
       </div>
       {pickerOpen && (
         <Popover anchor={reactButton} onClose={() => setPickerOpen(false)} placement="top">

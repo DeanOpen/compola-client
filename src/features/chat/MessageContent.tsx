@@ -1,6 +1,6 @@
 // The content of a bubble row per message kind (Swift `MessageRow.content` + `bubble`): text, media, files, cards.
 
-import { AlertCircle, Check, CheckCheck, Clock3, CornerDownLeft, Lock, Phone, PhoneIncoming, PhoneMissed, Video, VideoOff } from 'lucide-react';
+import { AlertCircle, CornerDownLeft, Lock, Phone, PhoneIncoming, PhoneMissed, Video, VideoOff } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { performCardAction } from '../../engine/cardActions';
 import type { ChatMessage, Quote } from '../../engine/models/chat';
@@ -140,7 +140,6 @@ export function BubbleContent({ message, firstInGroup, lastInGroup }: ContentPro
  */
 function Bubble({
   message,
-  firstInGroup,
   lastInGroup,
   muted = false,
   padding,
@@ -148,46 +147,31 @@ function Bubble({
   children,
 }: ContentProps & { tail?: boolean; muted?: boolean; padding?: number; meta?: 'inline' | 'block' | false; children: ReactNode }) {
   const mine = message.isMine;
-  const big = 18;
-  const small = 6;
-  const top = firstInGroup ? big : small;
-  const bottom = lastInGroup ? big : small;
-  const radius = mine ? `${big}px ${top}px ${bottom}px ${big}px` : `${top}px ${big}px ${big}px ${bottom}px`;
+  // Zalo PC: the time shows on the last bubble of a run only.
+  const showsMeta = meta !== false && lastInGroup;
   return (
     <div
       className={`bubble ${mine ? 'is-mine' : 'is-theirs'} ${muted ? 'is-muted' : ''} ${message.status === 'sending' ? 'is-sending' : ''}`}
-      style={{ borderRadius: radius, padding: padding !== undefined ? padding : undefined }}
+      style={{ padding: padding !== undefined ? padding : undefined }}
     >
       {message.quote && <QuoteBlock quote={message.quote} mine={mine && !muted} />}
-      {meta === 'inline' ? (
-        <div className="bubble-body">
-          {children}
-          <span className={`bubble-meta-spacer ${mine ? 'is-mine' : ''}`} aria-hidden />
-          <BubbleMeta message={message} />
+      {children}
+      {showsMeta && (
+        <div className="bubble-meta-row">
+          <BubbleMeta message={message} inline />
         </div>
-      ) : (
-        <>
-          {children}
-          {meta === 'block' && (
-            <div className="bubble-meta-row">
-              <BubbleMeta message={message} inline />
-            </div>
-          )}
-        </>
       )}
     </div>
   );
 }
 
-/** "12:57 ✓✓": the time, and on my messages the delivery status (blue ticks once seen). */
+/** The time inside the bubble (Zalo PC); the delivery status is the line under my last message (MessageRow). */
 export function BubbleMeta({ message, inline = false, overlay = false }: { message: ChatMessage; inline?: boolean; overlay?: boolean }) {
-  const s = message.status;
-  const Icon = s === 'sending' ? Clock3 : s === 'sent' ? Check : s === 'failed' ? AlertCircle : CheckCheck;
   return (
     <span className={`bubble-meta ${inline ? 'is-inline' : ''} ${overlay ? 'is-overlay' : ''} nums`}>
       {message.isE2EE && <Lock size={9} aria-label="Mã hóa đầu cuối" />}
       {time(message.date)}
-      {message.isMine && <Icon size={13} strokeWidth={2.4} className={`bubble-status is-${s}`} aria-label={statusText[s]} />}
+      {message.status === 'failed' && <AlertCircle size={12} className="bubble-status is-failed" aria-label={statusText.failed} />}
     </span>
   );
 }

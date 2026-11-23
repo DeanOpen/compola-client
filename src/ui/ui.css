@@ -67,9 +67,9 @@
   z-index: 1001;
   min-width: 220px;
   max-width: 340px;
-  padding: 5px;
-  border-radius: 12px;
-  font-size: 13px;
+  padding: 6px 0;
+  border-radius: 8px;
+  font-size: 14px;
 }
 
 .menu-item {
@@ -78,31 +78,27 @@
   align-items: center;
   gap: 7px;
   width: 100%;
-  height: 26px;
-  padding: 0 10px 0 4px;
-  border-radius: 7px;
+  height: 34px;
+  padding: 0 14px 0 6px;
+  border-radius: 0;
   text-align: left;
   white-space: nowrap;
 }
 
 .menu-item.is-active:not(:disabled):not([aria-disabled='true']) {
-  background: var(--accent);
-  color: var(--on-accent);
+  background: var(--hover);
 }
 
-.menu-item.is-active .menu-icon,
-.menu-item.is-active .menu-shortcut,
-.menu-item.is-active .menu-chevron {
-  color: inherit;
+.menu-item.is-active .menu-icon {
+  color: var(--text);
 }
 
 .menu-item.is-destructive {
   color: var(--danger);
 }
 
-.menu-item.is-destructive.is-active {
-  background: var(--danger);
-  color: #fff;
+.menu-item.is-destructive .menu-icon {
+  color: var(--danger);
 }
 
 .menu-check {
@@ -121,7 +117,7 @@
 .menu-reactions {
   display: flex;
   gap: 2px;
-  padding: 2px 2px 6px;
+  padding: 0 6px 6px;
   margin-bottom: 4px;
   border-bottom: 1px solid var(--separator);
 }
@@ -170,12 +166,12 @@
 
 .menu-separator {
   height: 1px;
-  margin: 4px 8px;
+  margin: 6px 0;
   background: var(--separator);
 }
 
 .menu-label {
-  padding: 4px 10px 4px 25px;
+  padding: 4px 14px 4px 26px;
   font-size: 12px;
   color: var(--text-secondary);
   white-space: normal;
@@ -196,7 +192,7 @@
   display: flex;
   flex-direction: column;
   max-height: calc(100vh - 80px);
-  border-radius: 20px;
+  border-radius: 8px;
   overflow: hidden;
 }
 
@@ -217,8 +213,8 @@
 
 .alert {
   width: 300px;
-  padding: 20px 18px 16px;
-  border-radius: 20px;
+  padding: 20px 20px 16px;
+  border-radius: 8px;
   text-align: center;
 }
 
@@ -250,7 +246,7 @@
 .popover {
   position: fixed;
   z-index: 950;
-  border-radius: 16px;
+  border-radius: 8px;
 }
 
 /* Remote image */
@@ -294,14 +290,17 @@
 
 /* Toast */
 .toast {
+  background: rgba(8, 27, 58, 0.86) !important;
+  color: #fff;
+  border: 0 !important;
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
   z-index: 50;
   max-width: min(460px, calc(100% - 40px));
   padding: 8px 16px;
-  border-radius: 999px;
-  font-size: 12.5px;
+  border-radius: 6px;
+  font-size: 13px;
   font-weight: 500;
   text-align: center;
   pointer-events: none;
@@ -315,7 +314,7 @@
   height: 18px;
   padding: 0 5.5px;
   border-radius: 999px;
-  background: var(--accent);
+  background: var(--badge);
   color: #fff;
   font-size: 11px;
   font-weight: 700;

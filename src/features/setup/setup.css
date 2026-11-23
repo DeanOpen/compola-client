@@ -1,11 +1,12 @@
 .brand-bg {
   position: fixed;
   inset: 0;
-  overflow: hidden;
-  background: var(--window);
+  overflow: auto;
+  background: var(--login-bg);
 }
 
 .brand-blob {
+  display: none;
   position: absolute;
   border-radius: 50%;
   background: var(--accent);
@@ -155,8 +156,10 @@
   display: flex;
   width: min(880px, max(760px, calc(100vw - 96px)));
   height: min(600px, max(500px, calc(100vh - 110px)));
-  border-radius: 30px;
+  border-radius: 8px;
   overflow: hidden;
+  background: var(--content) !important;
+  box-shadow: 0 8px 24px rgba(0, 65, 160, 0.1) !important;
 }
 
 .setup-sidebar {
@@ -275,11 +278,10 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  margin: 8px 8px 8px 0;
+  margin: 0;
   padding: 22px 36px;
-  border-radius: 22px;
+  border-left: 1px solid var(--separator);
   background: var(--content);
-  border: 0.5px solid var(--separator);
   animation: compola-fade-in 0.4s ease both;
   overflow: auto;
 }
@@ -364,48 +366,130 @@
   border: 2px solid var(--content);
 }
 
-/* Login: one centred card — text + numbered steps beside the QR (stacked on narrow windows) */
-.login-card {
+/* Login (Zalo PC style): brand header, a white card with the "Với mã QR" tab, the bordered QR box and the steps */
+.login-page {
   display: flex;
   flex-direction: column;
-  gap: 18px;
-  width: min(760px, calc(100vw - 48px));
-  padding: 28px 32px 20px;
-  border-radius: 24px;
-  background: var(--content);
-  box-shadow: 0 20px 60px rgba(0, 40, 120, 0.14), 0 0 0 0.5px var(--separator);
+  align-items: center;
+  gap: 20px;
+  width: min(460px, calc(100vw - 32px));
 }
 
-.login-main {
+.login-brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+}
+
+.login-wordmark {
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--accent);
+}
+
+.login-lead {
+  font-size: 15px;
+  color: var(--text);
+}
+
+.login-card {
+  width: 100%;
+  border-radius: 8px;
+  background: var(--content);
+  box-shadow: 0 8px 24px rgba(0, 65, 160, 0.1);
+}
+
+.login-tabs {
+  display: flex;
+  justify-content: center;
+  border-bottom: 1px solid var(--separator);
+}
+
+.login-tab {
+  position: relative;
+  padding: 14px 4px 12px;
+  font-size: 14px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.login-tab.is-active {
+  color: var(--text);
+}
+
+.login-tab.is-active::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: var(--accent);
+}
+
+.login-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 20px 28px 24px;
+}
+
+.login-qr-box {
+  width: 240px;
+  height: 240px;
+  padding: 8px;
+  border: 1px solid var(--separator);
+  border-radius: 8px;
+}
+
+.login-qr {
+  position: relative;
+  width: 100%;
+  height: 100%;
   display: flex;
   align-items: center;
-  gap: 36px;
+  justify-content: center;
+  border-radius: 4px;
+  background: #fff;
 }
 
-.login-text {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 8px;
-  flex: 1;
-  min-width: 0;
+.login-qr-code {
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+  transition:
+    filter 0.3s ease,
+    opacity 0.3s ease;
 }
 
-.login-logo {
-  border-radius: 11px;
-  margin-bottom: 4px;
+.login-qr-code.is-expired {
+  filter: blur(6px);
+  opacity: 0.35;
 }
 
-.login-title {
-  margin: 0;
-  font-size: 22px;
-  font-weight: 700;
+.login-qr .spin {
+  color: #888;
 }
 
-.login-subtitle {
-  margin: 0;
+.login-refresh {
+  position: absolute;
+}
+
+.login-caption {
   font-size: 13px;
-  color: var(--text-secondary);
+  font-weight: 600;
+  color: var(--accent);
+  text-align: center;
+}
+
+.login-caption.is-error {
+  color: var(--danger);
+  font-weight: 500;
 }
 
 .login-steps {
@@ -413,9 +497,10 @@
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  margin: 10px 0 4px;
-  padding: 0;
+  gap: 8px;
+  align-self: stretch;
+  margin: 4px 0 0;
+  padding: 0 8px;
 }
 
 .login-steps li {
@@ -423,7 +508,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .login-steps li::before {
@@ -435,10 +520,9 @@
   width: 22px;
   height: 22px;
   border-radius: 50%;
-  background: var(--accent-selected);
+  background: var(--selected);
   color: var(--accent);
-  font-family: var(--font-rounded);
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 700;
 }
 
@@ -448,8 +532,8 @@
   gap: 8px;
   width: 100%;
   padding: 10px 12px;
-  border-radius: 12px;
-  font-size: 12.5px;
+  border-radius: 8px;
+  font-size: 13px;
 }
 
 .callout svg {
@@ -458,62 +542,13 @@
 }
 
 .callout.is-info {
-  background: var(--accent-hover);
-  color: var(--accent);
+  background: var(--selected);
+  color: var(--accent-pressed);
 }
 
 .callout.is-warning {
-  background: rgba(255, 149, 0, 0.12);
-  color: var(--warning);
-}
-
-.login-qr-area {
-  flex: none;
-  width: 240px;
-  height: 240px;
-}
-
-.login-qr {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 20px;
-  background: #fff;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.06), 0 6px 18px rgba(0, 0, 0, 0.08);
-}
-
-.login-qr-code {
-  width: calc(100% - 28px);
-  height: calc(100% - 28px);
-  image-rendering: pixelated;
-  transition:
-    filter 0.3s ease,
-    opacity 0.3s ease;
-}
-
-.login-qr-code.is-expired {
-  filter: blur(6px);
-  opacity: 0.4;
-}
-
-.login-qr-logo {
-  position: absolute;
-  width: 46px;
-  height: 46px;
-  border-radius: 12px;
-  box-shadow: 0 0 0 4px #fff;
-  background: #fff;
-}
-
-.login-qr .spin {
-  color: #888;
-}
-
-.login-refresh {
-  position: absolute;
+  background: rgba(224, 172, 0, 0.14);
+  color: #8a6a00;
 }
 
 .login-confirm {
@@ -524,9 +559,6 @@
   align-items: center;
   justify-content: center;
   gap: 10px;
-  padding: 16px;
-  border-radius: 20px;
-  background: var(--accent-hover);
   text-align: center;
 }
 
@@ -553,43 +585,13 @@
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--text-secondary);
 }
 
 .login-footnote {
-  display: flex;
-  align-items: flex-start;
-  gap: 7px;
-  padding-top: 14px;
-  border-top: 1px solid var(--separator);
-  font-size: 11px;
+  max-width: 420px;
+  font-size: 12px;
   color: var(--text-secondary);
-}
-
-.login-footnote svg {
-  flex: none;
-  margin-top: 1px;
-}
-
-/* Narrow windows: the Telegram stack — QR on top, text and steps below. */
-@media (max-width: 899px) {
-  .login-card {
-    width: min(400px, calc(100vw - 32px));
-    padding: 24px 24px 16px;
-  }
-
-  .login-main {
-    flex-direction: column-reverse;
-    gap: 18px;
-  }
-
-  .login-text {
-    align-items: center;
-    text-align: center;
-  }
-
-  .login-logo {
-    display: none;
-  }
+  text-align: center;
 }

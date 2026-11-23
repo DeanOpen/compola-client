@@ -1,21 +1,25 @@
+/* Zalo PC info panel (docs/zalo-pc-style.md §5) */
 .inspector-toolbar {
-  justify-content: space-between;
+  justify-content: center;
 }
 
 .inspector-toolbar-title {
-  font-size: 13px;
+  font-size: 16px;
   font-weight: 600;
-  color: var(--text-secondary);
 }
 
 .inspector {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 0 16px 20px;
+  background: var(--subtle);
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 8px;
+}
+
+.inspector-block {
+  background: var(--content);
 }
 
 .inspector-header {
@@ -23,112 +27,118 @@
   flex-direction: column;
   align-items: center;
   gap: 6px;
-  padding-top: 6px;
+  padding: 18px 16px 16px;
   text-align: center;
 }
 
 .inspector-name {
-  font-size: 17px;
-  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 16px;
+  font-weight: 600;
 }
 
 .inspector-sub {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-secondary);
 }
 
 .inspector-actions {
   display: flex;
   justify-content: center;
-  gap: 18px;
+  gap: 4px;
+  margin-top: 10px;
 }
 
 .action-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 42px;
-  height: 42px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
-  color: var(--accent);
-  background: var(--accent-hover);
-  transition:
-    background var(--motion-fast),
-    transform var(--motion-fast);
+  color: var(--text);
+  background: var(--subtle);
+  transition: background var(--motion-fast);
 }
 
 .action-button:hover:not(:disabled) {
-  background: var(--accent-selected);
-}
-
-.action-button:active:not(:disabled) {
-  transform: scale(0.94);
+  background: var(--fill);
+  filter: brightness(0.95);
 }
 
 .action-button:disabled {
-  opacity: 1;
-  color: var(--text-tertiary);
-  background: var(--fill-quaternary);
+  opacity: 0.5;
 }
 
 .action-slot {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   width: 64px;
-  font-size: 10.5px;
-  font-weight: 500;
+  font-size: 12px;
+  line-height: 1.3;
   color: var(--text-secondary);
+  text-align: center;
+}
+
+.action-slot span {
+  white-space: normal;
 }
 
 .inspector-section {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+  padding-bottom: 8px;
 }
 
 .inspector-section-head {
   display: flex;
-  justify-content: space-between;
-  padding: 0 4px;
-  font-size: 12px;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 48px;
+  padding: 0 16px;
+  font-size: 15px;
   font-weight: 600;
+  text-align: left;
+}
+
+.inspector-section-head:hover {
+  background: var(--hover);
+}
+
+.inspector-section-count {
+  font-weight: 400;
   color: var(--text-secondary);
 }
 
 .inspector-list {
   display: flex;
   flex-direction: column;
-  border-radius: 12px;
-  background: var(--primary-faint);
-  overflow: hidden;
-}
-
-.inspector-list > * + * {
-  box-shadow: inset 0 0.5px 0 var(--separator);
 }
 
 .inspector-row,
 .inspector-member {
   display: flex;
   align-items: center;
-  gap: 10px;
-  min-height: 38px;
-  padding: 7px 12px;
-  font-size: 13px;
+  gap: 12px;
+  min-height: 44px;
+  padding: 6px 16px;
+  font-size: 14px;
   text-align: left;
 }
 
 .inspector-row:hover,
 .inspector-member:hover {
-  background: var(--accent-hover);
+  background: var(--hover);
 }
 
 .inspector-row-icon {
   display: inline-flex;
-  width: 18px;
+  width: 20px;
   flex: none;
+  color: var(--text-secondary) !important;
 }
 
 .inspector-row-text {
@@ -140,16 +150,16 @@
 }
 
 .inspector-row-sub {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-secondary);
 }
 
 .inspector-empty {
   display: flex;
   align-items: center;
-  min-height: 38px;
-  padding: 0 12px;
-  font-size: 12px;
+  min-height: 36px;
+  padding: 0 16px;
+  font-size: 13px;
   color: var(--text-secondary);
 }
 
@@ -163,6 +173,7 @@
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 4px;
+  padding: 0 16px;
 }
 
 .inspector-grid > * {
@@ -170,5 +181,27 @@
 }
 
 .inspector-file {
-  padding: 8px 10px;
+  padding: 8px 16px;
+}
+
+.inspector-danger {
+  display: flex;
+  flex-direction: column;
+  padding: 4px 0;
+  margin-bottom: 8px;
+}
+
+.inspector-danger-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 44px;
+  padding: 0 16px;
+  font-size: 14px;
+  color: var(--danger);
+  text-align: left;
+}
+
+.inspector-danger-row:hover:not(:disabled) {
+  background: var(--hover);
 }

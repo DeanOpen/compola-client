@@ -70,6 +70,8 @@ export const commands = {
   /** Starts the official screenshot tool; the result arrives as `compola://screen-capture`. */
   screenCaptureStart: async (conversationId: string, withCompola: boolean) =>
     (await backend()).invoke('screen_capture_start', { conversationId, withCompola }),
+  /** Widens (or with a negative delta narrows) the main window by `delta` logical px; the minimum width is 960. */
+  widenWindow: async (delta: number) => (await backend()).invoke('ui_widen_window', { delta }),
   /** Saves a media URL to an absolute path (its folder must exist) → the path. */
   mediaSave: async (url: string, destPath: string) => (await backend()).invoke<string>('media_save', { url, destPath }),
 };

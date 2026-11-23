@@ -1,10 +1,10 @@
-// Setup step 1: native QR login (Swift `LoginView`), laid out as one centred card (docs/design-refs: Telegram /
-// WhatsApp QR login): title, subtitle and numbered steps beside a 240px QR with the Compola logo over its centre; stacked
-// on narrow windows. The QR, scan detection and confirmation come from the official client running underneath; copy
-// follows the official language pack.
+// Setup step 1: native QR login (Swift `LoginView`) as the Zalo PC login card (docs/zalo-pc-style.md §8): a centred
+// white card on a light blue background — the Compola logo and wordmark, "Đăng nhập tài khoản Zalo để kết nối với
+// Compola", a single "Với mã QR" tab, the QR in a bordered 240px box with its caption, then the numbered steps. The QR,
+// scan detection and confirmation come from the official client running underneath.
 
-import { AlertTriangle, CheckCircle2, Info, RefreshCw, ShieldCheck } from 'lucide-react';
-import appIcon from '../../assets/app-icon.png';
+import { AlertTriangle, CheckCircle2, Info, RefreshCw } from 'lucide-react';
+import logo from '../../assets/compola-logo.svg';
 import { commands } from '../../engine/backend';
 import type { LoginState } from '../../engine/models/phase';
 import { Avatar } from '../../ui/Avatar';
@@ -15,43 +15,26 @@ import { appName } from './SplashView';
 export function LoginView({ state, notice }: { state: LoginState; notice: string | null }) {
   const step = state.step;
   const refresh = () => void commands.refreshQr();
-  const confirming = step.kind === 'waitingConfirm';
-
-  const subtitle = (() => {
-    switch (step.kind) {
-      case 'generating':
-        return 'Đang tạo mã QR…';
-      case 'waitingScan':
-        return 'Mở Zalo trên điện thoại, chạm biểu tượng quét mã QR rồi quét mã này.';
-      case 'waitingConfirm':
-        return 'Chọn Đăng nhập trên điện thoại của bạn để tiếp tục.';
-      case 'expired':
-        return 'Mã QR đã hết hạn.';
-      case 'failed':
-        return step.message;
-    }
-  })();
-
   return (
     <BrandBackground>
-      <div className="login-card fade-in">
-        {notice && (
-          <div className="callout is-warning login-notice">
-            <AlertTriangle size={15} />
-            <span>{notice}</span>
+      <div className="login-page fade-in">
+        <div className="login-brand">
+          <img src={logo} width={56} height={56} alt="" draggable={false} />
+          <div className="login-wordmark">{appName}</div>
+          <div className="login-lead">Đăng nhập tài khoản Zalo để kết nối với {appName}</div>
+        </div>
+        <div className="login-card">
+          <div className="login-tabs" role="tablist">
+            <span className="login-tab is-active" role="tab" aria-selected>
+              Với mã QR
+            </span>
           </div>
-        )}
-        <div className="login-main">
-          <div className="login-text">
-            <img className="login-logo" src={appIcon} width={44} height={44} alt="" draggable={false} />
-            <h1 className="login-title">{confirming ? 'Xác nhận trên điện thoại' : 'Đăng nhập bằng Zalo'}</h1>
-            <p className="login-subtitle">{subtitle}</p>
-            {!confirming && step.kind !== 'failed' && (
-              <ol className="login-steps">
-                <li>Mở Zalo trên điện thoại</li>
-                <li>Nhấn biểu tượng QR ở thanh tìm kiếm</li>
-                <li>Quét mã và xác nhận đăng nhập</li>
-              </ol>
+          <div className="login-body">
+            {notice && (
+              <div className="callout is-warning">
+                <AlertTriangle size={15} />
+                <span>{notice}</span>
+              </div>
             )}
             {state.isSecondQr && step.kind === 'waitingScan' && (
               <div className="callout is-info">
@@ -59,17 +42,32 @@ export function LoginView({ state, notice }: { state: LoginState; notice: string
                 <span>Đã quét lần 1. Tài khoản của bạn cần quét thêm mã mới này để xác nhận thiết bị.</span>
               </div>
             )}
-          </div>
-          <div className="login-qr-area">
-            <QrArea state={state} onRefresh={refresh} />
+            <div className="login-qr-box">
+              <QrArea state={state} onRefresh={refresh} />
+            </div>
+            {step.kind === 'waitingConfirm' ? (
+              <button className="btn-link" onClick={refresh}>
+                Dùng mã QR khác
+              </button>
+            ) : step.kind === 'failed' ? (
+              <div className="login-caption is-error">{step.message}</div>
+            ) : (
+              <>
+                <div className="login-caption">
+                  {step.kind === 'expired' ? 'Mã QR đã hết hạn.' : `Chỉ dùng để đăng nhập ${appName} trên máy tính`}
+                </div>
+                <ol className="login-steps">
+                  <li>Mở Zalo trên điện thoại</li>
+                  <li>Nhấn biểu tượng QR ở thanh tìm kiếm</li>
+                  <li>Quét mã và xác nhận đăng nhập</li>
+                </ol>
+              </>
+            )}
           </div>
         </div>
         <div className="login-footnote">
-          <ShieldCheck size={13} color="var(--success)" />
-          <span>
-            {appName} là ứng dụng độc lập, không liên kết với VNG hay Zalo. Ứng dụng chạy phần lõi chính thức của Zalo PC; tin
-            nhắn đi thẳng tới máy chủ Zalo.
-          </span>
+          {appName} là ứng dụng độc lập, không liên kết với VNG hay Zalo. Ứng dụng chạy phần lõi chính thức của Zalo PC; tin nhắn
+          đi thẳng tới máy chủ Zalo.
         </div>
       </div>
     </BrandBackground>
@@ -82,7 +80,7 @@ function QrArea({ state, onRefresh }: { state: LoginState; onRefresh: () => void
     return (
       <div className="login-confirm fade-in">
         <span className="login-confirm-avatar">
-          <Avatar url={step.avatar} name={step.name} size={84} />
+          <Avatar url={step.avatar} name={step.name} size={80} />
           <span className="login-confirm-check">
             <CheckCircle2 size={22} fill="var(--accent)" color="#fff" />
           </span>
@@ -91,9 +89,6 @@ function QrArea({ state, onRefresh }: { state: LoginState; onRefresh: () => void
         <div className="login-waiting">
           <Spinner size={13} /> <span>Xác nhận đăng nhập trên điện thoại</span>
         </div>
-        <button className="btn-link" onClick={onRefresh}>
-          Dùng mã QR khác
-        </button>
       </div>
     );
   }
@@ -104,7 +99,7 @@ function QrArea({ state, onRefresh }: { state: LoginState; onRefresh: () => void
         <div className="secondary" style={{ fontWeight: 500 }}>
           Chưa lấy được mã QR
         </div>
-        <button className="btn btn-prominent btn-large" onClick={onRefresh}>
+        <button className="btn btn-prominent" onClick={onRefresh}>
           Thử lại
         </button>
       </div>
@@ -114,15 +109,12 @@ function QrArea({ state, onRefresh }: { state: LoginState; onRefresh: () => void
   return (
     <div className="login-qr">
       {state.qr ? (
-        <>
-          <img src={state.qr} alt="Mã QR đăng nhập Zalo" draggable={false} className={`login-qr-code ${expired ? 'is-expired' : ''}`} />
-          {!expired && <img src={appIcon} className="login-qr-logo" alt="" draggable={false} />}
-        </>
+        <img src={state.qr} alt="Mã QR đăng nhập Zalo" draggable={false} className={`login-qr-code ${expired ? 'is-expired' : ''}`} />
       ) : (
         <Spinner size={22} />
       )}
       {expired && (
-        <button className="btn btn-prominent btn-large login-refresh" onClick={onRefresh} autoFocus>
+        <button className="btn btn-prominent login-refresh" onClick={onRefresh} autoFocus>
           <RefreshCw size={15} /> Lấy mã mới
         </button>
       )}

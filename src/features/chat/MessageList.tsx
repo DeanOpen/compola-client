@@ -3,7 +3,7 @@
 // jumps to a pinned message.
 
 import { ChevronDown } from 'lucide-react';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { loadOlderMessages, react } from '../../engine/chat';
 import type { ChatMessage } from '../../engine/models/chat';
 import type { ConversationSummary } from '../../engine/models/conversations';
@@ -11,7 +11,7 @@ import { useEngine } from '../../engine/store';
 import { Spinner } from '../../ui/Spinner';
 import { daySeparator, time } from './format';
 import { MessageRow } from './MessageRow';
-import { buildRows } from './rows';
+import { buildRows, groupByDay } from './rows';
 
 const topBand = 120;
 const nearBottomBand = 160;
@@ -34,6 +34,13 @@ export function MessageList({
   const hasMore = useEngine((s) => s.hasMoreHistory[id] ?? false);
   const historyTick = useEngine((s) => s.historyTicks[id] ?? 0);
   const rows = useMemo(() => buildRows(msgs), [msgs]);
+  const days = useMemo(() => groupByDay(rows), [rows]);
+  /** Zalo PC's "Tin nhắn mới" divider: the first message that was unread when the chat opened. */
+  const [firstUnreadId] = useState(() => {
+    const n = conversation.unread;
+    const m = n > 0 && n <= msgs.length ? msgs[msgs.length - n] : null;
+    return m && !m.isMine ? m.id : null;
+  });
   const newestId = msgs[msgs.length - 1]?.id;
 
   const scroller = useRef<HTMLDivElement>(null);
@@ -169,27 +176,35 @@ export function MessageList({
             <Spinner size={14} />
           </div>
         )}
-        {rows.map((row) =>
-          row.kind === 'day' ? (
-            <div key={row.id} className="day-separator" role="heading" aria-level={3}>
-              <span className="glass">
-                <strong>{daySeparator(row.date)}</strong> {time(row.date)}
+        {days.map((day) => (
+          // One section per day: its date pill sticks only while its own messages are on screen.
+          <section key={day.id} className="day-group">
+            <div className="day-separator" role="heading" aria-level={3}>
+              <span>
+                <strong>{daySeparator(day.date)}</strong> {time(day.date)}
               </span>
             </div>
-          ) : (
-            <MessageRow
-              key={row.id}
-              message={row.message}
-              isGroup={conversation.isGroup}
-              firstInGroup={row.first}
-              lastInGroup={row.last}
-              showStatus={row.status}
-              isNewest={row.id === newestId}
-              onReply={onReply}
-              onReact={onReact}
-            />
-          ),
-        )}
+            {day.rows.map((row) => (
+              <Fragment key={row.id}>
+                {row.id === firstUnreadId && (
+                  <div className="unread-divider">
+                    <span>Tin nhắn mới</span>
+                  </div>
+                )}
+                <MessageRow
+                  message={row.message}
+                  isGroup={conversation.isGroup}
+                  firstInGroup={row.first}
+                  lastInGroup={row.last}
+                  showStatus={row.status}
+                  isNewest={row.id === newestId}
+                  onReply={onReply}
+                  onReact={onReact}
+                />
+              </Fragment>
+            ))}
+          </section>
+        ))}
         <div style={{ height: 8 }} />
       </div>
     </div>

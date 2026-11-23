@@ -1,0 +1,102 @@
+// The Zalo PC left rail (docs/zalo-pc-style.md §1): 64px, navbar blue, the account avatar on top (its menu: profile,
+// sync, settings, log out), then icon tabs — Tin nhắn, Danh bạ — and at the bottom Cloud của tôi, zCloud, Cài đặt.
+// Replaces the Swift app's labelled sidebar (Tin nhắn / Chưa đọc / Người lạ / Lưu trữ / Danh bạ): the mailboxes now
+// live in the list column's tabs and the stranger row.
+
+import { Cloud, HardDrive, LogOut, MessageCircle, RefreshCw, Settings, SquareUser, UserRound, type LucideIcon } from 'lucide-react';
+import { useMemo, type MouseEvent } from 'react';
+import { logOut } from '../engine/lifecycle';
+import { useEngine } from '../engine/store';
+import { unreadCounts } from '../features/conversations/support';
+import { Avatar } from '../ui/Avatar';
+import { openMenuBelow, type MenuItem } from '../ui/Menu';
+import { isContacts, isConversationList, shell, useShell } from './shellStore';
+import './shell.css';
+
+export function Rail() {
+  const destination = useShell((s) => s.destination);
+  const selection = useShell((s) => s.selection);
+  const profile = useEngine((s) => s.profile);
+  const selfId = useEngine((s) => s.selfConversationId);
+  const canStartTransfer = useEngine((s) => s.canStartTransfer);
+  const conversations = useEngine((s) => s.conversations);
+  const extras = useEngine((s) => s.extras);
+  const actions = useEngine((s) => s.conversationActions);
+  const counts = useMemo(() => unreadCounts(useEngine.getState()), [conversations, extras, actions]);
+  const name = profile?.displayName || 'Tài khoản của tôi';
+
+  const onSelfChat = !!selfId && selection === selfId && isConversationList(destination);
+  const messagesActive = isConversationList(destination) && !onSelfChat;
+
+  const accountMenu = (e: MouseEvent<HTMLButtonElement>) => {
+    const items: MenuItem[] = [
+      { kind: 'label', label: name },
+      { label: 'Hồ sơ của bạn', icon: UserRound, disabled: true, onSelect: () => {} },
+      { label: 'Đồng bộ tin nhắn từ điện thoại…', icon: RefreshCw, disabled: !canStartTransfer, onSelect: () => {} },
+      { label: 'Cài đặt', icon: Settings, disabled: true, onSelect: () => {} },
+      { kind: 'separator' },
+      { label: 'Đăng xuất', icon: LogOut, destructive: true, onSelect: () => void logOut() },
+    ];
+    openMenuBelow(e.currentTarget, items);
+  };
+
+  return (
+    <nav className="rail" aria-label="Điều hướng">
+      <div className="rail-titlebar" data-tauri-drag-region />
+      <button className="rail-avatar" onClick={accountMenu} title={name} aria-label={`Tài khoản ${name}`}>
+        <Avatar url={profile?.avatar} name={name} size={48} />
+      </button>
+      <div className="rail-group">
+        <RailItem
+          icon={MessageCircle}
+          label="Tin nhắn"
+          badge={counts.inbox + counts.strangers}
+          selected={messagesActive}
+          onClick={() => {
+            if (onSelfChat) shell.select(null);
+            if (!isConversationList(destination) || destination === 'myCloud') shell.setDestination('inbox');
+          }}
+        />
+        <RailItem icon={SquareUser} label="Danh bạ" selected={isContacts(destination)} onClick={() => shell.setDestination('friends')} />
+      </div>
+      <div className="rail-spacer" data-tauri-drag-region />
+      <div className="rail-group">
+        {selfId && (
+          <RailItem
+            icon={Cloud}
+            label="Cloud của tôi"
+            selected={onSelfChat}
+            onClick={() => {
+              shell.setSearch('');
+              shell.setDestination('inbox');
+              shell.select(selfId);
+            }}
+          />
+        )}
+        <RailItem icon={HardDrive} label="zCloud" selected={destination === 'zcloud'} onClick={() => shell.setDestination('zcloud')} />
+        <RailItem icon={Settings} label="Cài đặt" selected={false} onClick={(el) => openMenuBelow(el, [{ label: 'Cài đặt — sắp có', disabled: true, onSelect: () => {} }])} />
+      </div>
+    </nav>
+  );
+}
+
+function RailItem({
+  icon: Icon,
+  label,
+  badge,
+  selected,
+  onClick,
+}: {
+  icon: LucideIcon;
+  label: string;
+  badge?: number;
+  selected: boolean;
+  onClick: (el: HTMLButtonElement) => void;
+}) {
+  return (
+    <button className={`rail-item ${selected ? 'is-selected' : ''}`} title={label} aria-label={label} aria-current={selected} onClick={(e) => onClick(e.currentTarget)}>
+      <Icon size={24} strokeWidth={selected ? 2.2 : 1.8} />
+      {!!badge && badge > 0 && <span className="rail-badge nums">{badge > 99 ? '99+' : badge}</span>}
+    </button>
+  );
+}

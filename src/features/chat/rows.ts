@@ -39,3 +39,15 @@ export const buildRows = (msgs: ChatMessage[]): ChatRow[] => {
   });
   return out;
 };
+
+export type MessageChatRow = Extract<ChatRow, { kind: 'message' }>;
+
+/** The rows as day sections: the separator and that day's messages. */
+export const groupByDay = (rows: ChatRow[]): { id: string; date: number; rows: MessageChatRow[] }[] => {
+  const out: { id: string; date: number; rows: MessageChatRow[] }[] = [];
+  for (const row of rows) {
+    if (row.kind === 'day') out.push({ id: row.id, date: row.date, rows: [] });
+    else out[out.length - 1]?.rows.push(row);
+  }
+  return out;
+};
