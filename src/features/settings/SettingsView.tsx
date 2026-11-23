@@ -4,17 +4,30 @@
 
 import {
   Bell,
+  BellOff,
+  BellRing,
   Check,
+  CheckCircle2,
+  ChevronRight,
+  Copy,
   Cpu,
+  Info,
   Lock,
+  LogOut,
+  Monitor,
+  Moon,
   Palette,
   RefreshCw,
+  Search,
   Settings as SettingsIcon,
+  Smartphone,
   Smile,
+  Sun,
   UserCircle,
   X,
   type LucideIcon,
 } from 'lucide-react';
+import logo from '../../assets/compola-logo.svg';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { backend, commands, usesMock } from '../../engine/backend';
@@ -41,45 +54,110 @@ import { Alert } from '../../ui/Overlays';
 import { Spinner } from '../../ui/Spinner';
 import { appName } from '../setup/SplashView';
 import { openTransfer } from '../transfer/hosts';
-import { accents, appearances, setAppearancePref, textSizes, useAppearancePrefs } from './appearance';
+import { accents, appearances, setAppearancePref, textSizes, useAppearancePrefs, type Appearance } from './appearance';
+import { transferBlockedText } from '../../engine/transfer';
 import './settings.css';
 
 export type SettingsTab = 'general' | 'appearance' | 'notifications' | 'privacy' | 'sticker' | 'account' | 'engine';
 
-const tabs: { id: SettingsTab; title: string; icon: LucideIcon }[] = [
-  { id: 'general', title: 'Cài đặt chung', icon: SettingsIcon },
-  { id: 'appearance', title: 'Giao diện', icon: Palette },
-  { id: 'notifications', title: 'Thông báo', icon: Bell },
-  { id: 'privacy', title: 'Quyền riêng tư', icon: Lock },
-  { id: 'sticker', title: 'Sticker', icon: Smile },
-  { id: 'account', title: 'Tài khoản', icon: UserCircle },
-  { id: 'engine', title: 'Engine', icon: Cpu },
+interface TabInfo {
+  id: SettingsTab;
+  title: string;
+  icon: LucideIcon;
+  /** Subtitle of the pane header (Slack / Replit: what this section is about). */
+  subtitle: string;
+  /** Extra words the nav search matches (the rows of the section). */
+  keywords: string;
+}
+
+const tabs: TabInfo[] = [
+  { id: 'general', title: 'Cài đặt chung', icon: SettingsIcon, subtitle: 'Chế độ sáng / tối và thông tin ứng dụng.', keywords: 'sáng tối hệ thống phiên bản về' },
+  { id: 'appearance', title: 'Giao diện', icon: Palette, subtitle: 'Chủ đề, màu nhấn và cỡ chữ tin nhắn.', keywords: 'chủ đề màu nhấn cỡ chữ sáng tối' },
+  { id: 'notifications', title: 'Thông báo', icon: Bell, subtitle: 'Chọn cách Compola báo tin nhắn mới.', keywords: 'âm thanh nội dung xem trước tắt thông báo macos' },
+  { id: 'privacy', title: 'Quyền riêng tư', icon: Lock, subtitle: 'Trò chuyện ẩn và mã PIN.', keywords: 'ẩn trò chuyện pin' },
+  { id: 'sticker', title: 'Sticker', icon: Smile, subtitle: 'Gợi ý sticker khi soạn tin nhắn.', keywords: 'gợi ý sticker' },
+  { id: 'account', title: 'Tài khoản', icon: UserCircle, subtitle: 'Tài khoản Zalo, đồng bộ và đăng xuất.', keywords: 'đồng bộ điện thoại đăng xuất sao lưu' },
+  { id: 'engine', title: 'Engine', icon: Cpu, subtitle: 'Mã Zalo PC chính thức chạy ẩn bên dưới Compola.', keywords: 'sqlite indexeddb renderer nhật ký log lưu trữ' },
 ];
+
+/** Nav groups (Todoist / Replit: labelled groups instead of one long list). */
+const navGroups: { title: string; ids: SettingsTab[] }[] = [
+  { title: 'Ứng dụng', ids: ['general', 'appearance', 'notifications', 'privacy', 'sticker'] },
+  { title: 'Tài khoản', ids: ['account'] },
+  { title: 'Nâng cao', ids: ['engine'] },
+];
+
+const fold = (t: string) =>
+  t
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd');
 
 export function SettingsDialog({ tab, onTab, onClose }: { tab: SettingsTab; onTab: (t: SettingsTab) => void; onClose: () => void }) {
   useEscape(true, onClose);
+  const [query, setQuery] = useState('');
+  const profile = useEngine((s) => s.profile);
   const current = tabs.find((t) => t.id === tab) ?? tabs[0];
+  const q = fold(query.trim());
+  const matches = (t: TabInfo) => !q || fold(`${t.title} ${t.keywords}`).includes(q);
+  const visible = tabs.filter(matches);
   return createPortal(
     <div className="sheet-backdrop fade-in" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="st-dialog pop-in" role="dialog" aria-modal aria-label="Cài đặt">
         <nav className="st-nav" aria-label="Mục cài đặt">
           <div className="st-nav-title">Cài đặt</div>
-          {tabs.map((t) => (
-            <button key={t.id} className={`st-nav-item ${t.id === tab ? 'is-selected' : ''}`} aria-current={t.id === tab} onClick={() => onTab(t.id)}>
-              <t.icon size={16} />
-              <span>{t.title}</span>
-            </button>
-          ))}
+          <button className={`st-nav-account ${tab === 'account' ? 'is-selected' : ''}`} onClick={() => onTab('account')} title="Tài khoản">
+            <Avatar url={profile?.avatar} name={profile?.displayName ?? '?'} size={34} />
+            <span className="st-nav-account-text">
+              <span className="truncate">{profile?.displayName ?? 'Chưa đăng nhập'}</span>
+              <span className="st-nav-account-sub truncate">{profile?.phone || 'Tài khoản Zalo'}</span>
+            </span>
+          </button>
+          <label className="st-nav-search">
+            <Search size={14} />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && visible[0]) onTab(visible[0].id);
+              }}
+              placeholder="Tìm cài đặt"
+              aria-label="Tìm cài đặt"
+              spellCheck={false}
+            />
+          </label>
+          <div className="st-nav-list">
+            {navGroups.map((g) => {
+              const items = g.ids.map((id) => tabs.find((t) => t.id === id)!).filter(matches);
+              if (!items.length) return null;
+              return (
+                <div key={g.title} className="st-nav-group">
+                  <div className="st-nav-heading">{g.title}</div>
+                  {items.map((t) => (
+                    <button key={t.id} className={`st-nav-item ${t.id === tab ? 'is-selected' : ''}`} aria-current={t.id === tab} onClick={() => onTab(t.id)}>
+                      <t.icon size={16} />
+                      <span>{t.title}</span>
+                    </button>
+                  ))}
+                </div>
+              );
+            })}
+            {!visible.length && <div className="st-nav-empty">Không tìm thấy cài đặt phù hợp</div>}
+          </div>
         </nav>
         <section className="st-pane">
           <header className="st-pane-header">
-            <span>{current.title}</span>
+            <span className="st-pane-titles">
+              <span className="st-pane-title">{current.title}</span>
+              <span className="st-pane-subtitle">{current.subtitle}</span>
+            </span>
             <button className="st-close" onClick={onClose} aria-label="Đóng" title="Đóng">
               <X size={16} />
             </button>
           </header>
           <div className="st-pane-body" key={tab}>
-            {tab === 'general' && <GeneralSettings />}
+            {tab === 'general' && <GeneralSettings onTab={onTab} />}
             {tab === 'appearance' && <AppearanceSettings />}
             {tab === 'notifications' && <NotificationSettings />}
             {tab === 'privacy' && <PrivacySettings />}
@@ -96,10 +174,11 @@ export function SettingsDialog({ tab, onTab, onClose }: { tab: SettingsTab; onTa
 
 // MARK: - Building blocks
 
-function Section({ title, footer, children }: { title?: string; footer?: ReactNode; children: ReactNode }) {
+function Section({ title, description, footer, children, tone }: { title?: string; description?: ReactNode; footer?: ReactNode; children: ReactNode; tone?: 'danger' }) {
   return (
-    <div className="st-section">
+    <div className={`st-section ${tone === 'danger' ? 'is-danger' : ''}`}>
       {title && <div className="st-section-title">{title}</div>}
+      {description && <div className="st-section-desc">{description}</div>}
       <div className="st-group">{children}</div>
       {footer && <div className="st-footer">{footer}</div>}
     </div>
@@ -118,6 +197,20 @@ function Row({ label, detail, children, column = false }: { label: ReactNode; de
   );
 }
 
+/** A coloured notice row at the top of a section (hilos: "Your browser has not allowed these yet"). */
+function Callout({ tone, icon: Icon, title, detail, action }: { tone: 'info' | 'warning'; icon: LucideIcon; title: string; detail?: string; action?: ReactNode }) {
+  return (
+    <div className={`st-callout is-${tone}`} role="status">
+      <Icon size={18} className="st-callout-icon" />
+      <div className="st-row-text">
+        <div className="st-callout-title">{title}</div>
+        {detail && <div className="st-row-detail">{detail}</div>}
+      </div>
+      {action}
+    </div>
+  );
+}
+
 function Toggle({ on, disabled, onChange, label }: { on: boolean; disabled?: boolean; onChange: (on: boolean) => void; label: string }) {
   return (
     <button role="switch" aria-checked={on} aria-label={label} className={`st-switch ${on ? 'is-on' : ''}`} disabled={disabled} onClick={() => onChange(!on)}>
@@ -126,24 +219,47 @@ function Toggle({ on, disabled, onChange, label }: { on: boolean; disabled?: boo
   );
 }
 
-function Segmented<T extends string>({ value, options, onChange, label }: { value: T; options: { value: T; title: string }[]; onChange: (v: T) => void; label: string }) {
+function Segmented<T extends string>({
+  value,
+  options,
+  onChange,
+  label,
+  icons,
+}: {
+  value: T;
+  options: { value: T; title: string }[];
+  onChange: (v: T) => void;
+  label: string;
+  icons?: Partial<Record<T, LucideIcon>>;
+}) {
   return (
     <div className="st-segmented" role="radiogroup" aria-label={label}>
-      {options.map((o) => (
-        <button key={o.value} role="radio" aria-checked={o.value === value} className={o.value === value ? 'is-selected' : ''} onClick={() => onChange(o.value)}>
-          {o.title}
-        </button>
-      ))}
+      {options.map((o) => {
+        const Icon: LucideIcon | undefined = icons?.[o.value];
+        return (
+          <button key={o.value} role="radio" aria-checked={o.value === value} className={o.value === value ? 'is-selected' : ''} onClick={() => onChange(o.value)}>
+            {Icon && <Icon size={13} />}
+            {o.title}
+          </button>
+        );
+      })}
     </div>
   );
 }
 
+const appearanceIcons: Record<Appearance, LucideIcon> = { system: Monitor, light: Sun, dark: Moon };
+
 // MARK: - Cài đặt chung
 
-function GeneralSettings() {
+function GeneralSettings({ onTab }: { onTab: (t: SettingsTab) => void }) {
   const prefs = useAppearancePrefs();
   const [version, setVersion] = useState<string | null>(null);
+  const [runtime, setRuntime] = useState<string | null>(null);
   useEffect(() => {
+    void commands
+      .info()
+      .then((i) => setRuntime(i.runtimeVersion))
+      .catch(() => {});
     if (usesMock) return setVersion('0.1.0 (mock)');
     void import('@tauri-apps/api/app')
       .then((m) => m.getVersion())
@@ -153,17 +269,31 @@ function GeneralSettings() {
   return (
     <>
       <Section title="Chế độ giao diện">
-        <Row label="Chế độ">
-          <Segmented label="Chế độ giao diện" value={prefs.appearance} options={appearances} onChange={(v) => setAppearancePref('appearance', v)} />
+        <Row label="Chế độ" detail="Theo hệ thống dùng cài đặt Sáng / Tối của macOS.">
+          <Segmented label="Chế độ giao diện" value={prefs.appearance} options={appearances} icons={appearanceIcons} onChange={(v) => setAppearancePref('appearance', v)} />
+        </Row>
+        <button className="st-row st-link-row" onClick={() => onTab('appearance')}>
+          <span className="st-row-text">
+            <span className="st-row-label">Màu nhấn và cỡ chữ</span>
+          </span>
+          <ChevronRight size={16} className="st-chevron" />
+        </button>
+      </Section>
+      <Section title={`Về ${appName}`}>
+        <div className="st-about">
+          <img src={logo} width={44} height={44} alt="" draggable={false} />
+          <div className="st-row-text">
+            <div className="st-about-name">{appName}</div>
+            <div className="st-row-detail">Ứng dụng Zalo cho macOS, chạy mã Zalo PC chính thức.</div>
+          </div>
+        </div>
+        <Row label="Phiên bản">
+          <span className="st-value nums">{version ?? '—'}</span>
+        </Row>
+        <Row label="Zalo PC">
+          <span className="st-value nums">{runtime ?? '—'}</span>
         </Row>
       </Section>
-      {version && (
-        <Section title={`Về ${appName}`}>
-          <Row label="Phiên bản">
-            <span className="st-value nums">{version}</span>
-          </Row>
-        </Section>
-      )}
     </>
   );
 }
@@ -175,8 +305,27 @@ function AppearanceSettings() {
   const scale = textSizes.find((t) => t.value === prefs.textSize)?.scale ?? 1;
   return (
     <>
-      <Section footer="Dùng cho tin nhắn của bạn, nút và lựa chọn.">
-        <Row label="Màu nhấn">
+      <Section title="Chủ đề">
+        <div className="st-themes" role="radiogroup" aria-label="Chủ đề">
+          {appearances.map((a) => (
+            <button
+              key={a.value}
+              role="radio"
+              aria-checked={prefs.appearance === a.value}
+              className={`st-theme ${prefs.appearance === a.value ? 'is-selected' : ''}`}
+              onClick={() => setAppearancePref('appearance', a.value)}
+            >
+              <ThemeThumb kind={a.value} />
+              <span className="st-theme-label">
+                {prefs.appearance === a.value ? <CheckCircle2 size={14} className="st-theme-check" /> : <span className="st-theme-dot" />}
+                {a.title}
+              </span>
+            </button>
+          ))}
+        </div>
+      </Section>
+      <Section title="Màu nhấn" description="Dùng cho tin nhắn của bạn, nút và lựa chọn.">
+        <Row label={accents.find((a) => a.value === prefs.accent)?.title ?? 'Màu nhấn'}>
           <div className="st-swatches">
             {accents.map((a) => (
               <button
@@ -197,17 +346,44 @@ function AppearanceSettings() {
       <Section title="Cỡ chữ tin nhắn">
         <Row label="Cỡ chữ" column>
           <Segmented label="Cỡ chữ" value={prefs.textSize} options={textSizes} onChange={(v) => setAppearancePref('textSize', v)} />
+          <div className="st-preview-label">Xem trước</div>
           <div className="st-preview" aria-hidden>
             <div className="st-bubble is-theirs" style={{ fontSize: 14 * scale }}>
               Chiều nay đi cà phê không?
+              <span className="st-bubble-time">14:02</span>
             </div>
             <div className="st-bubble is-mine" style={{ fontSize: 14 * scale }}>
               Được chứ, 3 giờ nhé!
+              <span className="st-bubble-time">14:03</span>
             </div>
           </div>
         </Row>
       </Section>
     </>
+  );
+}
+
+/** A miniature window (rail, list, chat) in the theme's colours; "system" is split light / dark. */
+function ThemeThumb({ kind }: { kind: Appearance }) {
+  const pane = (mode: 'light' | 'dark') => (
+    <span className={`st-thumb-pane is-${mode}`}>
+      <span className="st-thumb-rail" />
+      <span className="st-thumb-list">
+        <span />
+        <span />
+        <span />
+      </span>
+      <span className="st-thumb-chat">
+        <span className="st-thumb-bubble" />
+        <span className="st-thumb-bubble is-mine" />
+      </span>
+    </span>
+  );
+  return (
+    <span className={`st-thumb ${kind === 'system' ? 'is-split' : ''}`} aria-hidden>
+      {kind === 'dark' ? pane('dark') : pane('light')}
+      {kind === 'system' && pane('dark')}
+    </span>
   );
 }
 
@@ -224,34 +400,57 @@ function NotificationSettings() {
   }, []);
   return (
     <>
+      {s.authorization === 'notDetermined' && (
+        <Callout
+          tone="info"
+          icon={BellRing}
+          title="macOS chưa cho phép hiển thị thông báo"
+          detail="Cho phép để nhận thông báo khi Compola chạy nền."
+          action={
+            <button className="st-button is-primary" onClick={() => void requestNotificationAuthorization()}>
+              Cho phép
+            </button>
+          }
+        />
+      )}
+      {s.authorization === 'denied' && (
+        <Callout
+          tone="warning"
+          icon={BellOff}
+          title="Thông báo đang bị tắt trong Cài đặt hệ thống"
+          detail="Bật lại Compola trong Cài đặt hệ thống ▸ Thông báo."
+          action={
+            <button className="st-button" onClick={() => void openSystemNotificationSettings()}>
+              Mở Cài đặt…
+            </button>
+          }
+        />
+      )}
+      {s.authorization === 'unavailable' && <Callout tone="info" icon={Info} title={`Thông báo chỉ hoạt động khi chạy ${appName}.app.`} />}
       <Section
-        title="Thông báo"
+        title="Tin nhắn"
         footer="Zalo quyết định khi nào báo tin mới (tắt thông báo hội thoại, nhóm hay cá nhân, đang mở ứng dụng…). Chế độ Tập trung / Không làm phiền của macOS vẫn được áp dụng."
       >
         <Row label="Thông báo tin nhắn mới" detail="Nhận được thông báo mỗi khi có tin nhắn mới">
           <Toggle label="Thông báo tin nhắn mới" on={s.enabled} disabled={!s.isLoaded} onChange={setNotificationsEnabled} />
         </Row>
-        <Row label="Phát âm thanh khi có tin nhắn & thông báo mới">
+        <Row label="Phát âm thanh khi có tin nhắn & thông báo mới" detail={s.enabled ? undefined : 'Bật thông báo tin nhắn mới để dùng tuỳ chọn này'}>
           <Toggle label="Phát âm thanh khi có tin nhắn & thông báo mới" on={s.sound} disabled={!s.isLoaded || !s.enabled} onChange={setNotificationSound} />
         </Row>
         <Row label="Hiện nội dung tin nhắn" detail="Tắt để chỉ hiện “Bạn có tin nhắn mới”">
           <Toggle label="Hiện nội dung tin nhắn" on={s.showsPreview} onChange={setMessagePreview} />
         </Row>
-        {s.authorization === 'notDetermined' && (
-          <Row label="macOS chưa cho phép hiển thị thông báo">
-            <button className="st-button" onClick={() => void requestNotificationAuthorization()}>
-              Cho phép
-            </button>
-          </Row>
-        )}
-        {s.authorization === 'denied' && (
-          <Row label="Thông báo đang bị tắt trong Cài đặt hệ thống">
-            <button className="st-button" onClick={() => void openSystemNotificationSettings()}>
-              Mở Cài đặt…
-            </button>
-          </Row>
-        )}
-        {s.authorization === 'unavailable' && <Row label={<span className="st-muted">Thông báo chỉ hoạt động khi chạy {appName}.app.</span>} />}
+        <div className="st-notif-preview" aria-hidden>
+          <img src={logo} width={28} height={28} alt="" draggable={false} />
+          <span className="st-row-text">
+            <span className="st-notif-head">
+              <span className="st-notif-app">{appName}</span>
+              <span className="st-notif-time">bây giờ</span>
+            </span>
+            <span className="st-notif-title">{s.showsPreview ? 'Trần Thị Lan' : appName}</span>
+            <span className="st-notif-body">{s.showsPreview ? 'Mai đi ăn trưa nhé 🍜' : 'Bạn có tin nhắn mới'}</span>
+          </span>
+        </div>
       </Section>
       <MutedConversations />
     </>
@@ -267,7 +466,7 @@ function MutedConversations() {
   const nameOf = (id: string) => engine.conversations.find((c) => c.id === id)?.name ?? (id.startsWith('g') ? 'Nhóm' : 'Người dùng Zalo');
   const avatarOf = (id: string) => engine.conversations.find((c) => c.id === id)?.avatar ?? null;
   return (
-    <Section title="Hội thoại đã tắt thông báo">
+    <Section title={`Hội thoại đã tắt thông báo (${muted.length})`}>
       {muted.map((m) => (
         <div key={m.id} className="st-row">
           <Avatar url={avatarOf(m.id)} name={nameOf(m.id)} size={32} />
@@ -356,19 +555,34 @@ function StickerSettings() {
 function AccountSettings({ onClose }: { onClose: () => void }) {
   const profile = useEngine((s) => s.profile);
   const canStartTransfer = useEngine((s) => s.canStartTransfer);
+  const blocked = useEngine((s) => s.transferStartBlockedReason);
+  const [confirmLogout, setConfirmLogout] = useState(false);
   return (
     <>
-      <Section>
+      <div className="st-profile-card">
+        <div className="st-profile-cover" />
         <div className="st-profile">
-          <Avatar url={profile?.avatar} name={profile?.displayName ?? '?'} size={52} />
-          <div>
+          <Avatar url={profile?.avatar} name={profile?.displayName ?? '?'} size={64} className="st-profile-avatar" />
+          <div className="st-row-text">
             <div className="st-profile-name">{profile?.displayName ?? 'Chưa đăng nhập'}</div>
             <div className="st-row-detail">{profile?.phone || 'Tài khoản Zalo'}</div>
           </div>
+          <span className="st-status">
+            <span className="st-status-dot" /> Đã kết nối
+          </span>
         </div>
-      </Section>
+      </div>
       <Section title="Sao lưu & đồng bộ">
-        <Row label="Đồng bộ tin nhắn từ điện thoại">
+        <div className="st-row">
+          <span className="st-icon-tile">
+            <Smartphone size={18} />
+          </span>
+          <div className="st-row-text">
+            <div className="st-row-label">Đồng bộ tin nhắn từ điện thoại</div>
+            <div className="st-row-detail">
+              {canStartTransfer ? 'Đưa lịch sử trò chuyện từ điện thoại sang máy Mac này.' : blocked ? transferBlockedText(blocked) : 'Đang chuẩn bị…'}
+            </div>
+          </div>
           <button
             className="st-button is-primary"
             disabled={!canStartTransfer}
@@ -379,20 +593,37 @@ function AccountSettings({ onClose }: { onClose: () => void }) {
           >
             Đồng bộ ngay
           </button>
-        </Row>
+        </div>
       </Section>
-      <Section>
-        <button
-          className="st-row st-destructive"
-          disabled={!profile}
-          onClick={() => {
-            onClose();
-            void logOut();
-          }}
-        >
-          Đăng xuất
-        </button>
+      <Section title="Đăng xuất" tone="danger">
+        <div className="st-row">
+          <div className="st-row-text">
+            <div className="st-row-label">Đăng xuất khỏi {appName}</div>
+            <div className="st-row-detail">Dữ liệu trên máy này được xoá; lần sau cần quét mã QR để đăng nhập lại.</div>
+          </div>
+          <button className="st-button is-danger" disabled={!profile} onClick={() => setConfirmLogout(true)}>
+            <LogOut size={14} /> Đăng xuất
+          </button>
+        </div>
       </Section>
+      {confirmLogout && (
+        <Alert
+          title="Đăng xuất?"
+          message="Bạn sẽ cần quét mã QR bằng Zalo trên điện thoại để đăng nhập lại."
+          buttons={[
+            {
+              label: 'Đăng xuất',
+              role: 'destructive',
+              onClick: () => {
+                setConfirmLogout(false);
+                onClose();
+                void logOut();
+              },
+            },
+            { label: 'Hủy', role: 'cancel', onClick: () => setConfirmLogout(false) },
+          ]}
+        />
+      )}
     </>
   );
 }
@@ -411,6 +642,7 @@ function EngineSettings() {
   const [error, setError] = useState<string | null>(null);
   const conversations = useEngine((s) => (s.conversationActions.hiddenKnown ? String(visibleConversations(s).length) : '—'));
   const logBox = useRef<HTMLPreElement>(null);
+  const [copied, setCopied] = useState(false);
 
   const load = () =>
     commands
@@ -437,25 +669,26 @@ function EngineSettings() {
     if (el) el.scrollTop = el.scrollHeight;
   }, [info?.recentLog.length]);
 
+  const copyLog = () => {
+    if (!info) return;
+    void navigator.clipboard.writeText(info.recentLog.join('\n')).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
+    });
+  };
+
   return (
     <>
-      <Section title="Engine">
-        <Row label="Giao thức">
-          <span className="st-value">Zalo PC {info?.runtimeVersion ?? '—'} (mã chính thức)</span>
-        </Row>
-        <Row label="Hội thoại">
-          <span className="st-value nums">{conversations}</span>
-        </Row>
-        <Row label="Lưu trữ">
-          <span className="st-value">{info?.storage === 'sqlite' ? 'SQLite (gốc)' : info?.storage === 'idb' ? 'IndexedDB (WebKit)' : '—'}</span>
-        </Row>
-        {info?.storage === 'idb' && (
-          <Row label="Chuyển sang SQLite" detail="SQLite nhanh hơn nhiều với tài khoản có nhiều tin nhắn.">
-            <button className="st-button" onClick={() => setConfirmSqlite(true)}>
-              Chuyển sang SQLite…
-            </button>
-          </Row>
-        )}
+      <div className="st-stats">
+        <Stat label="Zalo PC" value={info?.runtimeVersion ?? '—'} detail="Mã chính thức" />
+        <Stat label="Hội thoại" value={conversations} detail="Đang hiển thị" />
+        <Stat
+          label="Lưu trữ"
+          value={info?.storage === 'sqlite' ? 'SQLite' : info?.storage === 'idb' ? 'IndexedDB' : '—'}
+          detail={info?.storage === 'sqlite' ? 'Gốc' : info?.storage === 'idb' ? 'WebKit' : ''}
+        />
+      </div>
+      <Section title="Gỡ lỗi">
         <Row label="Renderer chính thức" detail="Mở cửa sổ của trình kết xuất Zalo PC đang chạy ẩn (gỡ lỗi).">
           <button className="st-button" onClick={() => void commands.showRenderer().catch((e) => setError(String(e)))}>
             Hiện renderer
@@ -464,9 +697,15 @@ function EngineSettings() {
       </Section>
       <Section title="Nhật ký gần đây">
         <div className="st-log-wrap">
-          <button className="st-log-refresh" onClick={() => void load()} title="Làm mới" aria-label="Làm mới">
-            <RefreshCw size={13} />
-          </button>
+          <div className="st-log-bar">
+            <span className="st-log-count nums">{info ? `${info.recentLog.length} dòng` : ''}</span>
+            <button className="st-log-action" onClick={copyLog} disabled={!info?.recentLog.length} title="Sao chép nhật ký">
+              {copied ? <Check size={13} /> : <Copy size={13} />} {copied ? 'Đã chép' : 'Sao chép'}
+            </button>
+            <button className="st-log-action" onClick={() => void load()} title="Làm mới" aria-label="Làm mới">
+              <RefreshCw size={13} /> Làm mới
+            </button>
+          </div>
           {info === null ? (
             <div className="st-log-empty">
               <Spinner size={14} />
@@ -479,6 +718,19 @@ function EngineSettings() {
         </div>
         {error && <div className="st-footer st-warning">{error}</div>}
       </Section>
+      {info?.storage === 'idb' && (
+        <Section title="Chuyển sang SQLite" tone="danger">
+          <div className="st-row">
+            <div className="st-row-text">
+              <div className="st-row-label">Dùng SQLite thay cho IndexedDB</div>
+              <div className="st-row-detail">Nhanh hơn nhiều với tài khoản có nhiều tin nhắn. Cần đăng xuất, đăng nhập lại và đồng bộ lại tin nhắn từ điện thoại.</div>
+            </div>
+            <button className="st-button is-danger" onClick={() => setConfirmSqlite(true)}>
+              Chuyển sang SQLite…
+            </button>
+          </div>
+        </Section>
+      )}
       {confirmSqlite && (
         <Alert
           title="Chuyển sang SQLite?"
@@ -497,5 +749,15 @@ function EngineSettings() {
         />
       )}
     </>
+  );
+}
+
+function Stat({ label, value, detail }: { label: string; value: string; detail?: string }) {
+  return (
+    <div className="st-stat">
+      <div className="st-stat-label">{label}</div>
+      <div className="st-stat-value nums truncate">{value}</div>
+      {detail && <div className="st-stat-detail">{detail}</div>}
+    </div>
   );
 }
