@@ -215,7 +215,7 @@ export function SettingsDialog({ tab: requested, onTab, onClose }: { tab: Settin
 
 // MARK: - Building blocks
 
-export function Section({ title, description, footer, children, tone }: { title?: string; description?: ReactNode; footer?: ReactNode; children: ReactNode; tone?: 'danger' }) {
+export function Section({ title, description, footer, children, tone }: { title?: ReactNode; description?: ReactNode; footer?: ReactNode; children: ReactNode; tone?: 'danger' }) {
   return (
     <div className={`st-section ${tone === 'danger' ? 'is-danger' : ''}`}>
       {title && <div className="st-section-title">{title}</div>}

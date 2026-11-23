@@ -5,12 +5,13 @@
 //   "compola" signs in (a username containing "viewer" gets the viewer role), anything else is refused; "Đăng nhập
 //   bằng trình duyệt" is approved after 6 s. A joined mock is remembered for the tab (sessionStorage) until
 //   "Rời máy chủ".
-// * `&remote=agent|viewer` starts joined right away; `&remote=offline` cannot connect until "Thử lại";
+// * `&remote=agent|viewer|admin` starts joined right away (admin: Settings › Compola Server › Quản trị máy chủ); `&remote=offline` cannot connect until "Thử lại";
 //   `&providers=many` lists five SSO providers (tiles instead of buttons).
 //   `&remote=drop` loses the connection 6 s after connecting and gets it back 4 s later (the page then reloads; once
 //   per tab).
 
 import type { Json } from '../../models/json';
+import { fakeQr } from '../mockData';
 import { mockContext, registerMockCommand } from '../registry';
 
 const storageKey = 'compola.mockRemote';
@@ -33,7 +34,7 @@ const readJoin = (): MockJoin | null => {
       deviceName: 'MacBook của Lan',
       username: 'lan.nguyen',
       displayName: 'Nguyễn Thị Lan',
-      role: forced === 'viewer' ? 'viewer' : 'agent',
+      role: forced === 'viewer' ? 'viewer' : forced === 'admin' ? 'admin' : 'agent',
     };
   }
   try {
@@ -279,8 +280,9 @@ registerMockCommand('remote_admin_setup', async (args) => {
   changed();
 });
 
-registerMockCommand('remote_admin_open', () => {
-  const link = `http://127.0.0.1:${server.config.port}/api/auth/otp?t=mock`;
+registerMockCommand('remote_admin_open', (args) => {
+  const next = typeof args.next === 'string' ? args.next : '/admin/';
+  const link = `http://127.0.0.1:${server.config.port}/api/auth/otp?t=mock&next=${encodeURIComponent(next)}`;
   window.open(link, '_blank', 'noopener');
   return link;
 });
@@ -289,4 +291,80 @@ registerMockCommand('remote_kick', (args) => {
   const id = String(args.sessionId ?? '');
   server.sessions = server.sessions.filter((s) => s.id !== id);
   changed();
+});
+
+// MARK: - remote_api (native admin screens)
+//
+// Everything below `admin/` is served by the admin console's own in-memory server (admin/src/mock.ts, the same data
+// and rules as `npm run dev:admin`), signed in as its admin. `admin/zalo*` (the host's Zalo account) is simulated
+// here: `&zalo=login|preparing` starts signed out / preparing; a shown QR is "scanned" after 8 s.
+
+type AdminMockHandler = (method: string, path: string, body: unknown) => Promise<{ status: number; body: unknown }>;
+let adminMock: Promise<AdminMockHandler> | null = null;
+const adminHandler = () => {
+  if (!adminMock) {
+    try {
+      sessionStorage.setItem('compola-admin-mock-user', 'u_admin');
+    } catch {
+      /* private mode */
+    }
+    adminMock = import('../../../../admin/src/mock').then((m) => m.handle);
+  }
+  return adminMock;
+};
+
+const zaloAccount = { name: 'Shop Compola', avatar: '' };
+const zaloStart = new URLSearchParams(location.search).get('zalo');
+let zaloPhase: Json =
+  zaloStart === 'preparing'
+    ? { kind: 'preparing', setup: { step: 'downloading', received: 0, total: 0, failure: 'Không tải được Zalo PC (timeout).' } }
+    : zaloStart === 'login'
+      ? { kind: 'login', login: { step: { kind: 'waitingScan' }, qr: fakeQr(7), isSecondQr: false } }
+      : { kind: 'ready' };
+let zaloTimers: ReturnType<typeof setTimeout>[] = [];
+const zaloLater = (ms: number, fn: () => void) => zaloTimers.push(setTimeout(fn, ms));
+const zaloClear = () => {
+  zaloTimers.forEach(clearTimeout);
+  zaloTimers = [];
+};
+
+/** A fresh QR, "scanned" on a phone after 8 s, confirmed 3 s later. */
+const zaloShowQr = () => {
+  zaloClear();
+  zaloPhase = { kind: 'login', login: { step: { kind: 'generating' }, qr: null, isSecondQr: false } };
+  zaloLater(600, () => (zaloPhase = { kind: 'login', login: { step: { kind: 'waitingScan' }, qr: fakeQr(Date.now() % 97), isSecondQr: false } }));
+  zaloLater(8600, () => (zaloPhase = { kind: 'login', login: { step: { kind: 'waitingConfirm', name: zaloAccount.name, avatar: null }, qr: null, isSecondQr: false } }));
+  zaloLater(11600, () => (zaloPhase = { kind: 'signingIn' }));
+  zaloLater(13000, () => (zaloPhase = { kind: 'ready' }));
+};
+if (zaloStart === 'login') zaloLater(8000, () => zaloShowQr());
+
+const zaloApi = (method: string, path: string): unknown => {
+  if (method === 'GET' && path === 'admin/zalo')
+    return { phase: zaloPhase, account: zaloPhase.kind === 'ready' ? { ...zaloAccount, phase: 'ready' } : null };
+  if (method === 'POST' && path === 'admin/zalo/qr') return zaloShowQr(), { ok: true };
+  if (method === 'POST' && path === 'admin/zalo/logout') return zaloShowQr(), { ok: true };
+  if (method === 'POST' && path === 'admin/zalo/retry') {
+    zaloClear();
+    zaloPhase = { kind: 'preparing', setup: { step: 'downloading', received: 0, total: 100, failure: null } };
+    for (let i = 1; i <= 10; i++) zaloLater(i * 300, () => (zaloPhase = { kind: 'preparing', setup: { step: 'downloading', received: i * 10, total: 100, failure: null } }));
+    zaloLater(3600, () => zaloShowQr());
+    return { ok: true };
+  }
+  throw 'Không tìm thấy.';
+};
+
+registerMockCommand('remote_api', async (args) => {
+  const method = String(args.method ?? 'GET').toUpperCase();
+  const path = String(args.path ?? '').replace(/^\/+/, '');
+  if (path.startsWith('admin/zalo')) {
+    await delay(150);
+    return zaloApi(method, path);
+  }
+  const handle = await adminHandler();
+  const res = await handle(method, `/api/${path}`, args.body ?? undefined);
+  if (res.status >= 200 && res.status < 300) return res.body;
+  const error = (res.body as { error?: unknown } | null)?.error;
+  // Like Rust: the server's Vietnamese `{error}` text as the rejection.
+  throw typeof error === 'string' ? error : `Lỗi máy chủ (${res.status}).`;
 });

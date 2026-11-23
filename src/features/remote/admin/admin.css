@@ -1,0 +1,361 @@
+/* Settings › Compola Server › Quản trị máy chủ (src/features/remote/admin). Built on the settings dialog's classes
+   (st-section, st-row, st-auto-editor, st-field, st-input, st-chip); `sa-` adds what the admin pages need. */
+
+.sa-link .st-row-text {
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+}
+
+/* Back bar of a sub-page */
+.sa-back {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: -4px 0 14px;
+}
+
+.sa-back-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 28px;
+  padding: 0 8px 0 4px;
+  border-radius: 6px;
+  color: var(--st-primary, var(--accent));
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.sa-back-button:hover {
+  background: var(--st-subtle, var(--hover));
+}
+
+.sa-back-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.sa-back-action {
+  margin-left: auto;
+}
+
+/* Toolbars above lists */
+.sa-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.sa-toolbar.is-end {
+  justify-content: flex-end;
+}
+
+.sa-toolbar-toggle {
+  margin-left: auto;
+  gap: 10px;
+}
+
+.sa-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--st-border, var(--separator));
+  border-radius: 6px;
+  background: var(--st-bg, var(--content));
+  color: var(--text-secondary);
+}
+
+.sa-search:focus-within {
+  border-color: var(--st-primary, var(--accent));
+}
+
+.sa-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 13.5px;
+}
+
+/* Member rows (Base44 / Plane) */
+.sa-member.is-disabled .st-row-text,
+.sa-member.is-disabled .st-avatar {
+  opacity: 0.55;
+}
+
+.sa-member-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.sa-member-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+  flex: none;
+}
+
+.sa-meta-text {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+.sa-chip-danger {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
+}
+
+.sa-more {
+  flex: none;
+}
+
+.sa-strong {
+  font-weight: 600;
+}
+
+.sa-person {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Inline editors */
+.sa-form {
+  margin-bottom: 12px;
+  border: 1px solid var(--st-border, var(--separator));
+  border-radius: 10px;
+}
+
+.st-section .sa-form {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+}
+
+.sa-form-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.sa-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.sa-hint {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.sa-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sa-inline .st-input {
+  flex: 1;
+}
+
+.sa-pad {
+  padding: 10px;
+}
+
+/* Pickers (group members, conversations) */
+.sa-pick-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--st-border, var(--separator));
+  border-radius: 8px;
+  background: var(--st-bg, var(--content));
+}
+
+.sa-pick-list.is-tall {
+  max-height: 280px;
+}
+
+.sa-pick {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 5px 10px;
+  font-size: 13.5px;
+  cursor: pointer;
+}
+
+.sa-pick + .sa-pick {
+  border-top: 1px solid var(--st-border, var(--separator));
+}
+
+.sa-pick:hover {
+  background: var(--st-subtle, var(--hover));
+}
+
+.sa-pick input {
+  flex: none;
+  accent-color: var(--st-primary, var(--accent));
+}
+
+.sa-pick .truncate {
+  flex: 1;
+  min-width: 0;
+}
+
+.sa-pick-labels {
+  display: inline-flex;
+  gap: 3px;
+}
+
+/* Role cards (Plain) */
+.sa-role-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.sa-role-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--st-border, var(--separator));
+  border-radius: 8px;
+  background: var(--st-bg, var(--content));
+  text-align: left;
+}
+
+.sa-role-card:hover {
+  border-color: color-mix(in srgb, var(--st-primary, var(--accent)) 45%, transparent);
+}
+
+.sa-role-card.is-selected {
+  border-color: var(--st-primary, var(--accent));
+  box-shadow: 0 0 0 1px var(--st-primary, var(--accent));
+  background: color-mix(in srgb, var(--st-primary, var(--accent)) 6%, var(--st-bg, var(--content)));
+}
+
+.sa-role-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text);
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.sa-role-card.is-selected .sa-role-title {
+  color: var(--st-primary, var(--accent));
+}
+
+.sa-role-hint {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+/* Scope */
+.sa-scope-choice {
+  display: flex;
+  gap: 18px;
+}
+
+.sa-radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text);
+  font-size: 13.5px;
+  cursor: pointer;
+}
+
+.sa-radio input {
+  accent-color: var(--st-primary, var(--accent));
+}
+
+.sa-scope {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.sa-label-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.sa-label-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--st-border, var(--separator));
+  border-radius: 13px;
+  background: var(--st-bg, var(--content));
+  color: var(--text);
+  font-size: 12.5px;
+}
+
+.sa-label-chip.is-selected {
+  border-color: var(--label-color);
+  background: color-mix(in srgb, var(--label-color) 14%, var(--st-bg, var(--content)));
+  font-weight: 600;
+}
+
+.sa-label-dot {
+  display: inline-block;
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--label-color, var(--accent));
+}
+
+/* Tài khoản Zalo */
+.sa-qr {
+  display: flex;
+  justify-content: center;
+  background: var(--st-bg, var(--content));
+}
+
+.sa-qr .login-body {
+  width: min(400px, 100%);
+}
+
+.sa-progress {
+  width: 100%;
+  height: 4px;
+  margin-top: 6px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  overflow: hidden;
+}
+
+.sa-progress > div {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
