@@ -259,8 +259,10 @@ async fn route(ctx: &Ctx<'_>, method: &str, seg: &[&str]) -> R<Reply> {
         ("GET", ["me"]) => {
             let (session, user) = ctx.current()?;
             let (access, via) = ctx.auth.store.access_of(&user)?;
+            // The accounts this user may see (summaries, like the WebSocket `hello`), for names in "Tài khoản của tôi".
+            let accounts = access.as_ref().map(|a| ctx.remote.accounts_for(a)["accounts"].clone()).unwrap_or_else(|| json!([]));
             let access = access.map(|a| a.expanded(&ctx.remote.account_ids()));
-            Ok(Reply::ok(json!({ "user": user, "session": session, "access": access, "via": via, "accounts": ctx.remote.account_names() })))
+            Ok(Reply::ok(json!({ "user": user, "session": session, "access": access, "via": via, "accounts": accounts })))
         }
 
         ("GET", ["me", "sessions"]) => {
