@@ -3,7 +3,7 @@
 
 import { Check, Clock, Minus, Phone, Plus, Search, ShieldCheck, Smartphone, Smile, Inbox, TriangleAlert, Wifi, type LucideIcon } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import appIcon from '../../assets/app-icon.png';
+import logo from '../../assets/compola-logo.svg';
 import illoSync from '../../assets/illo-sync.png';
 import { fireAdapter } from '../../engine/call';
 import { useEngine } from '../../engine/store';
@@ -47,7 +47,7 @@ export function SetupFlow({ onFinish }: { onFinish: (startTour: boolean) => void
 
   return (
     <BrandBackground>
-      <div className="setup-card glass">
+      <div className="setup-card">
         <SetupSidebar stage={stage} syncOutcome={syncOutcome} />
         <div className="setup-content" key={contentKey}>
           {phase.kind === 'ready' ? (
@@ -83,8 +83,22 @@ function SetupSidebar({ stage, syncOutcome }: { stage: Stage; syncOutcome: SyncO
   };
   return (
     <div className="setup-sidebar">
-      <img src={appIcon} width={64} height={64} alt="" draggable={false} />
+      <span className="login-logo-row">
+        <img src={logo} width={36} height={36} alt="" draggable={false} />
+        <span className="login-wordmark is-small">{appName}</span>
+      </span>
       <div className="setup-welcome-title">Chào mừng đến {appName}</div>
+      <div className="setup-progress" aria-label={`Bước ${stage + 1} trên ${items.length}`}>
+        <div className="setup-progress-row">
+          <span>Thiết lập ban đầu</span>
+          <span className="nums">
+            {stage + 1}/{items.length}
+          </span>
+        </div>
+        <div className="setup-progress-bar">
+          <div style={{ width: `${((stage + 1) / items.length) * 100}%` }} />
+        </div>
+      </div>
       <ol className="stepper">
         {items.map((item, i) => {
           const st = stateOf(i);
@@ -166,7 +180,7 @@ function SyncStep({ onDone }: { onDone: (outcome: SyncOutcome) => void }) {
           </div>
           <div className="sync-progress-row">
             <span>{count}</span>
-            {transfer.progress != null && <span>{Math.round(transfer.progress * 100)}%</span>}
+            {transfer.progress != null && <span className="sync-pct">{Math.round(transfer.progress * 100)}%</span>}
           </div>
           <div className="sync-progress-stage">
             {stageTitle(transfer)}
@@ -225,10 +239,10 @@ function SyncStep({ onDone }: { onDone: (outcome: SyncOutcome) => void }) {
         Máy Mac này mới chỉ có “Cloud của tôi”. Lịch sử trò chuyện nằm trên điện thoại của bạn; đồng bộ sẽ gửi yêu cầu tới
         điện thoại và chờ bạn xác nhận ở đó.
       </p>
-      <div className="sync-bullets">
-        <Bullet icon={Smartphone} text="Chỉ bắt đầu khi bạn chọn Đồng ý trên điện thoại." />
-        <Bullet icon={Clock} text="Thường mất vài phút, tuỳ số lượng tin nhắn." />
-        <Bullet icon={Wifi} text="Giữ Zalo mở và có mạng cho đến khi xong." />
+      <div className="setup-list">
+        <Bullet icon={Smartphone} title="Bạn quyết định trên điện thoại" text="Chỉ bắt đầu khi bạn chọn Đồng ý trên điện thoại." />
+        <Bullet icon={Clock} title="Vài phút" text="Thường mất vài phút, tuỳ số lượng tin nhắn." />
+        <Bullet icon={Wifi} title="Giữ kết nối" text="Giữ Zalo mở và có mạng cho đến khi xong." />
       </div>
       <div className="setup-actions">
         <button className="btn btn-prominent btn-large" disabled={!canStart} onClick={startSync}>
@@ -249,11 +263,16 @@ function SyncStep({ onDone }: { onDone: (outcome: SyncOutcome) => void }) {
   );
 }
 
-function Bullet({ icon: Icon, text }: { icon: LucideIcon; text: string }) {
+function Bullet({ icon: Icon, title, text }: { icon: LucideIcon; title: string; text: string }) {
   return (
-    <div className="sync-bullet">
-      <Icon size={14} className="tint" />
-      <span>{text}</span>
+    <div className="setup-list-row">
+      <span className="setup-list-icon">
+        <Icon size={15} />
+      </span>
+      <span className="setup-list-text">
+        <span className="setup-list-title">{title}</span>
+        <span className="setup-list-sub">{text}</span>
+      </span>
     </div>
   );
 }
@@ -280,22 +299,23 @@ function WelcomeStep({ syncSkipped, onFinish }: { syncSkipped: boolean; onFinish
           </span>
         </span>
       ) : (
-        <img src={appIcon} width={64} height={64} alt="" draggable={false} />
+        <img src={logo} width={64} height={64} alt="" draggable={false} />
       )}
       <div className="setup-heading" style={{ marginTop: 12 }}>
         {appName} đã sẵn sàng
       </div>
       <p className="setup-lead">{syncSkipped ? `Bạn có thể đồng bộ tin nhắn cũ bất cứ lúc nào trong Cài đặt. ${tour}` : tour}</p>
-      <div className="tour-list">
-        {tourSteps.map(({ title, icon: Icon }) => (
-          <div key={title} className="tour-item">
-            <span className="tour-icon">
-              <Icon size={12} strokeWidth={2.4} />
+      <ol className="setup-list tour-list">
+        {tourSteps.map(({ title, icon: Icon }, i) => (
+          <li key={title} className="setup-list-row is-compact">
+            <span className="tour-number nums">{i + 1}</span>
+            <span className="setup-list-title">{title}</span>
+            <span className="setup-list-icon is-small">
+              <Icon size={13} />
             </span>
-            {title}
-          </div>
+          </li>
         ))}
-      </div>
+      </ol>
       <div className="setup-actions">
         <button className="btn btn-prominent btn-large" autoFocus onClick={() => onFinish(true)}>
           Bắt đầu hướng dẫn
