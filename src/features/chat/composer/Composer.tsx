@@ -22,11 +22,17 @@ import {
 } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { mentionCandidates } from '../../../engine/chat';
-import { reportComposer, sendFiles, sendMedia, startScreenCapture } from '../../../engine/composer';
+import { reminderComposeInfo, reportComposer, sendFiles, sendMedia, startScreenCapture, type ReminderComposeInfo } from '../../../engine/composer';
+import { MyCardSheet, ReminderComposeSheet } from './ComposerSheets';
 import type { ComposerDraft, MentionCandidate } from '../../../engine/models/chat';
 import { Avatar } from '../../../ui/Avatar';
 import { openMenuBelow } from '../../../ui/Menu';
 import { openCreatePoll } from '../../poll/pollSheets';
+import { getEngine } from '../../../engine/store';
+import { showToast } from '../../../engine/toast';
+import { loadStickerSuggestIfNeeded, sendSticker, stickerSuggestDelay, typingStickerSuggestions, useStickerSuggest, type StickerEntry } from '../../../engine/stickers';
+import { Popover } from '../../../ui/Overlays';
+import { StickerPicker, stickerNotReady, TypingStickerStrip } from '../../stickers/StickerPicker';
 import { insertMention, mentionQueryAt, rebaseMentions, tokenAt, type MentionQuery } from './mentions';
 
 const lineHeight = 19;
@@ -67,6 +73,89 @@ export function Composer({
 
   const isEmpty = draft.text.trim().length === 0;
   const suggestionsOpen = isGroup && query !== null && candidates.length > 0;
+
+  // Sticker picker popover, and the stickers suggested for the draft (Swift `TypingStickerState`): they show only while
+  // the draft still is the text they were found for; a send with no answer holds that text away from the strip.
+  const [showStickers, setShowStickers] = useState(false);
+  const [showMyCard, setShowMyCard] = useState(false);
+  const [reminderInfo, setReminderInfo] = useState<ReminderComposeInfo | null>(null);
+  /** OA conversations have no "Nhắc hẹn" (learned from the gate's answer). */
+  const [reminderHidden, setReminderHidden] = useState(false);
+
+  /** The chat-bar gate decides on click, as the official item does (its warning when I may not create one here). */
+  const openReminder = () => {
+    const target = conversationId;
+    void reminderComposeInfo(target).then((info) => {
+      if (!info) return showToast('Chưa đọc được thông tin nhắc hẹn từ Zalo. Hãy thử lại sau giây lát.', target);
+      if (info.hidden) setReminderHidden(true);
+      if (!info.allowed) return showToast(info.text || 'Không thể tạo nhắc hẹn trong cuộc trò chuyện này.', target);
+      if (getEngine().openConversationId === target) setReminderInfo(info);
+    });
+  };
+  const stickerButton = useRef<HTMLButtonElement>(null);
+  const [typing, setTyping] = useState<{ stickers: StickerEntry[]; for: string | null }>({ stickers: [], for: null });
+  const [stripDismissed, setStripDismissed] = useState(false);
+  const [sendingSuggestion, setSendingSuggestion] = useState<string | null>(null);
+  const heldText = useRef<string | null>(null);
+  const suggestEnabled = useStickerSuggest((s) => s.setting?.enabled ?? null);
+  const stripOpen =
+    typing.stickers.length > 0 && typing.for === draft.text && !isEmpty && !stripDismissed && !suggestionsOpen && suggestEnabled !== false;
+
+  // Official `_checkStickerSuggestion` (debounced): nothing is asked while the setting is off, for blank or over-long
+  // text, while the mention list is open or an IME composition is running.
+  useEffect(() => {
+    setStripDismissed(false);
+    const text = draft.text;
+    const clear = () => setTyping((t) => (t.stickers.length ? { stickers: [], for: null } : t));
+    if (!text.trim() || text.length > 200 || suggestionsOpen) return clear();
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    void (async () => {
+      await loadStickerSuggestIfNeeded();
+      if (cancelled) return;
+      if (useStickerSuggest.getState().setting?.enabled !== true) return clear();
+      timer = setTimeout(async () => {
+        // A half-typed syllable: wait (bounded) for the composition to end, never ask about it.
+        for (let waits = 0; composing.current && waits < 20 && !cancelled; waits += 1) await new Promise((r) => setTimeout(r, 300));
+        if (cancelled) return;
+        if (composing.current || heldText.current === text) return clear();
+        const found = await typingStickerSuggestions(conversationId, text);
+        if (cancelled) return;
+        heldText.current = null;
+        setTyping({ stickers: found, for: found.length ? text : null });
+      }, stickerSuggestDelay());
+    })();
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [draft.text, conversationId, suggestionsOpen]);
+
+  /** Official `_sendSuggestionSticker`: the box is cleared first (the typed text is not sent), then the sticker goes out. */
+  const sendSuggestion = (sticker: StickerEntry, index: number) => {
+    if (sendingSuggestion || !stripOpen || composing.current) return;
+    const target = conversationId;
+    if (getEngine().openConversationId !== target) return showToast(stickerNotReady, target);
+    const taken = draft;
+    const typed = typing.for ?? draft.text;
+    setTyping({ stickers: [], for: null });
+    setSendingSuggestion(sticker.key);
+    onDraftChange({ ...draft, text: '', mentions: [] });
+    void sendSticker(sticker, target, 'suggestion', typed, index).then((outcome) => {
+      setSendingSuggestion(null);
+      if (outcome.kind === 'done') return;
+      if (outcome.kind === 'pending') {
+        // The sticker may be on its way: the text is not given back and the strip stays away for it.
+        heldText.current = typed;
+        return showToast(outcome.text, target);
+      }
+      if (outcome.kind === 'locked' || outcome.kind === 'failed' || outcome.kind === 'unsupported') {
+        // The text comes back, before whatever was typed meanwhile.
+        onDraftChange((d) => (d.text ? { ...d, text: `${taken.text}${d.text}`, mentions: [...taken.mentions, ...d.mentions.map((m) => ({ ...m, pos: m.pos + taken.text.length }))] } : { ...d, text: taken.text, mentions: taken.mentions }));
+        showToast(outcome.text, target);
+      }
+    });
+  };
 
   useEffect(() => {
     if (focusTick) field.current?.focus();
@@ -152,6 +241,11 @@ export function Composer({
         setQuery(null);
         return setCandidates([]);
       }
+    } else if (stripOpen && e.key === 'Escape') {
+      // Esc hides the sticker suggestions (they take no other key: Return keeps sending the text).
+      e.preventDefault();
+      e.stopPropagation();
+      return setStripDismissed(true);
     }
     if (e.key === 'Enter') {
       if (e.shiftKey || e.altKey) {
@@ -195,7 +289,21 @@ export function Composer({
         </div>
       )}
       <div className="composer-toolbar" role="toolbar" aria-label="Công cụ soạn tin">
-        <ToolButton icon={Sticker} label="Gửi Sticker" disabled />
+        <button
+          ref={stickerButton}
+          className={`composer-tool ${showStickers ? 'is-active' : ''}`}
+          title="Gửi Sticker"
+          aria-label="Gửi Sticker"
+          aria-expanded={showStickers}
+          onClick={() => setShowStickers((v) => !v)}
+        >
+          <Sticker size={20} strokeWidth={1.7} />
+        </button>
+        {showStickers && (
+          <Popover anchor={stickerButton} onClose={() => setShowStickers(false)} placement="top">
+            <StickerPicker conversationId={conversationId} onSent={() => setShowStickers(false)} />
+          </Popover>
+        )}
         <ToolButton icon={ImageIcon} label="Gửi hình ảnh" onClick={() => attach('media')} />
         <ToolButton icon={Paperclip} label="Đính kèm File" onClick={() => attach('files')} />
         <ToolButton
@@ -208,8 +316,8 @@ export function Composer({
             ])
           }
         />
-        <ToolButton icon={ContactRound} label="Gửi danh thiếp" disabled />
-        <ToolButton icon={AlarmClock} label="Tạo nhắc hẹn" disabled />
+        <ToolButton icon={ContactRound} label="Gửi danh thiếp" onClick={() => setShowMyCard(true)} />
+        {!reminderHidden && <ToolButton icon={AlarmClock} label="Tạo nhắc hẹn" onClick={openReminder} />}
         <ToolButton icon={Type} label="Định dạng tin nhắn" disabled />
         <ToolButton
           icon={MoreHorizontal}
@@ -234,6 +342,11 @@ export function Composer({
             <X size={14} />
           </button>
         </div>
+      )}
+      {showMyCard && <MyCardSheet conversationId={conversationId} conversationName={name} onClose={() => setShowMyCard(false)} />}
+      {reminderInfo && <ReminderComposeSheet conversationId={conversationId} info={reminderInfo} onClose={() => setReminderInfo(null)} />}
+      {stripOpen && (
+        <TypingStickerStrip stickers={typing.stickers} sending={sendingSuggestion} pick={sendSuggestion} dismiss={() => setStripDismissed(true)} />
       )}
       {suggestionsOpen && <MentionSuggestions candidates={candidates} selected={selected} setSelected={setSelected} pick={pick} />}
       <div className="composer-row">

@@ -1,5 +1,6 @@
 // Boot: subscribe to the Rust engine's events and wire the feature handlers (Swift `ZaloEngine.boot` / `handle`).
 
+import { resetStickers } from './stickers';
 import { backend, commands } from './backend';
 import { handleChat, sendText, stashFailedDraft } from './chat';
 import { dropComposerConfirms, handleCompose, handleScreenCapture } from './composer';
@@ -31,6 +32,7 @@ const setPhase = (phase: Phase) => {
 };
 
 const resetAccountState = () => {
+  resetStickers();
   resetConversationActions();
   resetGroupMosaics();
   resetConversations();
