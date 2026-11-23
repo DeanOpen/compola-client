@@ -67,6 +67,9 @@ Status: contract. Implemented in milestones on `feature/multi-account-core`; see
   pages from its own `zalo-app://<host>` origin, so nothing mixes. This works on every macOS version Compola supports
   and needs no `data_store_identifier` (macOS 14+). The default account keeps `zalo-app://local`, the origin its data
   already lives under.
+  - Verified headlessly by `scripts/check-origin-isolation.swift` (WKWebView, non-persistent store, no app launch):
+    `zalo-app://a1b2c3d4e` sees neither the localStorage nor the IndexedDB of `zalo-app://local`, and `local` keeps its
+    own.
   - The `zalo-app` protocol handler routes by **webview label** (`Hosts` is keyed by label), so origins and routing are
     independent.
   - A non-host webview (the UI window) that asks `zalo-app://<host>/…` for renderer assets is served from the runtime
