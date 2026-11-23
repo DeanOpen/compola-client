@@ -55,3 +55,6 @@ export const setMockAccountBoot = (fn: AccountBoot) => {
   accountBoot = fn;
 };
 export const mockAccountBoot: AccountBoot = (user, ids) => accountBoot?.(user, ids);
+
+/** Returned by a mock command that only handles some calls: the built-in mock answers this one. */
+export const mockPass = Symbol('mockPass');

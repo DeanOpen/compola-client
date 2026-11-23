@@ -1,29 +1,46 @@
-// Settings ▸ Tài khoản ▸ "Tài khoản Zalo trên Compola" (ElevenLabs' workspaces list): every account with its number and
-// unread count, "Đang dùng" / "Chuyển", ↑ ↓ to reorder (the rail and ⌃1–5 follow), Đăng xuất, Xóa khỏi Compola, and a
-// quiet "Thêm tài khoản" row at the end.
+// Settings ▸ Tài khoản ▸ "Tài khoản Zalo trên Compola" (ElevenLabs' workspaces list): every account with its state and
+// unread count, "Đang dùng" / "Chuyển", a local name (account_rename), on / off (account_set_enabled: an account that is
+// off keeps its data but neither receives nor notifies), ↑ ↓ to reorder (the rail and ⌃1–5 follow), Đăng xuất, Xóa
+// khỏi Compola (the main account is only signed out), and a quiet "Thêm tài khoản Zalo" row at the end.
 
-import { ArrowDown, ArrowUp, LogOut, Plus, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, LogOut, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import {
+  accountTitle,
   beginAddAccount,
   canAddAccount,
-  maxAccounts,
+  defaultAccountId,
   removeAccount,
+  renameAccount,
   reorderAccounts,
+  setAccountEnabled,
   signOutAccount,
   switchAccount,
   useAccounts,
   type AccountInfo,
 } from '../../engine/accounts';
 import { Avatar } from '../../ui/Avatar';
-import { Alert } from '../../ui/Overlays';
+import { Alert, Sheet, SheetHeader } from '../../ui/Overlays';
 import './accounts.css';
+
+const stateText = (a: AccountInfo) =>
+  a.phase === 'disabled'
+    ? 'Đã tắt'
+    : a.phase === 'login'
+      ? 'Chưa đăng nhập'
+      : a.phase === 'ready'
+        ? a.badge
+          ? `${a.badge} chưa đọc`
+          : 'Đang hoạt động'
+        : 'Đang khởi động…';
 
 export function AccountsSettings() {
   const accounts = useAccounts(useShallow((s) => s.accounts));
   const activeId = useAccounts((s) => s.activeId);
+  const max = useAccounts((s) => s.maxAccounts);
   const [removing, setRemoving] = useState<AccountInfo | null>(null);
+  const [renaming, setRenaming] = useState<AccountInfo | null>(null);
   if (!accounts.length) return null;
   const move = (i: number, d: -1 | 1) => {
     const ids = accounts.map((a) => a.id);
@@ -37,47 +54,63 @@ export function AccountsSettings() {
         {accounts.map((a, i) => {
           const active = a.id === activeId;
           return (
-            <div key={a.id} className="accounts-row">
-              <Avatar url={a.avatar} name={a.name || '?'} size={36} />
+            <div key={a.id} className={`accounts-row ${a.phase === 'disabled' ? 'is-off' : ''}`}>
+              <Avatar url={a.avatar} name={accountTitle(a)} size={36} />
               <div className="accounts-text">
                 <div className="accounts-name truncate">
-                  {a.name || 'Tài khoản Zalo'}
+                  {accountTitle(a)}
                   {i < 5 && <span className="accounts-key">⌃{i + 1}</span>}
                 </div>
-                <div className="accounts-sub truncate">
-                  {a.state === 'signedOut' ? 'Đã đăng xuất' : a.state === 'signingIn' ? 'Đang đăng nhập…' : [a.phone, !active && a.unread ? `${a.unread} chưa đọc` : ''].filter(Boolean).join(' · ')}
-                </div>
+                <div className="accounts-sub truncate">{stateText(a)}</div>
               </div>
+              <button className="icon-button accounts-icon" title="Đặt tên gợi nhớ" aria-label="Đặt tên gợi nhớ" onClick={() => setRenaming(a)}>
+                <Pencil size={13} />
+              </button>
               <button className="icon-button accounts-icon" disabled={i === 0} title="Lên" aria-label="Lên" onClick={() => move(i, -1)}>
                 <ArrowUp size={14} />
               </button>
               <button className="icon-button accounts-icon" disabled={i === accounts.length - 1} title="Xuống" aria-label="Xuống" onClick={() => move(i, 1)}>
                 <ArrowDown size={14} />
               </button>
+              <input
+                type="checkbox"
+                className="app-switch"
+                checked={a.enabled}
+                disabled={active}
+                title={active ? 'Không thể tắt tài khoản đang dùng' : a.enabled ? 'Tắt: giữ dữ liệu nhưng không nhận tin nhắn, không thông báo' : 'Bật tài khoản'}
+                aria-label={`Bật ${accountTitle(a)}`}
+                onChange={(e) => setAccountEnabled(a.id, e.target.checked)}
+              />
               {active ? (
                 <span className="accounts-current">Đang dùng</span>
               ) : (
-                <button className="st-button" disabled={a.state !== 'signedIn'} onClick={() => switchAccount(a.id)}>
+                <button className="st-button" disabled={a.phase === 'disabled'} onClick={() => switchAccount(a.id)}>
                   Chuyển
                 </button>
               )}
-              <button className="icon-button accounts-icon" disabled={a.state !== 'signedIn'} title="Đăng xuất" aria-label="Đăng xuất" onClick={() => signOutAccount(a.id)}>
+              <button className="icon-button accounts-icon" disabled={a.phase !== 'ready'} title="Đăng xuất" aria-label="Đăng xuất" onClick={() => signOutAccount(a.id)}>
                 <LogOut size={14} />
               </button>
-              <button className="icon-button accounts-icon is-danger" disabled={active} title={active ? 'Chuyển sang tài khoản khác để xóa' : 'Xóa khỏi Compola'} aria-label="Xóa khỏi Compola" onClick={() => setRemoving(a)}>
+              <button
+                className="icon-button accounts-icon is-danger"
+                disabled={active || a.id === defaultAccountId}
+                title={a.id === defaultAccountId ? 'Tài khoản chính chỉ có thể đăng xuất' : active ? 'Chuyển sang tài khoản khác để xóa' : 'Xóa khỏi Compola'}
+                aria-label="Xóa khỏi Compola"
+                onClick={() => setRemoving(a)}
+              >
                 <Trash2 size={14} />
               </button>
             </div>
           );
         })}
         <button className="accounts-add" disabled={!canAddAccount()} onClick={() => void beginAddAccount()}>
-          <Plus size={15} /> {canAddAccount() ? 'Thêm tài khoản Zalo' : `Đã đủ ${maxAccounts} tài khoản`}
-          <span className="accounts-key">⌘⇧N</span>
+          <Plus size={15} /> {canAddAccount() ? 'Thêm tài khoản Zalo' : `Đã đủ ${max} tài khoản`}
+          <span className="accounts-key">⇧⌘N</span>
         </button>
       </div>
       {removing && (
         <Alert
-          title={`Xóa ${removing.name || 'tài khoản này'} khỏi Compola?`}
+          title={`Xóa ${accountTitle(removing)} khỏi Compola?`}
           message="Tài khoản sẽ được đăng xuất và dữ liệu của nó trên máy này sẽ bị xóa. Bạn có thể thêm lại sau bằng mã QR."
           buttons={[
             { label: 'Hủy', role: 'cancel', onClick: () => setRemoving(null) },
@@ -92,6 +125,42 @@ export function AccountsSettings() {
           ]}
         />
       )}
+      {renaming && <RenameSheet account={renaming} onClose={() => setRenaming(null)} />}
     </div>
+  );
+}
+
+/** A local name for the account (shown instead of the Zalo name in the rail and in notification titles). */
+function RenameSheet({ account, onClose }: { account: AccountInfo; onClose: () => void }) {
+  const [name, setName] = useState(account.name);
+  const save = () => {
+    renameAccount(account.id, name);
+    onClose();
+  };
+  return (
+    <Sheet onClose={onClose} width={380}>
+      <SheetHeader title="Đặt tên gợi nhớ" onClose={onClose} />
+      <div className="accounts-rename">
+        <input
+          className="text-field"
+          value={name}
+          maxLength={40}
+          autoFocus
+          placeholder="Ví dụ: Bán hàng 1"
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && save()}
+        />
+        <div className="accounts-sub">Chỉ hiện trên Compola: thanh tài khoản và tiêu đề thông báo. Để trống để dùng tên Zalo.</div>
+      </div>
+      <div className="sheet-footer">
+        <span />
+        <button className="btn btn-glass" onClick={onClose}>
+          Hủy
+        </button>
+        <button className="btn btn-prominent" onClick={save}>
+          Lưu
+        </button>
+      </div>
+    </Sheet>
   );
 }
