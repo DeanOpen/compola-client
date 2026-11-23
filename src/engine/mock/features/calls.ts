@@ -1,6 +1,7 @@
 // Mock of call-adapter.js (`__zaloCall`) and the native helper events (`compola://call-event`).
 // Scenarios: `&incomingCall=1` (1-1) / `&incomingCall=group`, `&callPicker=1` (group participant picker),
-// `&callHelper=missing` (helper unavailable), `&callUnsupported=1` (account without calls).
+// `&callHelper=missing` (helper unavailable), `&callUnsupported=1` (account without calls), `&callActive=1` (a call in
+// progress), `&callNotice=1` (the "Chưa gọi được" dialog).
 
 import { useEngine } from '../../store';
 import { conversations, groupMembers } from '../mockData';
@@ -123,6 +124,11 @@ onMockBoot(({ emit, post, params }) => {
         }),
       1200,
     );
+  }
+  if (params.has('callActive')) setTimeout(runCall, 900);
+  if (params.has('callNotice')) {
+    // What `start` answers for a friend Zalo refuses to call (`result: 'unavailable'`).
+    setTimeout(() => post({ call: { kind: 'result', seq: 1, video: false, result: 'unavailable', group: false } }), 1000);
   }
   if (params.has('callPicker')) setTimeout(() => showPicker(params.get('callPicker') === 'k15' ? 'g-k15' : 'g-team', true, params.get('callPicker') === 'add'), 1200);
 });

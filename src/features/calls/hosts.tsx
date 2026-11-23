@@ -3,7 +3,7 @@
 
 import { useEffect } from 'react';
 import { syncCallsStatus, useCalls } from '../../engine/calls';
-import { CallNoticeAlert, IncomingCallBanner } from './CallViews';
+import { CallNoticeAlert, CallStatusPill, IncomingCallBanner } from './CallViews';
 import { GroupCallPickerSheet } from './GroupCallPickerSheet';
 
 export function CallHosts() {
@@ -19,6 +19,7 @@ export function CallHosts() {
         </div>
       )}
       {picker && <GroupCallPickerSheet key={picker.id} picker={picker} />}
+      <CallStatusPill />
       <CallNoticeAlert />
     </>
   );

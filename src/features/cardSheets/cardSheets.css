@@ -114,3 +114,222 @@
   height: 64px;
   background: transparent;
 }
+
+/* ---- Wave 4 (docs/design-refs/wave4/card-sheets): a person row + privacy callout + labelled field with counter and
+   clear (X nickname, Customer.io rename); a cover band, overlapping avatar, chips and member faces for the group
+   invite (Revolut / Discord invites); a count subtitle and a "click to send" hint for stickers (Telegram / Slack). ---- */
+
+.card-sheet-form {
+  align-items: stretch;
+  gap: 14px;
+}
+
+.card-sheet-person {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.card-sheet-person-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.card-sheet-person-name {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.card-sheet-callout {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  background: var(--zp-selected);
+  color: var(--zp-text);
+  font-size: 12.5px;
+}
+
+.card-sheet-callout svg {
+  flex: none;
+  color: var(--zp-primary);
+}
+
+.card-sheet-form .card-sheet-field {
+  align-items: stretch;
+  gap: 6px;
+}
+
+.card-sheet-label-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.card-sheet-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--zp-text-secondary);
+}
+
+.card-sheet-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.card-sheet-input-wrap .zp-input {
+  padding-right: 34px;
+}
+
+.card-sheet-clear {
+  position: absolute;
+  right: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  color: var(--zp-text-secondary);
+}
+
+.card-sheet-clear:hover {
+  color: var(--zp-text);
+}
+
+.card-sheet-hint {
+  font-size: 12px;
+}
+
+/* Group invite */
+.card-sheet-invite {
+  padding-top: 0;
+  gap: 10px;
+}
+
+.invite-hero {
+  position: relative;
+  align-self: stretch;
+  height: 104px;
+  margin: 0 -16px;
+}
+
+.invite-cover {
+  height: 72px;
+  background: linear-gradient(120deg, color-mix(in srgb, var(--zp-primary) 70%, white), var(--zp-primary));
+}
+
+.invite-avatar {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  transform: translateX(-50%);
+  box-shadow: 0 0 0 3px var(--zp-surface);
+}
+
+.invite-chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.invite-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--zp-subtle);
+  color: var(--zp-text-secondary);
+  font-size: 12px;
+}
+
+.invite-desc {
+  align-self: stretch;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--zp-hover);
+  font-size: 13.5px;
+  line-height: 1.45;
+  text-align: center;
+}
+
+.invite-members {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.invite-members-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 12.5px;
+}
+
+.invite-faces {
+  flex: none;
+  display: inline-flex;
+  padding-left: 6px;
+}
+
+.invite-face {
+  margin-left: -6px;
+  box-shadow: 0 0 0 2px var(--zp-surface);
+}
+
+.card-sheet-invite .card-sheet-members {
+  max-height: 150px;
+}
+
+.invite-role {
+  flex: none;
+  margin-left: auto;
+  padding: 1px 7px;
+  border-radius: 4px;
+  background: var(--zp-selected);
+  color: var(--zp-primary);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* Stickers */
+.sticker-sheet-titles {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.sticker-sheet-sub {
+  font-size: 12px;
+  color: var(--zp-text-secondary);
+}
+
+.sticker-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px 0;
+  font-size: 12px;
+  color: var(--zp-text-secondary);
+}
+
+.sticker-cell {
+  transition: transform 0.12s ease, background 0.12s ease;
+}
+
+.sticker-cell:hover:not(:disabled) {
+  transform: scale(1.06);
+}

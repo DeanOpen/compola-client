@@ -365,3 +365,65 @@
 .sm-jump:hover {
   text-decoration: underline;
 }
+
+/* Wave 4: search + "Người gửi" (Obvious files panel, Zalo's sender filter) */
+.sm-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  padding: 10px 16px 4px;
+}
+
+.sm-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: 6px;
+  background: var(--sm-subtle);
+  color: var(--text-secondary);
+}
+
+.sm-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.sm-search-clear {
+  display: inline-flex;
+  color: var(--text-secondary);
+}
+
+.sm-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  max-width: 130px;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text);
+  background: var(--sm-subtle);
+}
+
+.sm-chip.is-on {
+  color: var(--sm-primary);
+  background: var(--selected, #e5f1ff);
+}
+
+.sm-chip:disabled {
+  opacity: 0.5;
+}

@@ -182,3 +182,296 @@
   background: rgba(245, 166, 35, 0.16);
   color: var(--cx-warning);
 }
+
+/* Stepper under the title bar (PandaDoc / Podia) */
+.transfer-stepper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin: 0;
+  padding: 12px 20px;
+  list-style: none;
+  border-bottom: 1px solid var(--cx-border-subtle, var(--cx-border));
+}
+
+.transfer-step {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--cx-text-secondary);
+}
+
+.transfer-step + .transfer-step::before {
+  content: '';
+  flex: none;
+  width: 24px;
+  height: 1px;
+  margin-right: 2px;
+  background: var(--cx-border);
+}
+
+.transfer-step-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--cx-subtle);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.transfer-step-title {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.transfer-step.is-active {
+  color: var(--cx-text);
+  font-weight: 600;
+}
+
+.transfer-step.is-active .transfer-step-dot {
+  background: var(--cx-primary);
+  color: #fff;
+}
+
+.transfer-step.is-done .transfer-step-dot {
+  background: var(--cx-selected);
+  color: var(--cx-primary);
+}
+
+/* Offer bullets / tips */
+.transfer-bullets,
+.transfer-tips {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  margin-top: 6px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: var(--cx-subtle);
+  text-align: left;
+}
+
+.transfer-tips-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--cx-text-secondary);
+}
+
+.transfer-bullet {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13.5px;
+}
+
+.transfer-bullet-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--cx-selected);
+  color: var(--cx-primary);
+}
+
+/* Waiting: numbered steps */
+.transfer-howto {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  margin: 4px 0 0;
+  padding: 12px 14px 12px 36px;
+  border-radius: 8px;
+  background: var(--cx-subtle);
+  text-align: left;
+  font-size: 13.5px;
+}
+
+.transfer-howto li::marker {
+  color: var(--cx-primary);
+  font-weight: 600;
+}
+
+/* Transferring: linear progress + stage list */
+.transfer-progress {
+  width: 100%;
+  margin-top: 4px;
+  text-align: left;
+}
+
+.transfer-progress-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.transfer-progress-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.transfer-progress-pct {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--cx-primary);
+}
+
+.transfer-bar {
+  position: relative;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--cx-subtle);
+  overflow: hidden;
+}
+
+.transfer-bar span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: inherit;
+  background: var(--cx-primary);
+  transition: width 0.6s ease;
+}
+
+@keyframes transfer-indeterminate {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(260%);
+  }
+}
+
+.transfer-bar.is-indeterminate span {
+  width: 38%;
+  animation: transfer-indeterminate 1.3s ease-in-out infinite;
+}
+
+.transfer-progress-count {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--cx-text-secondary);
+}
+
+.transfer-stages {
+  width: 100%;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  border-radius: 8px;
+  box-shadow: 0 0 0 1px var(--cx-border-subtle, var(--cx-border));
+  text-align: left;
+}
+
+.transfer-stage {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+}
+
+.transfer-stage + .transfer-stage {
+  border-top: 1px solid var(--cx-border-subtle, var(--cx-border));
+}
+
+.transfer-stage-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  color: var(--cx-text-secondary);
+}
+
+.transfer-stage.is-done .transfer-stage-mark {
+  background: var(--cx-selected);
+  color: var(--cx-primary);
+}
+
+.transfer-stage.is-active .transfer-stage-mark {
+  color: var(--cx-primary);
+}
+
+.transfer-stage-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1.5px var(--cx-text-secondary);
+  opacity: 0.6;
+}
+
+.transfer-stage-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.transfer-stage-name {
+  font-size: 13.5px;
+}
+
+.transfer-stage:not(.is-done):not(.is-active) .transfer-stage-name {
+  color: var(--cx-text-secondary);
+}
+
+.transfer-stage.is-active .transfer-stage-name {
+  font-weight: 600;
+}
+
+.transfer-stage-detail {
+  font-size: 12px;
+  color: var(--cx-text-secondary);
+}
+
+.transfer-stage-pct {
+  font-size: 12.5px;
+  color: var(--cx-text-secondary);
+}
+
+.transfer-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  margin-top: 4px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--cx-selected);
+  font-size: 12.5px;
+  line-height: 1.45;
+  text-align: left;
+  color: var(--cx-text);
+}
+
+.transfer-note svg {
+  flex: none;
+  margin-top: 1px;
+  color: var(--cx-primary);
+}
+
+.transfer-summary {
+  margin-top: 2px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--cx-selected);
+  color: var(--cx-primary);
+  font-size: 13px;
+  font-weight: 600;
+}
