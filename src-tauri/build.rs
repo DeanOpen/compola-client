@@ -2,6 +2,7 @@ fn main() {
     ensure_fingerprint_helper();
     // The Compola Server admin console is embedded (`include_dir!`): rebuild when `npm run build:admin` changed it.
     println!("cargo:rerun-if-changed=admin-dist");
+    println!("cargo:rerun-if-changed=web-dist");
     tauri_build::build()
 }
 
