@@ -1,0 +1,80 @@
+name: Release
+
+# Push a tag like v0.2.0: builds the universal macOS app (ad-hoc signed), attaches the DMG and a zip of
+# Compola.app to a GitHub Release, and publishes the gateway image (see docker.yml).
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag to (re)build, e.g. v0.2.0
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  macos:
+    name: Compola.app (universal, ad-hoc)
+    runs-on: macos-15
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: fingerprint-helper/go.mod
+          cache-dependency-path: fingerprint-helper/go.sum
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: release-universal
+      - run: npm ci
+
+      - name: Set the version from the tag
+        run: |
+          VERSION="${TAG#v}"
+          node -e '
+            const fs = require("fs");
+            const f = "src-tauri/tauri.conf.json";
+            const c = JSON.parse(fs.readFileSync(f, "utf8"));
+            c.version = process.argv[1];
+            fs.writeFileSync(f, JSON.stringify(c, null, 2) + "\n");
+          ' "$VERSION"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      # Ad-hoc signing ("-", tauri.conf.json bundle.macOS.signingIdentity): no Apple account needed.
+      # Users open it the first time with right-click → Open (or System Settings → Privacy & Security → Open Anyway).
+      - name: Build
+        run: scripts/make-app.sh --universal --dmg
+
+      - name: Package
+        run: |
+          OUT=src-tauri/target/universal-apple-darwin/release/bundle
+          mkdir -p dist-release
+          cp "$OUT"/dmg/*.dmg "dist-release/Compola-$VERSION-universal.dmg"
+          ditto -c -k --keepParent "$OUT/macos/Compola.app" "dist-release/Compola-$VERSION-universal.zip"
+          (cd dist-release && shasum -a 256 * > SHA256SUMS.txt)
+          ls -l dist-release
+
+      - name: Publish the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist-release/* --clobber
+          else
+            gh release create "$TAG" dist-release/* --title "Compola $VERSION" --generate-notes \
+              --notes-start-tag "$(git describe --tags --abbrev=0 "$TAG^" 2>/dev/null || true)" || \
+            gh release create "$TAG" dist-release/* --title "Compola $VERSION" --generate-notes
+          fi

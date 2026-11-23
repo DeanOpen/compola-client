@@ -1,0 +1,9 @@
+apiVersion: v2
+name: compola-gateway
+description: HTTPS gateway for Compola Server. It serves the admin console and web client and proxies the API to the Compola host (a Mac).
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords: [compola, zalo, gateway, caddy]
+sources:
+  - https://github.com/DeanOpen/compola-client

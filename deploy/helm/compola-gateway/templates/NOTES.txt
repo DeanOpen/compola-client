@@ -1,0 +1,14 @@
+Compola gateway → {{ .Values.upstream.url }}
+
+{{- if .Values.ingress.enabled }}
+{{- range .Values.ingress.hosts }}
+  Admin console: http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}/admin/
+  Web client:    http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}/web/
+{{- end }}
+{{- else }}
+  kubectl port-forward svc/{{ include "compola-gateway.fullname" . }} 8080:{{ .Values.service.port }}
+  then open http://localhost:8080/admin/
+{{- end }}
+
+Next: in the admin console, set "Cài đặt máy chủ › Địa chỉ công khai" to this gateway's public URL
+(SSO redirects and device sign-in links are built from it).

@@ -1,0 +1,11 @@
+.git
+node_modules
+dist
+src-tauri/target
+src-tauri/binaries
+src-tauri/admin-dist/*
+!src-tauri/admin-dist/.gitkeep
+src-tauri/web-dist/*
+!src-tauri/web-dist/.gitkeep
+deploy/helm
+**/.DS_Store

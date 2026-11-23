@@ -18,6 +18,8 @@ Rust + Tauri 2 · React 19 · macOS 11+ (Apple silicon and Intel) · port of `za
 - [Testing](#testing)
 - [Building the app](#building-the-app)
 - [Releasing](#releasing)
+- [CI and releases on GitHub](#ci-and-releases-on-github)
+- [Deploying the gateway (Docker, Kubernetes)](#deploying-the-gateway-docker-kubernetes)
 - [Configuration reference](#configuration-reference)
 - [Documentation](#documentation)
 - [Data, privacy and third-party code](#data-privacy-and-third-party-code)
@@ -82,6 +84,8 @@ Rust + Tauri 2 · React 19 · macOS 11+ (Apple silicon and Intel) · port of `za
 | `admin/` | Compola Server admin console (React + Vite), built into `src-tauri/admin-dist/` and embedded in the app |
 | `fingerprint-helper/` | Go TLS-fingerprint sidecar |
 | `scripts/` | `make-app.sh`, `release.sh`, `build-fingerprint-helper.sh` |
+| `deploy/` | Gateway image (`gateway/`), Docker Compose and the Helm chart (`helm/compola-gateway/`) |
+| `.github/workflows/` | CI, the macOS release and the gateway image |
 | `docs/` | Design documents and UI references (see [Documentation](#documentation)) |
 
 ## Getting started
@@ -205,6 +209,41 @@ Notarization credentials, first match wins:
 3. `APPLE_API_KEY`, `APPLE_API_ISSUER` and `APPLE_API_KEY_PATH`
 
 `COMPOLA_VERSION=x.y.z` overrides the version in `tauri.conf.json`. `COMPOLA_SKIP_NOTARIZE=1` only signs the build.
+
+## CI and releases on GitHub
+
+| Workflow | When | What |
+|---|---|---|
+| `ci.yml` | every push to `main` and every pull request | type check, UI + admin console + web client builds, `cargo test --lib` on macOS, Helm lint and a gateway image build |
+| `release.yml` | a `v*` tag (or run it by hand with a tag) | universal `Compola.app`, ad-hoc signed; a GitHub Release with the DMG, a zip of the app and `SHA256SUMS.txt` |
+| `docker.yml` | `main` and `v*` tags | the gateway image for `linux/amd64` + `linux/arm64` on `ghcr.io/<owner>/compola-gateway` |
+
+To cut a release:
+
+```sh
+git tag v0.2.0 && git push origin v0.2.0
+```
+
+The version in `tauri.conf.json` is taken from the tag. Release builds are **ad-hoc signed** (no Apple Developer ID),
+so macOS asks users to confirm the first launch: right-click `Compola.app` › *Open*, or *System Settings › Privacy &
+Security › Open Anyway*. For a signed and notarized build, use `scripts/release.sh` (below) on a Mac with your
+Developer ID.
+
+## Deploying the gateway (Docker, Kubernetes)
+
+Compola Server runs inside the app on a Mac, because it drives the macOS Zalo renderer. The **gateway** is the part that
+runs in Docker or Kubernetes: Caddy with automatic HTTPS. It serves the admin console and the web client from the
+image and proxies the API, WebSocket, media and uploads to the Mac.
+
+```sh
+cp deploy/.env.example deploy/.env       # COMPOLA_UPSTREAM=http://<mac-ip>:39218, SITE_ADDRESS=compola.example.com
+docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d
+
+helm install compola deploy/helm/compola-gateway --set upstream.url=http://<mac-ip>:39218 --set ingress.enabled=true
+```
+
+Details, including TLS, ingress, image tags and the host's public-address setting, are in
+[`deploy/README.md`](deploy/README.md).
 
 ## Configuration reference
 
