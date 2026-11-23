@@ -1,5 +1,6 @@
 // Native chat pane for one conversation (Swift `ChatView`): header in the toolbar, pinned bar, message list, composer.
 
+import { ReminderDetailHost } from './cards/ReminderCard';
 import { BellOff, MessageSquareDashed, PanelRight, Search, Upload, UserPlus, type LucideIcon } from 'lucide-react';
 import { CallButtons } from '../calls/CallButtons';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -223,6 +224,7 @@ export function ChatView({ conversation }: { conversation: ConversationSummary }
         />
       )}
       <MessageActionPresenter conversationId={id} />
+      <ReminderDetailHost conversationId={id} />
       {notice && (
         <Alert
           title="Chưa gửi được tin nhắn"

@@ -242,8 +242,8 @@ export function TypingStickerStrip({
   dismiss: () => void;
 }) {
   return (
-    <div className="sticker-strip slide-up" role="group" aria-label="Gợi ý Sticker">
-      <div className="sticker-strip-list">
+    <div className="typing-stickers slide-up" role="group" aria-label="Gợi ý Sticker">
+      <div className="typing-stickers-list">
         {stickers.map((s, i) => (
           <button
             key={s.key}

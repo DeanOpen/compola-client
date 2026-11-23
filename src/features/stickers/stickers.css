@@ -137,7 +137,7 @@
 }
 
 /* Typing suggestions: a row above the input */
-.sticker-strip {
+.typing-stickers {
   display: flex;
   align-items: center;
   height: 70px;
@@ -147,7 +147,7 @@
   box-shadow: var(--glass-shadow);
 }
 
-.sticker-strip-list {
+.typing-stickers-list {
   display: flex;
   gap: 6px;
   flex: 1;
@@ -157,7 +157,7 @@
   scrollbar-width: none;
 }
 
-.sticker-strip > .icon-button {
+.typing-stickers > .icon-button {
   margin: 0 8px;
   width: 24px;
   height: 24px;

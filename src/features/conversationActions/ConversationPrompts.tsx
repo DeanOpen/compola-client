@@ -9,6 +9,7 @@ import {
   confirmDeleteConversation,
   hideConversation,
   hideConversationWithNewPIN,
+  isConversationLocked,
   isHiddenConversation,
   pinBoard,
   pinReplacing,
@@ -74,9 +75,10 @@ export function ConversationPrompts({ onUnlocked }: { onUnlocked: (id: string) =
   );
 }
 
-const nameOf = (id: string) => {
+/** A hidden chat's name stays hidden unless it is the one unlocked with the PIN (`revealUnlocked`). */
+const nameOf = (id: string, revealUnlocked = false) => {
   const s = getEngine();
-  if (isHiddenConversation(s, id)) return 'Trò chuyện ẩn';
+  if (isHiddenConversation(s, id) && !(revealUnlocked && !isConversationLocked(id))) return 'Trò chuyện ẩn';
   if (id === s.selfConversationId) return selfConversationTitle;
   const c = s.conversations.find((x) => x.id === id);
   return c ? displayName(c) : id.startsWith('g') ? 'Nhóm' : 'Người dùng Zalo';
@@ -183,7 +185,7 @@ export function HiddenChatSheet({
   const [busy, setBusy] = useState(false);
   const [resetToken, setResetToken] = useState(0);
   const id = conversationOf(flow);
-  const name = id ? nameOf(id) : '';
+  const name = id ? nameOf(id, true) : '';
 
   const finish = (r: ActionResult) => {
     if (onResult) onResult(r);

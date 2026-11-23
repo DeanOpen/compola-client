@@ -1,8 +1,8 @@
 // Native renderings of the PC app's rich message types (Swift MessageCards.swift + the button rows of CardActions.swift).
 // Everything shown comes from the official message object; buttons run the official handlers (`performAction`).
 
+import { ReminderCardView } from './ReminderCard';
 import {
-  AlarmClock,
   ArrowDownCircle,
   BarChart3,
   File as FileIcon,
@@ -207,29 +207,12 @@ export function LocationCard({ info }: { info: LocationInfo }) {
 
 // MARK: - E-card (standalone)
 
-const reminderFormat = new Intl.DateTimeFormat('vi-VN', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-
 export function ECardView({ card, message }: { card: ECard; message: ChatMessage }) {
   const buttons = message.cardButtons;
   const backdrop = card.image ? <RemoteImage url={card.image} className="fill" placeholder={<span className="ecard-gradient fill" />} /> : <span className="ecard-gradient fill" />;
 
-  if (card.style === 'reminder') {
-    // The live reminder controller (RSVP, responders) is a later wave: the static official card.
-    return (
-      <div className="ecard-wrap">
-        <div className="reminder-card card-chrome">
-          <div className="reminder-head">
-            <AlarmClock size={16} className="tint" />
-            <span>Nhắc hẹn</span>
-          </div>
-          <div className="reminder-title">{card.reminderTitle || card.title || 'Nhắc hẹn'}</div>
-          {card.reminderStart && <div className="reminder-when">{reminderFormat.format(card.reminderStart)}</div>}
-          {card.reminderRepeat && <div className="reminder-when">{card.reminderRepeat}</div>}
-          <CardButtonBar buttons={buttons} message={message} width={280} />
-        </div>
-      </div>
-    );
-  }
+  // Live: the official reminder controller decides the variant (ReminderCard.tsx).
+  if (card.style === 'reminder') return <ReminderCardView card={card} message={message} />;
 
   if (card.style === 'friend' || card.style === 'birthday') {
     const framed = message.suggestsStickers || buttons.length > 0;
