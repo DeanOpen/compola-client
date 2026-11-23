@@ -4,7 +4,7 @@
 // thumbnails (opens Kho lưu trữ), setting rows with switches, and the red rows at the bottom.
 
 import { GroupMembersSection } from '../groupMembers/GroupMembersSection';
-import { Ban, BarChart3, Bell, BellOff, PinOff, ChevronDown, ChevronRight, EyeOff, Info, Pencil, Pin, Settings, Tag, Timer, Trash2, UserPlus, UsersRound, LogOut, type LucideIcon } from 'lucide-react';
+import { Activity, AtSign, UserRound, Ban, BarChart3, Bell, BellOff, PinOff, ChevronDown, ChevronRight, EyeOff, Info, Pencil, Pin, Settings, Tag, Timer, Trash2, UserPlus, UsersRound, LogOut, type LucideIcon } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { setConversationLabel } from '../../engine/conversations';
@@ -20,7 +20,10 @@ import { browseSharedMedia, feedOf, isPending, mergedAll, previewList, refreshSh
 import { PhotoView, VideoThumb } from '../chat/cards/Media';
 import { Spinner } from '../../ui/Spinner';
 import { Alert } from '../../ui/Overlays';
-import { blockContact } from '../../engine/contacts';
+import { blockContact, useContacts } from '../../engine/contacts';
+import { muteFor, muteUntil, useNotifications } from '../../engine/notifications';
+import { lastSeenText } from '../../engine/groupMembers';
+import { openContactProfile } from '../contacts/hosts';
 import { showToast } from '../../engine/toast';
 import { muteMenuWithUndo } from '../conversationActions/menu';
 import { menuPlan, pinConversation, requestDeleteConversation, setConversationPrompt, unpinConversation } from '../../engine/conversationActions';
@@ -59,6 +62,11 @@ function ChatInspector({ conversation }: { conversation: ConversationSummary }) 
   const plan = useMemo(() => menuPlan(id, 'chatBox', useEngine.getState()), [id, actionsState]);
   const threadPlan = useMemo(() => menuPlan(id, 'thread', useEngine.getState()), [id, actionsState]);
   const muted = useEngine((s) => s.mutedIds.has(id));
+  const mute = useNotifications((s) => muteFor(s, id));
+  const muteText = !muted || !mute ? null : (() => {
+    const until = muteUntil(mute);
+    return until === null ? 'Cho đến khi được mở lại' : `Đến ${muteUntilText(until)}`;
+  })();
   const subtitle = id === selfId ? 'Chỉ mình bạn thấy' : conversation.isGroup ? (conversation.members > 0 ? `${conversation.members} thành viên` : 'Nhóm') : null;
 
   return (
@@ -74,6 +82,8 @@ function ChatInspector({ conversation }: { conversation: ConversationSummary }) 
         {subtitle && <div className="inspector-sub">{subtitle}</div>}
         <InspectorActions conversationId={id} isGroup={conversation.isGroup} />
       </div>
+
+      {!conversation.isGroup && id !== selfId && <PersonInfo conversationId={id} />}
 
       {conversation.isGroup && (
         <>
@@ -100,7 +110,7 @@ function ChatInspector({ conversation }: { conversation: ConversationSummary }) 
           <ToggleRow
             icon={<BellOff size={15} />}
             title="Tắt thông báo"
-            subtitle={muted ? 'Đang tắt' : undefined}
+            subtitle={muteText ?? undefined}
             on={muted}
             onToggle={(el) => {
               const item = muteMenuWithUndo(id);
@@ -410,5 +420,28 @@ function BlockRow({ conversationId, name }: { conversationId: string; name: stri
         />
       )}
     </>
+  );
+}
+
+/** "18:16" today, "08:00, 24/11" on another day. */
+const muteUntilText = (ms: number) => {
+  const d = new Date(ms);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const hm = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return d.toDateString() === new Date().toDateString() ? hm : `${hm}, ${pad(d.getDate())}/${pad(d.getMonth() + 1)}`;
+};
+
+/** Who this is (Telegram "User info"): Zalo name, activity, and the profile. Only what the friend list knows. */
+function PersonInfo({ conversationId }: { conversationId: string }) {
+  const friend = useContacts((s) => s.friends.find((f) => f.id === conversationId) ?? null);
+  const activity = friend ? lastSeenText({ id: friend.id, name: friend.name, avatar: friend.avatar, role: 'member', isMe: false, lastActive: friend.lastActive, online: friend.online, canRemove: false }) : null;
+  return (
+    <section className="inspector-block">
+      <div className="inspector-list">
+        {friend?.zaloName && friend.zaloName !== friend.name && <Row icon={<AtSign size={15} />} title={friend.zaloName} subtitle="Tên Zalo" />}
+        {activity && <Row icon={<Activity size={15} />} title={activity} subtitle="Hoạt động" />}
+        <Row icon={<UserRound size={15} />} title="Xem trang cá nhân" onClick={() => openContactProfile(conversationId)} />
+      </div>
+    </section>
   );
 }
