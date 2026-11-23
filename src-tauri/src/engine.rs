@@ -264,6 +264,12 @@ impl Engine {
         }
         if let Some(qr) = state.get("qr").and_then(Value::as_str).filter(|q| q.starts_with("data:")) {
             log::info!("login: QR received ({} bytes, event {:?})", qr.len(), state.get("event").and_then(Value::as_str));
+            // Development hook (Swift: COMPOLA_QR_OUT): write the QR PNG to a file to scan it without the UI.
+            if let Ok(path) = std::env::var("COMPOLA_QR_OUT") {
+                if let Some(b64) = qr.split_once("base64,").map(|(_, d)| d) {
+                    let _ = std::fs::write(&path, crate::values::unb64(b64));
+                }
+            }
             login.qr = Some(qr.to_owned());
             match state.get("event").and_then(Value::as_str) {
                 Some("qr") => {
