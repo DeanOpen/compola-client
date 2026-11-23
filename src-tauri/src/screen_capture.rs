@@ -121,11 +121,46 @@ fn capture(app: &AppHandle) -> Arc<ScreenCapture> {
         app.manage(Arc::new(ScreenCapture {
             app: app.clone(),
             executable: helper_executable(&crate::runtime::candidate()),
-            log_dir: crate::platform::app_support().join("logs/capture"),
+            log_dir: log_dir(),
             state: Mutex::new(State::default()),
         }));
     }
     app.state::<Arc<ScreenCapture>>().inner().clone()
+}
+
+fn log_dir() -> PathBuf {
+    crate::platform::app_support().join("logs/capture")
+}
+
+/// `ZaloCap zalo2017 <our log dir>` processes whose parent is gone (adopted by launchd): left by a previous run.
+#[cfg(target_os = "macos")]
+pub fn reap_orphans() -> Vec<i32> {
+    use crate::calls::helper;
+    let ours = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    let configured = ours(&helper_executable(&crate::runtime::candidate()));
+    let runtime = ours(&crate::runtime::root());
+    let log_dir = log_dir().to_string_lossy().into_owned();
+    let uid = unsafe { libc::getuid() };
+    let mut reaped = Vec::new();
+    for pid in helper::all_pids() {
+        let Some(path) = helper::pid_path(pid).map(|p| ours(&p)) else { continue };
+        let is_cap = path.file_name().is_some_and(|n| n == "ZaloCap") && (path == configured || path.starts_with(&runtime));
+        if !is_cap || helper::owner_uid(pid) != Some(uid) || helper::parent_pid(pid) != Some(1) {
+            continue;
+        }
+        if helper::arguments(pid).is_some_and(|a| a.len() >= 3 && a[1] == "zalo2017" && a[2] == log_dir) {
+            log::info!("capture: reaping orphaned tool {pid}");
+            unsafe { libc::kill(pid, libc::SIGTERM) };
+            reaped.push(pid);
+        }
+    }
+    helper::kill_later(reaped.clone());
+    reaped
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn reap_orphans() -> Vec<i32> {
+    Vec::new()
 }
 
 /// App exit: the tool does not outlive the app.
@@ -210,6 +245,8 @@ impl ScreenCapture {
             .stderr(Stdio::null())
             .spawn()
             .map_err(|e| e.to_string())?;
+        // Kept running between captures: it must not outlive us.
+        let watchdog = crate::calls::helper::Watchdog::spawn(child.id());
         let generation = {
             let mut st = self.state.lock();
             st.generation += 1;
@@ -231,6 +268,9 @@ impl ScreenCapture {
                 }
             }
             let status = child.wait().map(|s| s.code().unwrap_or(-1)).unwrap_or(-1);
+            if let Some(w) = watchdog {
+                w.disarm();
+            }
             {
                 let mut st = this.state.lock();
                 if st.generation != generation {

@@ -45,7 +45,8 @@ pub fn verify_signature(_executable: &Path, _requirement: &str) -> Result<(), St
 /// Helpers left behind by an Compola that crashed or was force-quit: identified by their argv, which points into one of
 /// our `compola-call-<pid>-…` / `szc-<pid>-…` socket directories whose owner pid is dead. Other ZaloCall processes (for
 /// example the official Zalo's, which uses `/tmp/socketzalorecv2021`) never match.
-pub const DIRECTORY_PREFIXES: &[&str] = &["compola-call-", "swiftzalo-call-", "szc-"];
+/// `compola-call-` is the name builds before the rename used: their orphans are ours too.
+pub const DIRECTORY_PREFIXES: &[&str] = &["compola-call-", "compola-call-", "swiftzalo-call-", "szc-"];
 
 /// The pid encoded in a socket directory name (`compola-call-<pid>-XXXXXX`, legacy `…-<pid>`).
 pub fn owner_pid(directory_name: &str) -> Option<i32> {
@@ -71,10 +72,20 @@ pub fn stale_owner(argv: &[String]) -> Option<i32> {
     (owner != std::process::id() as i32 && is_dead(owner)).then_some(owner)
 }
 
-/// Terminates our orphaned helpers; returns their pids.
+/// Whether `path` is a `ZaloCall` we run: the configured helper, or any `ZaloCall` inside our runtime folder (a
+/// previous runtime version, or the `COMPOLA_ZALO_APP` copy) — never the official Zalo's own.
+fn is_our_helper(path: &Path, helper: &Path) -> bool {
+    let canonical = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    let path = canonical(path);
+    path.file_name().is_some_and(|n| n == "ZaloCall")
+        && (path == canonical(helper) || path.starts_with(canonical(&crate::runtime::root())))
+}
+
+/// Terminates our orphaned helpers (a crash, a force quit, a `tauri dev` restart: no `RunEvent::Exit`); returns their
+/// pids. A helper is ours when its executable is ours ([`is_our_helper`]), it runs as this user, and its argv points
+/// into one of our socket directories whose owner is dead ([`stale_owner`]).
 #[cfg(target_os = "macos")]
 pub fn reap_orphans(helper_executable: &Path) -> Vec<i32> {
-    let helper = std::fs::canonicalize(helper_executable).unwrap_or_else(|_| helper_executable.to_path_buf());
     let me = std::process::id() as i32;
     let uid = unsafe { libc::getuid() };
     let mut reaped = Vec::new();
@@ -83,26 +94,33 @@ pub fn reap_orphans(helper_executable: &Path) -> Vec<i32> {
             continue;
         }
         let Some(path) = pid_path(pid) else { continue };
-        if std::fs::canonicalize(&path).unwrap_or(path) != helper || owner_uid(pid) != Some(uid) {
+        if !is_our_helper(&path, helper_executable) || owner_uid(pid) != Some(uid) {
             continue;
         }
         if arguments(pid).is_some_and(|argv| stale_owner(&argv).is_some()) {
+            log::info!("call: reaping orphaned helper {pid}");
             unsafe { libc::kill(pid, libc::SIGTERM) };
             reaped.push(pid);
         }
     }
-    if !reaped.is_empty() {
-        let pids = reaped.clone();
-        std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_secs(2));
-            for pid in pids {
-                if unsafe { libc::kill(pid, 0) } == 0 {
-                    unsafe { libc::kill(pid, libc::SIGKILL) };
-                }
-            }
-        });
-    }
+    kill_later(reaped.clone());
     reaped
+}
+
+/// SIGKILL for whatever ignored the SIGTERM, two seconds later.
+#[cfg(target_os = "macos")]
+pub(crate) fn kill_later(pids: Vec<i32>) {
+    if pids.is_empty() {
+        return;
+    }
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_secs(2));
+        for pid in pids {
+            if unsafe { libc::kill(pid, 0) } == 0 {
+                unsafe { libc::kill(pid, libc::SIGKILL) };
+            }
+        }
+    });
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -111,7 +129,7 @@ pub fn reap_orphans(_helper_executable: &Path) -> Vec<i32> {
 }
 
 #[cfg(target_os = "macos")]
-fn all_pids() -> Vec<i32> {
+pub(crate) fn all_pids() -> Vec<i32> {
     let count = unsafe { libc::proc_listallpids(std::ptr::null_mut(), 0) };
     if count <= 0 {
         return Vec::new();
@@ -124,18 +142,29 @@ fn all_pids() -> Vec<i32> {
 }
 
 #[cfg(target_os = "macos")]
-fn pid_path(pid: i32) -> Option<PathBuf> {
+pub(crate) fn pid_path(pid: i32) -> Option<PathBuf> {
     let mut buf = vec![0u8; 4 * libc::PATH_MAX as usize];
     let n = unsafe { libc::proc_pidpath(pid, buf.as_mut_ptr().cast(), buf.len() as u32) };
     (n > 0).then(|| PathBuf::from(String::from_utf8_lossy(&buf[..n as usize]).into_owned()))
 }
 
 #[cfg(target_os = "macos")]
-fn owner_uid(pid: i32) -> Option<u32> {
+fn bsd_info(pid: i32) -> Option<libc::proc_bsdinfo> {
     let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
     let size = std::mem::size_of::<libc::proc_bsdinfo>() as i32;
     let n = unsafe { libc::proc_pidinfo(pid, libc::PROC_PIDTBSDINFO, 0, (&mut info as *mut libc::proc_bsdinfo).cast(), size) };
-    (n == size).then_some(info.pbi_uid)
+    (n == size).then_some(info)
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn owner_uid(pid: i32) -> Option<u32> {
+    bsd_info(pid).map(|i| i.pbi_uid)
+}
+
+/// The parent pid (1 once the parent died and launchd adopted the process).
+#[cfg(target_os = "macos")]
+pub(crate) fn parent_pid(pid: i32) -> Option<u32> {
+    bsd_info(pid).map(|i| i.pbi_ppid)
 }
 
 /// `KERN_PROCARGS2`: argv of a process of this user (including argv[0]).
@@ -222,6 +251,57 @@ pub fn make_socket_directory(base: &Path) -> Result<PathBuf, String> {
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
+// Parent-death watchdog
+// ---------------------------------------------------------------------------------------------------------------------
+
+/// Kills a helper when this process dies, however it dies (SIGKILL included): a tiny `/bin/sh` blocked reading a pipe
+/// whose only write end is ours (close-on-exec, so no other child inherits it). When we die the kernel closes it, the
+/// read sees EOF, and the shell sends SIGTERM, then SIGKILL after two seconds. macOS has no `PR_SET_PDEATHSIG`, and a
+/// thread of ours cannot outlive us. The watchdog runs in its own process group so a group kill of the app cannot
+/// take it without the helper.
+pub struct Watchdog {
+    child: Option<std::process::Child>,
+}
+
+const WATCHDOG_SCRIPT: &str = r#"read -r _ ; kill -TERM "$1" 2>/dev/null; i=0; while kill -0 "$1" 2>/dev/null && [ $i -lt 20 ]; do sleep 0.1; i=$((i+1)); done; kill -KILL "$1" 2>/dev/null"#;
+
+impl Watchdog {
+    pub fn spawn(target: u32) -> Option<Self> {
+        use std::os::unix::process::CommandExt;
+        let child = Command::new("/bin/sh")
+            .args(["-c", WATCHDOG_SCRIPT, "compola-helper-watchdog", &target.to_string()])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .process_group(0)
+            .spawn()
+            .inspect_err(|e| log::warn!("helper watchdog not started: {e}"))
+            .ok()?;
+        Some(Self { child: Some(child) })
+    }
+
+    /// The target ended on its own (or was stopped by us): stop watching without touching its pid again.
+    pub fn disarm(mut self) {
+        if let Some(mut c) = self.child.take() {
+            let _ = c.kill();
+            let _ = c.wait();
+        }
+    }
+}
+
+impl Drop for Watchdog {
+    /// Dropping without [`Watchdog::disarm`] fires it (what our death does).
+    fn drop(&mut self) {
+        if let Some(mut c) = self.child.take() {
+            drop(c.stdin.take());
+            std::thread::spawn(move || {
+                let _ = c.wait();
+            });
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
 // Production process
 // ---------------------------------------------------------------------------------------------------------------------
 
@@ -242,6 +322,8 @@ impl SystemCallProcess {
             .spawn()
             .map_err(|e| e.to_string())?;
         let pid = child.id() as i32;
+        // The helper must not outlive us (it does not exit when its sockets close).
+        let watchdog = Watchdog::spawn(child.id());
         let running = Arc::new(AtomicBool::new(true));
         let mut stderr = child.stderr.take();
         let flag = running.clone();
@@ -260,6 +342,9 @@ impl SystemCallProcess {
                 total
             });
             let status = child.wait();
+            if let Some(w) = watchdog {
+                w.disarm();
+            }
             flag.store(false, Ordering::SeqCst);
             let code = match status {
                 Ok(s) => {
@@ -349,6 +434,44 @@ mod tests {
         assert!(mine.exists());
         assert!(other.exists());
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    fn alive(pid: u32) -> bool {
+        unsafe { libc::kill(pid as i32, 0) == 0 }
+    }
+
+    #[test]
+    fn watchdog_kills_the_helper_when_its_parent_goes() {
+        // Our death closes the pipe; dropping the armed watchdog does exactly that.
+        let mut helper = Command::new("/bin/sleep").arg("60").spawn().unwrap();
+        let watchdog = Watchdog::spawn(helper.id()).unwrap();
+        std::thread::sleep(Duration::from_millis(100));
+        assert!(alive(helper.id()));
+        drop(watchdog);
+        let status = helper.wait().unwrap();
+        use std::os::unix::process::ExitStatusExt;
+        assert_eq!(status.signal(), Some(libc::SIGTERM));
+    }
+
+    #[test]
+    fn disarmed_watchdog_leaves_the_helper_alone() {
+        let mut helper = Command::new("/bin/sleep").arg("60").spawn().unwrap();
+        Watchdog::spawn(helper.id()).unwrap().disarm();
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(alive(helper.id()));
+        let _ = helper.kill();
+        let _ = helper.wait();
+    }
+
+    #[test]
+    fn our_helpers_are_recognised_by_path() {
+        let runtime_helper = crate::runtime::root().join("26.1/Contents/ZaloHelper.app/Contents/MacOS/ZaloCall");
+        let configured = PathBuf::from("/Applications/Zalo.app/Contents/ZaloHelper.app/Contents/MacOS/ZaloCall");
+        assert!(is_our_helper(&runtime_helper, Path::new("/elsewhere/ZaloCall")));
+        assert!(is_our_helper(&configured, &configured));
+        assert!(!is_our_helper(&configured, &runtime_helper)); // the official app's own helper
+        assert!(!is_our_helper(&crate::runtime::root().join("x/ZaloCap"), &runtime_helper));
+        assert_eq!(owner_pid("compola-call-123-AbC"), Some(123)); // pre-rename directories
     }
 
     #[cfg(target_os = "macos")]
