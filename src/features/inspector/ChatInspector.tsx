@@ -4,7 +4,7 @@
 // red actions.
 // Actions that need the conversation-actions port are shown disabled until it lands.
 
-import { BarChart3, BellOff, ChevronDown, ChevronRight, EyeOff, Info, Pencil, Pin, Settings, Tag, Timer, Trash2, UserPlus, UsersRound, LogOut, type LucideIcon } from 'lucide-react';
+import { BarChart3, Bell, BellOff, ChevronDown, ChevronRight, EyeOff, Info, Pencil, Pin, Settings, Tag, Timer, Trash2, UserPlus, UsersRound, LogOut, type LucideIcon } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { mentionCandidates } from '../../engine/chat';
@@ -19,6 +19,7 @@ import { openMenuBelow } from '../../ui/Menu';
 import { Spinner } from '../../ui/Spinner';
 import { useConversationSummary } from '../chat/ChatDetail';
 import { SharedMediaBrowser, SharedMediaSections, useBrowsingSharedMedia } from '../sharedMedia/SharedMedia';
+import { conversationMuteMenu } from '../settings/muteMenu';
 import './inspector.css';
 
 const memberLimit = 8;
@@ -144,6 +145,7 @@ function InspectorActions({ conversationId, isGroup }: { conversationId: string;
   const labels = useEngine(useShallow((s) => s.extras.labels));
   const current = useEngine((s) => s.extras.labelByConversation[conversationId] ?? null);
   const currentLabel = labels.find((l) => l.id === current);
+  const muted = useEngine((s) => s.mutedIds.has(conversationId));
   const soon = (label: string) => `${label} — chưa hỗ trợ trên phiên bản này`;
   const action = (icon: LucideIcon, label: string) => (
     <ActionSlot label={label} help={soon(label)} disabled>
@@ -155,7 +157,17 @@ function InspectorActions({ conversationId, isGroup }: { conversationId: string;
   );
   return (
     <div className="inspector-actions">
-      {action(BellOff, 'Tắt thông báo')}
+      <ActionSlot
+        label={muted ? 'Bật thông báo' : 'Tắt thông báo'}
+        help={muted ? 'Bật thông báo' : 'Tắt thông báo'}
+        onClick={(el) => {
+          const item = conversationMuteMenu(conversationId);
+          if (item.kind === 'submenu') openMenuBelow(el, item.items);
+          else if (item.kind === undefined || item.kind === 'item') item.onSelect();
+        }}
+      >
+        {muted ? <Bell size={18} /> : <BellOff size={18} />}
+      </ActionSlot>
       {action(Pin, 'Ghim hội thoại')}
       {action(isGroup ? UserPlus : UsersRound, isGroup ? 'Thêm thành viên' : 'Tạo nhóm trò chuyện')}
       {isGroup && action(Settings, 'Quản lý nhóm')}

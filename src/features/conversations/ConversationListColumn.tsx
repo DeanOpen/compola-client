@@ -5,6 +5,7 @@
 
 import { Archive, ArrowLeft, ChevronDown, EyeOff, LockOpen, MoreHorizontal, ShieldHalf, Tag, UserPlus, UserRoundSearch, UsersRound } from 'lucide-react';
 import { openAddFriend, openCreateGroup } from '../contacts/hosts';
+import { conversationMuteMenu } from '../settings/muteMenu';
 import { useCallback, useEffect, useMemo, useRef, type MouseEvent as ReactMouseEvent } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { setConversationLabel } from '../../engine/conversations';
@@ -278,6 +279,7 @@ const conversationMenu = (id: string): MenuItem[] => {
   return [
     { label: 'Mở cuộc trò chuyện', onSelect: () => shell.select(id) },
     { kind: 'separator' },
+    conversationMuteMenu(id),
     {
       kind: 'submenu',
       label: 'Phân loại',

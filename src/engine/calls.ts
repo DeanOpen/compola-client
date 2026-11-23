@@ -9,12 +9,13 @@
 //   startCall(uid, video)                            the chat header's own action (groups: video → participant picker)
 
 import { create } from 'zustand';
-import { backend } from './backend';
+import { backend, usesMock } from './backend';
 import { callAdapter, fireAdapter, log } from './call';
 import { registerStateHandler } from './dispatch';
 import { arr, bool, int, obj, optStr, str, type Json } from './models/json';
 import type { ConversationSummary } from './models/conversations';
 import { getEngine, onAccountReset, setEngine } from './store';
+import { showToast } from './toast';
 
 export interface IncomingCall {
   id: number;
@@ -194,11 +195,29 @@ export const refreshCallStatus = () => fireAdapter('__zaloCall', 'refresh');
  * (activates our own helper by its pid); without it nothing happens.
  */
 export const showCallWindow = async () => {
-  if (get().nativePID === null && !get().nativeRunning) return;
   try {
     await (await backend()).invoke('call_show_window');
   } catch (e) {
-    log(`call_show_window: ${String(e)}`);
+    // "Không có cuộc gọi nào đang diễn ra." / "Cửa sổ cuộc gọi đã đóng."
+    showToast(String(e));
+    void syncCallsStatus();
+  }
+};
+
+/** The helper's state now (Rust `calls_status`): events emitted before the UI subscribed are otherwise lost. */
+export const syncCallsStatus = async () => {
+  try {
+    const st = obj(await (await backend()).invoke('calls_status'));
+    if (!st) return;
+    set({
+      helperInstalled: bool(st.helperInstalled, true),
+      nativeRunning: bool(st.running),
+      nativePID: typeof st.pid === 'number' ? st.pid : null,
+      helperProblem: optStr(st.problem),
+      nativeState: get().nativeState ?? optStr(st.nativeState),
+    });
+  } catch (e) {
+    log(`calls_status: ${String(e)}`);
   }
 };
 
@@ -328,7 +347,7 @@ const handleCallState = (state: Json) => {
         date: Date.now(),
       };
       set({ incoming });
-      announceIncomingCall(incoming);
+      void announceIncomingCall(incoming);
       setTimeout(() => {
         if (get().incoming?.id === incoming.id) set({ incoming: null });
       }, 45_000);
@@ -349,15 +368,18 @@ const handleCallState = (state: Json) => {
 };
 
 /**
- * The native helper shows the ringing window; when the app is in the background a system notification tells where
- * to look (the official renderer shows nothing for incoming calls itself). Web Notification API of the webview.
+ * The native helper shows the ringing window; when the app is in the background a macOS notification tells where to
+ * look (the official renderer shows nothing for incoming calls itself). Native notifier (tauri-plugin-notification),
+ * only when the user already allowed notifications: an incoming call never triggers the permission prompt.
  */
-const announceIncomingCall = (incoming: IncomingCall) => {
-  if (document.hasFocus() || typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+const announceIncomingCall = async (incoming: IncomingCall) => {
+  if (document.hasFocus() || usesMock) return;
   try {
-    new Notification('Cuộc gọi đến', { body: `${incoming.name} đang gọi cho bạn`, tag: 'zalo-call' });
-  } catch {
-    /* not available in this webview */
+    const { isPermissionGranted, sendNotification } = await import('@tauri-apps/plugin-notification');
+    if (!(await isPermissionGranted())) return;
+    sendNotification({ title: 'Cuộc gọi đến', body: `${incoming.name} đang gọi cho bạn` });
+  } catch (e) {
+    log(`call notification: ${String(e)}`);
   }
 };
 

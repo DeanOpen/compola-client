@@ -573,3 +573,23 @@ mod tests {
         assert!(!ok("https://stc-chat.zdn.vn/other.mp3"));
     }
 }
+
+/// Notification permission for Settings ▸ Thông báo: `authorized` | `denied` | `notDetermined` | `unavailable` (an
+/// unbundled dev build cannot use the notification center).
+#[tauri::command]
+pub async fn notification_authorization() -> String {
+    if !un::available() {
+        return "unavailable".into();
+    }
+    un::status().await.unwrap_or("notDetermined").into()
+}
+
+/// Asks macOS for notification permission, then reports the resulting status.
+#[tauri::command]
+pub async fn notification_request_authorization() -> String {
+    if !un::available() {
+        return "unavailable".into();
+    }
+    let _ = un::request().await;
+    un::status().await.unwrap_or("notDetermined").into()
+}

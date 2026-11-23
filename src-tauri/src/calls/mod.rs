@@ -653,6 +653,34 @@ pub fn install(app: &AppHandle, reg: &mut Registry) {
     });
 }
 
+/// What the call UI needs to know about the native helper right now (its events sent before the UI subscribed are lost).
+#[tauri::command]
+pub fn calls_status(app: AppHandle) -> serde_json::Value {
+    let installed = is_executable(&helper_executable(&crate::runtime::candidate()));
+    let current = app.try_state::<Slot>().and_then(|s| s.0.lock().clone());
+    let (running, pid, ready) = current.map(|b| (b.started(), b.helper_pid(), b.native_ready())).unwrap_or((false, None, false));
+    serde_json::json!({
+        "helperInstalled": installed,
+        "running": running,
+        "pid": pid,
+        "problem": (!installed).then_some("Không tìm thấy ZaloCall trong bộ cài Zalo. Hãy mở lại Compola để cài lại."),
+        "nativeState": if ready { Some("ready") } else if running { Some("starting") } else { None },
+    })
+}
+
+/// "Mở cửa sổ cuộc gọi": brings the running ZaloCall helper to the front.
+#[tauri::command]
+pub fn call_show_window(app: AppHandle) -> Result<(), String> {
+    let pid = app.try_state::<Slot>().and_then(|s| s.0.lock().as_ref().and_then(|b| b.helper_pid())).ok_or("Không có cuộc gọi nào đang diễn ra.")?;
+    #[cfg(target_os = "macos")]
+    {
+        use objc2_app_kit::{NSApplicationActivationOptions, NSRunningApplication};
+        let app = NSRunningApplication::runningApplicationWithProcessIdentifier(pid).ok_or("Cửa sổ cuộc gọi đã đóng.")?;
+        app.activateWithOptions(NSApplicationActivationOptions::ActivateAllWindows);
+    }
+    Ok(())
+}
+
 /// Logout / account switch (to be called from `MainProcess::reset_account_state`).
 #[allow(dead_code)]
 pub fn reset(app: &AppHandle) {

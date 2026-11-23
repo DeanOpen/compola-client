@@ -164,7 +164,8 @@ impl From<std::io::Error> for MediaError {
 /// client's `ZaloDownloads`) and the media caches.
 pub fn allowed_local_roots() -> Vec<PathBuf> {
     let base = crate::platform::app_support();
-    vec![base.join("ZaloData"), base.join("MediaCache")]
+    // Our temp folder too: the official zCloud cache (`getzCloudCachePath`) and staged files live under it.
+    vec![base.join("ZaloData"), base.join("MediaCache"), std::env::temp_dir().join("Compola")]
 }
 
 /// Swift `isLocalFile(_:under:)`: the symlink-resolved path lies strictly inside one of `roots`.

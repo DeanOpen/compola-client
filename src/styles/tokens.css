@@ -5,9 +5,12 @@
 :root {
   color-scheme: light dark;
 
-  /* Brand */
+  /* Brand (`--primary*` are the spec's names, `--accent*` the older ones) */
   --accent: #0068ff;
   --accent-pressed: #005ae0;
+  --primary: #0068ff;
+  --primary-pressed: #005ae0;
+  --text-info: #005ae0;
   --navbar: #005ae0;
   --navbar-hover: rgba(0, 0, 0, 0.15);
   --navbar-selected: rgba(0, 0, 0, 0.25);
@@ -111,6 +114,7 @@
     --text-tertiary: #738296;
     --text-placeholder: #738296;
     --text-quote: #b6c1ce;
+    --text-info: #66a6ff;
 
     --border: rgba(255, 255, 255, 0.15);
     --separator: rgba(255, 255, 255, 0.1);

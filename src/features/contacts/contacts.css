@@ -1,42 +1,25 @@
 /* Danh bạ in Zalo PC's style (docs/zalo-pc-style.md §6–7): sub-nav, contacts pages, request cards, the "Thêm bạn" and profile
    dialogs and the "Tạo nhóm" sheet. Local tokens map to the shared Zalo tokens when the shell defines them. */
 
+/* Local names kept for the Danh bạ styles; they all point at the shared Zalo tokens (styles/tokens.css, light + dark). */
 :root {
-  --ct-primary: var(--primary, #0068ff);
-  --ct-primary-pressed: var(--primary-pressed, #005ae0);
-  --ct-selected: var(--selected, #e5f1ff);
-  --ct-hover: #f1f2f4;
-  --ct-subtle: var(--subtle, #ebecf0);
-  --ct-surface: #ebecf0;
-  --ct-layer: #fff;
-  --ct-text: #081b3a;
-  --ct-text-secondary: #5a6981;
-  --ct-text-info: #005ae0;
-  --ct-border: var(--border, rgba(0, 0, 0, 0.15));
-  --ct-border-subtle: rgba(0, 0, 0, 0.1);
-  --ct-input: #fff;
-  --ct-input-filled: #f1f2f4;
-  --ct-success: #37b361;
-  --ct-danger: #c31818;
-  --ct-badge: #e53935;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --ct-primary: var(--primary, #0068ff);
-    --ct-selected: var(--selected, #1f344d);
-    --ct-hover: rgba(255, 255, 255, 0.05);
-    --ct-subtle: var(--subtle, #1d2025);
-    --ct-surface: #16191d;
-    --ct-layer: #22262b;
-    --ct-text: #dfe2e7;
-    --ct-text-secondary: #9facbc;
-    --ct-text-info: #66a6ff;
-    --ct-border: var(--border, rgba(0, 0, 0, 0.3));
-    --ct-border-subtle: rgba(255, 255, 255, 0.15);
-    --ct-input: #16191d;
-    --ct-input-filled: #16191d;
-  }
+  --ct-primary: var(--primary);
+  --ct-primary-pressed: var(--primary-pressed);
+  --ct-selected: var(--selected);
+  --ct-hover: var(--hover);
+  --ct-subtle: var(--subtle);
+  --ct-surface: var(--chat-bg);
+  --ct-layer: var(--content);
+  --ct-text: var(--text);
+  --ct-text-secondary: var(--text-secondary);
+  --ct-text-info: var(--text-info);
+  --ct-border: var(--border);
+  --ct-border-subtle: var(--separator);
+  --ct-input: var(--content);
+  --ct-input-filled: var(--hover);
+  --ct-success: var(--success);
+  --ct-danger: var(--danger);
+  --ct-badge: var(--badge);
 }
 
 .ct-spacer {
