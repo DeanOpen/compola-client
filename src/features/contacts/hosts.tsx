@@ -1,12 +1,15 @@
 // Overlays of the contacts feature: the "Thêm bạn" dialog, a friend's "Thông tin tài khoản" and the "Tạo nhóm" sheet
 // (⇧⌘N, Swift `ShellModel.groupCompose` + Commands "Tạo nhóm…").
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { usesMock } from '../../engine/backend';
 import { onAccountReset } from '../../engine/store';
 import { escapeStackDepth } from '../../ui/escape';
 import { AddFriendDialog } from './AddFriendDialog';
 import { FriendProfileDialog } from './ContactsView';
 import { CreateGroupSheet } from './CreateGroupSheet';
+import { StrangerRequestBar } from './StrangerRequestBar';
 import { contactsUi, useContactsUi } from './contactsUi';
 
 onAccountReset(contactsUi.reset);
@@ -41,6 +44,27 @@ export function ContactsHosts() {
       {addFriend && <AddFriendDialog onClose={contactsUi.closeAddFriend} />}
       {profileId && <FriendProfileDialog key={profileId} id={profileId} onClose={contactsUi.closeProfile} />}
       {compose && <CreateGroupSheet key={compose.id} request={compose} onClose={contactsUi.closeGroupCompose} />}
+      {strangerDemo && <StrangerBarDemo />}
     </>
   );
+}
+
+// Mock-only preview of the stranger request bar (`?mock=1&demo=stranger`): placed above the open chat's composer until the
+// chat view renders it itself.
+const strangerDemo = usesMock && typeof location !== 'undefined' && new URLSearchParams(location.search).get('demo') === 'stranger';
+
+function StrangerBarDemo() {
+  const [slot, setSlot] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    const t = setInterval(() => {
+      const bottom = document.querySelector('.chat-bottom');
+      if (!bottom || bottom.querySelector('.ct-stranger-slot')) return;
+      const el = document.createElement('div');
+      el.className = 'ct-stranger-slot';
+      bottom.insertBefore(el, bottom.firstChild);
+      setSlot(el);
+    }, 200);
+    return () => clearInterval(t);
+  }, []);
+  return slot ? createPortal(<StrangerRequestBar conversationId="u-stranger2" name="Nguyễn Văn Khoa" />, slot) : null;
 }

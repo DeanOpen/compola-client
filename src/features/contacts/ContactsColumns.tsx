@@ -14,6 +14,7 @@ import './contacts.css';
 /** Content column for Danh bạ destinations: the sub-nav. */
 export function ContactsContentColumn({ destination }: { destination: Destination }) {
   const pending = useContacts((s) => s.pendingRequestCount);
+  const inviteUnread = useContacts((s) => s.groupInviteUnread);
 
   useEffect(() => {
     refreshContacts();
@@ -56,7 +57,7 @@ export function ContactsContentColumn({ destination }: { destination: Destinatio
         {item('friends', 'Danh sách bạn bè', UserRound)}
         {item('groups', 'Danh sách nhóm và cộng đồng', Users)}
         {item('requests', 'Lời mời kết bạn', UserPlus, pending)}
-        {item('groupInvites', 'Lời mời vào nhóm và cộng đồng', UsersRound)}
+        {item('groupInvites', 'Lời mời vào nhóm và cộng đồng', UsersRound, inviteUnread)}
       </nav>
     </div>
   );

@@ -66,6 +66,45 @@ export interface FriendSearch {
   user: FoundUser | null;
 }
 
+/** "Có thể bạn quen": a friend suggestion of the official recommendation cache. */
+export interface FriendSuggestion {
+  id: string;
+  name: string;
+  avatar: string | null;
+  /** Where the suggestion comes from ("Từ số điện thoại", "Từ nhóm trò chuyện"…), empty when unknown. */
+  reason: string;
+  /** Official "say hi" text for a request from this suggestion. */
+  defaultMessage: string;
+}
+
+/** An invitation to join a group or community ("Lời mời vào nhóm và cộng đồng"). */
+export interface GroupInvite {
+  /** The group's conversation id (`g…`). */
+  id: string;
+  name: string;
+  avatar: string | null;
+  members: number;
+  community: boolean;
+  inviterId: string;
+  inviterName: string;
+  inviterAvatar: string | null;
+  /** The inviter created the group (the official card marks them "Trưởng nhóm"). */
+  inviterIsOwner: boolean;
+  /** Epoch ms; null when unknown. */
+  expiresAt: number | null;
+  /** I already asked to join; the group's admins have to approve. */
+  pendingReview: boolean;
+}
+
+export interface GroupInvites {
+  /** The official invitation box was found in the client. */
+  available: boolean;
+  loading: boolean;
+  total: number;
+  hasMore: boolean;
+  items: GroupInvite[];
+}
+
 /** Result of the latest accept / decline / cancel / send action. */
 export interface ContactsNotice {
   seq: number;
@@ -80,6 +119,11 @@ export interface ContactsState {
   sent: FriendRequest[];
   /** Pending received friend requests (sidebar badge). */
   pendingRequestCount: number;
+  suggestions: FriendSuggestion[];
+  /** Read only while the invitation page is on screen (like the official page). */
+  groupInvites: GroupInvites;
+  /** New group invitations not yet seen on the invitation page. */
+  groupInviteUnread: number;
   loadingRequests: boolean;
   search: FriendSearch;
   notice: ContactsNotice | null;
@@ -98,6 +142,9 @@ const initial = (): ContactsState => ({
   received: [],
   sent: [],
   pendingRequestCount: 0,
+  suggestions: [],
+  groupInvites: { available: true, loading: false, total: 0, hasMore: false, items: [] },
+  groupInviteUnread: 0,
   loadingRequests: false,
   search: idleSearch,
   notice: null,
@@ -197,6 +244,31 @@ const searchOf = (json: Json): FriendSearch => {
   };
 };
 
+const suggestionOf = (j: Json): FriendSuggestion | null => {
+  const id = str(j.id);
+  if (!id) return null;
+  return { id, name: str(j.name), avatar: url(j.avatar), reason: str(j.reason), defaultMessage: str(j.defaultMessage) };
+};
+
+const groupInviteOf = (j: Json): GroupInvite | null => {
+  const id = str(j.id);
+  if (!id) return null;
+  const expires = int(j.expiresAt);
+  return {
+    id,
+    name: str(j.name) || 'Nhóm',
+    avatar: url(j.avatar),
+    members: Math.max(0, int(j.members)),
+    community: bool(j.community),
+    inviterId: str(j.inviterId),
+    inviterName: str(j.inviterName),
+    inviterAvatar: url(j.inviterAvatar),
+    inviterIsOwner: bool(j.inviterIsOwner),
+    expiresAt: expires > 0 ? expires : null,
+    pendingReview: bool(j.pendingReview),
+  };
+};
+
 const rows = <T>(v: unknown, parse: (j: Json) => T | null): T[] =>
   arr(v)
     .map(obj)
@@ -218,7 +290,19 @@ export const handleContacts = (state: Json) => {
   }
   if (Array.isArray(json.received)) next.received = rows(json.received, requestOf);
   if (Array.isArray(json.sent)) next.sent = rows(json.sent, requestOf);
+  if (Array.isArray(json.suggestions)) next.suggestions = rows(json.suggestions, suggestionOf);
   if (typeof json.pendingRequestCount === 'number') next.pendingRequestCount = Math.max(0, int(json.pendingRequestCount));
+  const invites = obj(json.groupInvites);
+  if (invites) {
+    next.groupInvites = {
+      available: invites.available !== false,
+      loading: bool(invites.loading),
+      total: Math.max(0, int(invites.total)),
+      hasMore: bool(invites.hasMore),
+      items: rows(invites.items, groupInviteOf),
+    };
+  }
+  if (typeof json.groupInviteUnread === 'number') next.groupInviteUnread = Math.max(0, int(json.groupInviteUnread));
   const loading = obj(json.loading);
   if (loading && typeof loading.requests === 'boolean') next.loadingRequests = loading.requests;
   const search = obj(json.search);
@@ -254,6 +338,88 @@ export const refreshContacts = () => fireAdapter('__zaloContacts', 'refresh');
 export const acceptFriendRequest = (id: string) => fireAdapter('__zaloContacts', 'accept', id);
 export const declineFriendRequest = (id: string) => fireAdapter('__zaloContacts', 'decline', id);
 export const cancelFriendRequest = (id: string) => fireAdapter('__zaloContacts', 'cancel', id);
+
+// MARK: - Suggestions, strangers
+
+/** ✕ on a suggestion: the official `removeSuggestFriend` (the server stops suggesting this person). Hidden right away here. */
+export const dismissSuggestion = (id: string) => {
+  set((s) => ({ suggestions: s.suggestions.filter((x) => x.id !== id) }));
+  fireAdapter('__zaloContacts', 'dismissSuggestion', id);
+};
+
+/** Friendship state of a stranger whose chat is open (StrangerRequestBar), with the official greeting for a request. */
+export interface StrangerInfo {
+  isFriend: boolean;
+  requested: boolean;
+  requesting: boolean;
+  defaultMessage: string;
+  maxMessage: number;
+}
+
+export const strangerInfo = async (id: string): Promise<StrangerInfo | null> => {
+  const root = obj(await tryAdapter<unknown>(null, '__zaloContacts', 'requestInfo', id));
+  if (!root) return null;
+  return {
+    isFriend: bool(root.isFriend),
+    requested: bool(root.requested),
+    requesting: bool(root.requesting),
+    defaultMessage: str(root.defaultMessage),
+    maxMessage: int(root.maxMessage) || 150,
+  };
+};
+
+/** "Chặn": blocks messages and calls from this person (official `blockFriend(uid, SET_BLOCK)`). */
+export const blockContact = async (id: string): Promise<{ ok: boolean; text: string }> => {
+  const answer = await raceTimeout(30, callAdapter<unknown>('__zaloContacts', 'block', id).catch(() => null));
+  const root = obj(answer?.value);
+  return root ? { ok: bool(root.ok), text: str(root.text) } : { ok: false, text: 'Đã có lỗi xảy ra. Vui lòng thử lại' };
+};
+
+// Group invitations: the official box loads them only while its page is open.
+let inviteWatchers = 0;
+export const watchGroupInvites = (on: boolean) => {
+  inviteWatchers = Math.max(0, inviteWatchers + (on ? 1 : -1));
+  fireAdapter('__zaloContacts', 'watchGroupInvites', inviteWatchers > 0);
+};
+export const loadMoreGroupInvites = () => fireAdapter('__zaloContacts', 'loadMoreGroupInvites');
+
+export interface GroupInviteResult {
+  ok: boolean;
+  /** "Join request sent to the admins" (the invitation now waits for approval). */
+  pending: boolean;
+  text: string;
+}
+
+const inviteAnswer = (v: unknown, fallback: string): GroupInviteResult => {
+  const root = obj(v);
+  return root ? { ok: bool(root.ok), pending: bool(root.pending), text: str(root.text) } : { ok: false, pending: false, text: fallback };
+};
+
+/** "Tham gia": joins through the official invitation box; on success the group opens (as in Zalo PC). */
+export const acceptGroupInvite = async (id: string): Promise<GroupInviteResult> => {
+  const answer = await raceTimeout(45, callAdapter<unknown>('__zaloContacts', 'acceptGroupInvite', id).catch(() => null));
+  const result = inviteAnswer(answer?.value, 'Đã có lỗi xảy ra. Vui lòng thử lại');
+  if (result.ok) setEngine({ navigationRequest: id });
+  return result;
+};
+
+/** "Từ chối", optionally blocking further invitations to this group and / or the inviter. */
+export const declineGroupInvite = async (id: string, blockGroup: boolean, blockInviter: boolean): Promise<GroupInviteResult> => {
+  const answer = await raceTimeout(45, callAdapter<unknown>('__zaloContacts', 'declineGroupInvite', id, blockGroup, blockInviter).catch(() => null));
+  return inviteAnswer(answer?.value, 'Đã có lỗi xảy ra. Vui lòng thử lại');
+};
+
+/** "Hết hạn sau 3 ngày" (official countdown units: days, hours, minutes). */
+export const inviteExpiryText = (expiresAt: number | null, now = Date.now()): string | null => {
+  if (!expiresAt) return null;
+  const ms = expiresAt - now;
+  if (ms <= 0) return null;
+  const days = ms / 86_400_000;
+  const hours = ms / 3_600_000;
+  if (days >= 1) return `Hết hạn sau ${Math.round(days)} ngày`;
+  if (hours >= 1) return `Hết hạn sau ${Math.round(hours)} giờ`;
+  return `Hết hạn sau ${Math.max(1, Math.round(ms / 60_000))} phút`;
+};
 
 /**
  * Looks a user up by phone number through the official find-user API. `iso`: the country picked next to the field (the adapter

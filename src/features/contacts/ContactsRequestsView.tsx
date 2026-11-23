@@ -1,22 +1,29 @@
 // Friend requests (Lời mời kết bạn) and group invitations (Lời mời vào nhóm) (Swift ContactsRequestsView.swift) in Zalo PC's
-// layout: cards for received requests (Từ chối / Đồng ý) and sent ones (Thu hồi lời mời). Every action goes through the official
-// client's friend-request service; its result comes back as a `notice` (a toast).
+// layout: cards for received requests (Từ chối / Đồng ý) and sent ones (Thu hồi lời mời), group invitations (Từ chối / Tham gia).
+// Every action goes through the official client's services; its result comes back as a `notice` (a toast).
 
 import { MailOpen, MessageCircle, RefreshCw, UserPlus, UsersRound } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import {
   acceptFriendRequest,
+  acceptGroupInvite,
   ago,
   cancelFriendRequest,
   declineFriendRequest,
+  declineGroupInvite,
+  inviteExpiryText,
+  loadMoreGroupInvites,
   openContactConversation,
   refreshContacts,
   useContacts,
+  watchGroupInvites,
   type FriendRequest,
+  type GroupInvite,
 } from '../../engine/contacts';
 import { Avatar } from '../../ui/Avatar';
+import { Sheet } from '../../ui/Overlays';
 import { Spinner } from '../../ui/Spinner';
-import { ContactsEmpty, ContactsLoading, ContactsPageHeader } from './ContactsShared';
+import { ContactsEmpty, ContactsLoading, ContactsPageHeader, DialogHeader } from './ContactsShared';
 
 type RequestAction = 'accept' | 'decline' | 'cancel';
 
@@ -164,20 +171,183 @@ function SentCard({ request, busy, perform }: { request: FriendRequest; busy: bo
   );
 }
 
-/** "Lời mời vào nhóm": the contacts adapter does not read group invitations; the page says there are none to show. */
+/**
+ * "Lời mời vào nhóm và cộng đồng": the official invitation box (it loads only while this page is open). Cards show the group,
+ * who invited me and when the invitation expires; "Tham gia" joins and opens the group, "Từ chối" asks first (optionally
+ * blocking the group's invitations and the inviter), like Zalo PC.
+ */
 export function GroupInvitesPage() {
-  return (
-    <div className="ct-page">
-      <ContactsPageHeader icon={UsersRound} title="Lời mời vào nhóm và cộng đồng" />
-      <div className="ct-page-scroll">
-        <div className="ct-panel">
+  const invites = useContacts((s) => s.groupInvites);
+  const [busy, setBusy] = useState<ReadonlySet<string>>(new Set());
+  const [declining, setDeclining] = useState<GroupInvite | null>(null);
+  const [, tick] = useState(0);
+
+  useEffect(() => {
+    watchGroupInvites(true);
+    // Expiry texts count down like the official card.
+    const t = setInterval(() => tick((n) => n + 1), 60_000);
+    return () => {
+      clearInterval(t);
+      watchGroupInvites(false);
+    };
+  }, []);
+
+  const run = async (id: string, action: () => Promise<unknown>) => {
+    setBusy((b) => new Set([...b, id]));
+    try {
+      await action();
+    } finally {
+      setBusy((b) => new Set([...b].filter((x) => x !== id)));
+    }
+  };
+
+  const items = invites.items;
+  let body;
+  if (items.length === 0) {
+    body = (
+      <div className="ct-panel">
+        {invites.loading ? (
+          <ContactsLoading text="Đang tải lời mời…" />
+        ) : (
           <ContactsEmpty
             icon={MailOpen}
-            title="Không có lời mời vào nhóm"
-            description="Khi có ai đó mời bạn vào nhóm, lời mời sẽ hiện trong cuộc trò chuyện với người đó."
+            title={invites.available ? 'Không có lời mời vào nhóm và cộng đồng' : 'Chưa đọc được lời mời vào nhóm'}
+            description={
+              invites.available
+                ? 'Lời mời tham gia nhóm và cộng đồng từ người lạ hoặc bạn bè sẽ hiện ở đây.'
+                : 'Ứng dụng chưa sẵn sàng. Hãy mở lại mục này sau giây lát.'
+            }
           />
+        )}
+      </div>
+    );
+  } else {
+    body = (
+      <>
+        <div className="ct-list-title">Lời mời đã nhận ({Math.max(invites.total, items.length)})</div>
+        <div className="ct-cards">
+          {items.map((inv) => (
+            <GroupInviteCard
+              key={inv.id}
+              invite={inv}
+              busy={busy.has(inv.id)}
+              onJoin={() => void run(inv.id, () => acceptGroupInvite(inv.id))}
+              onDecline={() => setDeclining(inv)}
+            />
+          ))}
+        </div>
+        {invites.hasMore && (
+          <div className="ct-more">
+            <button className="ct-btn ct-btn-secondary" disabled={invites.loading} onClick={loadMoreGroupInvites}>
+              {invites.loading ? <Spinner size={13} /> : 'Xem thêm'}
+            </button>
+          </div>
+        )}
+      </>
+    );
+  }
+
+  return (
+    <div className="ct-page">
+      <ContactsPageHeader icon={UsersRound} title="Lời mời vào nhóm và cộng đồng">
+        {invites.loading && items.length > 0 && (
+          <span className="ct-header-spinner" title="Đang tải lời mời…">
+            <Spinner size={15} />
+          </span>
+        )}
+      </ContactsPageHeader>
+      <div className="ct-page-scroll">{body}</div>
+      {declining && (
+        <DeclineGroupInviteDialog
+          invite={declining}
+          onClose={() => setDeclining(null)}
+          onDecline={(blockGroup, blockInviter) => {
+            const inv = declining;
+            setDeclining(null);
+            void run(inv.id, () => declineGroupInvite(inv.id, blockGroup, blockInviter));
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function GroupInviteCard({ invite, busy, onJoin, onDecline }: { invite: GroupInvite; busy: boolean; onJoin: () => void; onDecline: () => void }) {
+  const expiry = inviteExpiryText(invite.expiresAt);
+  const kind = invite.community ? 'Cộng đồng' : 'Nhóm';
+  return (
+    <div className={`ct-card ct-invite-card ${busy ? 'is-busy' : ''}`}>
+      <div className="ct-card-user">
+        <Avatar url={invite.avatar} name={invite.name} size={48} />
+        <div className="ct-card-name">
+          <span className="ct-card-title truncate">{invite.name}</span>
+          <span className="ct-card-extra truncate">
+            {kind} · {invite.members.toLocaleString('vi-VN')} thành viên
+          </span>
         </div>
       </div>
+      <div className="ct-invite-from">
+        <span className="ct-invite-from-label">Lời mời từ</span>
+        <Avatar url={invite.inviterAvatar} name={invite.inviterName} size={20} />
+        <span className="truncate">{invite.inviterName || 'Người dùng Zalo'}</span>
+        {invite.inviterIsOwner && <span className="ct-invite-owner">{invite.community ? 'Trưởng cộng đồng' : 'Trưởng nhóm'}</span>}
+      </div>
+      <div className="ct-invite-expiry">{invite.pendingReview ? 'Chờ phê duyệt' : (expiry ?? ' ')}</div>
+      <div className="ct-card-cta">
+        {invite.pendingReview ? (
+          <button className="ct-btn ct-btn-tonal ct-btn-grow" disabled>
+            Đã yêu cầu tham gia
+          </button>
+        ) : (
+          <>
+            <button className="ct-btn ct-btn-secondary" disabled={busy} onClick={onDecline}>
+              Từ chối
+            </button>
+            <button className="ct-btn ct-btn-tonal" disabled={busy} onClick={onJoin}>
+              {busy ? <Spinner size={13} /> : 'Tham gia'}
+            </button>
+          </>
+        )}
+      </div>
     </div>
+  );
+}
+
+/** Official GROUP_INVITATION_DECLINE confirm: two optional blocks, then "Từ chối". */
+function DeclineGroupInviteDialog({
+  invite,
+  onClose,
+  onDecline,
+}: {
+  invite: GroupInvite;
+  onClose: () => void;
+  onDecline: (blockGroup: boolean, blockInviter: boolean) => void;
+}) {
+  const [blockGroup, setBlockGroup] = useState(false);
+  const [blockInviter, setBlockInviter] = useState(false);
+  const community = invite.community;
+  return (
+    <Sheet onClose={onClose} width={420}>
+      <DialogHeader title={community ? 'Từ chối lời mời vào cộng đồng?' : 'Từ chối lời mời vào nhóm?'} onClose={onClose} />
+      <div className="ct-dialog-body ct-decline">
+        <p>{community ? 'Nếu thấy phiền, bạn cũng có thể chặn người mời và cộng đồng này.' : 'Nếu thấy phiền, bạn cũng có thể chặn người mời và nhóm này.'}</p>
+        <label className="ct-check">
+          <input type="checkbox" checked={blockGroup} onChange={(e) => setBlockGroup(e.target.checked)} />
+          <span>{community ? 'Chặn tất cả lời mời tham gia cộng đồng này' : 'Chặn tất cả lời mời tham gia nhóm này'}</span>
+        </label>
+        <label className="ct-check">
+          <input type="checkbox" checked={blockInviter} onChange={(e) => setBlockInviter(e.target.checked)} />
+          <span>Chặn {invite.inviterName || 'người mời'}</span>
+        </label>
+      </div>
+      <div className="ct-dialog-footer">
+        <button className="ct-btn ct-btn-secondary ct-btn-min" onClick={onClose}>
+          Hủy
+        </button>
+        <button className="ct-btn ct-btn-danger ct-btn-min" onClick={() => onDecline(blockGroup, blockInviter)}>
+          Từ chối
+        </button>
+      </div>
+    </Sheet>
   );
 }

@@ -1175,3 +1175,175 @@
   -webkit-backdrop-filter: none;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.24);
 }
+
+/* Group invitations */
+.ct-btn-danger {
+  background: var(--ct-danger);
+  color: #fff;
+}
+
+.ct-btn-danger:hover:not(:disabled) {
+  filter: brightness(0.92);
+}
+
+.ct-invite-from {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--ct-text);
+}
+
+.ct-invite-from-label {
+  flex: none;
+  color: var(--ct-text-secondary);
+}
+
+.ct-invite-owner {
+  flex: none;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--ct-selected);
+  color: var(--ct-text-info);
+  font-size: 11px;
+  line-height: 18px;
+}
+
+.ct-invite-expiry {
+  margin: 4px 0 16px;
+  font-size: 13px;
+  color: var(--ct-text-secondary);
+}
+
+.ct-more {
+  display: flex;
+  justify-content: center;
+  margin-top: 12px;
+}
+
+.ct-decline {
+  padding: 16px;
+  font-size: 14px;
+}
+
+.ct-decline p {
+  margin: 0 0 12px;
+}
+
+.ct-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  cursor: pointer;
+}
+
+.ct-check input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--ct-primary);
+}
+
+/* "Có thể bạn quen" (Thêm bạn dialog) */
+.ct-suggest {
+  margin-top: 20px;
+}
+
+.ct-suggest-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 6px;
+}
+
+.ct-suggest-row:hover {
+  background: var(--ct-hover);
+}
+
+.ct-suggest-add {
+  flex: none;
+  height: 28px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+
+.ct-suggest-sent {
+  flex: none;
+  padding: 0 8px;
+  font-size: 13px;
+  color: var(--ct-text-secondary);
+}
+
+.ct-suggest-row .ct-recent-remove {
+  opacity: 1;
+}
+
+/* Stranger request bar (bottom of a stranger's chat) */
+.ct-stranger-bar {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 10px 16px 0;
+  border-top: 1px solid var(--ct-border-subtle);
+  background: var(--ct-layer);
+  color: var(--ct-text);
+  text-align: center;
+}
+
+.ct-stranger-title {
+  font-size: 14px;
+}
+
+.ct-stranger-title b {
+  font-weight: 600;
+}
+
+.ct-stranger-sub {
+  font-size: 12px;
+  color: var(--ct-text-secondary);
+}
+
+.ct-stranger-actions {
+  display: flex;
+  align-self: stretch;
+  margin-top: 8px;
+  border-top: 1px solid var(--ct-border-subtle);
+}
+
+.ct-stranger-actions button {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 40px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.ct-stranger-actions button + button {
+  border-left: 1px solid var(--ct-border-subtle);
+}
+
+.ct-stranger-actions button:hover:not(:disabled) {
+  background: var(--ct-hover);
+}
+
+.ct-stranger-actions button:disabled {
+  opacity: 0.6;
+}
+
+.ct-stranger-block {
+  color: var(--ct-danger);
+}
+
+.ct-stranger-add {
+  color: var(--ct-primary);
+}
+
+.ct-stranger-done {
+  color: var(--ct-text-secondary);
+}

@@ -1,5 +1,5 @@
 // Mock of `window.__zaloContacts` (contacts-adapter.js), `__zaloGroupCreate` (group-create-adapter.js) and the contact profile of
-// the card-actions adapter. Dev aids: `&dest=friends|groups|requests|addFriend`, `&select=<id>`, `&sheet=createGroup`.
+// the card-actions adapter. Dev aids: `&dest=friends|groups|requests|groupInvites|addFriend`, `&demo=stranger`, `&select=<id>`, `&sheet=createGroup`.
 
 import type { Json } from '../../models/json';
 import { conversations, groupMembers, ME } from '../mockData';
@@ -49,6 +49,32 @@ let received: Json[] = [
 ];
 let sent: Json[] = [{ id: 'u-s1', name: 'Phan Văn Đức', avatar: 'https://i.pravatar.cc/150?img=60', message: 'Xin chào, mình là Minh Anh.', time: now - 3 * day }];
 
+// Group invitations (official invitation box): read only while watched.
+let groupInvites: Json[] = [
+  {
+    id: 'g-inv-book', name: 'Hội đọc sách Sài Gòn', avatar: 'https://picsum.photos/id/24/200/200', members: 342, community: false,
+    inviterId: 'u-lan', inviterName: 'Lan', inviterAvatar: conversations.find((c) => c.id === 'u-lan')?.avatar ?? '', inviterIsOwner: true,
+    expiresAt: now + 6 * day + 3 * 60 * min, pendingReview: false,
+  },
+  {
+    id: 'g-inv-dev', name: 'Cộng đồng Lập trình viên Việt Nam', avatar: '', members: 12_480, community: true,
+    inviterId: 'u-an', inviterName: 'Âu Dương An', inviterAvatar: 'https://i.pravatar.cc/150?img=15', inviterIsOwner: false,
+    expiresAt: now + 5 * 60 * min, pendingReview: false,
+  },
+];
+let invitesWatched = false;
+
+// "Có thể bạn quen" (recommendation cache, recommType 1).
+let suggestions: Json[] = [
+  { id: 'u-sg1', name: 'Trần Bảo Ngọc', avatar: 'https://i.pravatar.cc/150?img=47', reason: 'Từ số điện thoại', defaultMessage: 'Xin chào, mình là Nguyễn Minh Anh. Mình tìm thấy bạn bằng số điện thoại. Kết bạn với mình nhé!' },
+  { id: 'u-sg2', name: 'Võ Quốc Việt', avatar: 'https://i.pravatar.cc/150?img=13', reason: 'Từ nhóm trò chuyện', defaultMessage: 'Xin chào, mình là Nguyễn Minh Anh. Kết bạn với mình nhé!' },
+  { id: 'u-sg3', name: 'Hà My', avatar: '', reason: 'Có thể bạn quen', defaultMessage: 'Xin chào, mình là Nguyễn Minh Anh. Kết bạn với mình nhé!' },
+  { id: 'u-sg4', name: 'Lâm Gia Huy', avatar: 'https://i.pravatar.cc/150?img=59', reason: 'Từ danh bạ máy', defaultMessage: 'Xin chào, mình là Nguyễn Minh Anh. Kết bạn với mình nhé!' },
+];
+const invitesSnapshot = (loading = false) => ({
+  available: true, watching: invitesWatched, loading, total: groupInvites.length, hasMore: false, items: invitesWatched ? groupInvites : [],
+});
+
 let noticeSeq = 0;
 let lastFound: Json | null = null;
 const blocked = ['u-qa'];
@@ -67,6 +93,9 @@ onMockBoot((ctx) => {
         sent,
         pendingRequestCount: received.length,
         loading: { requests: false },
+        groupInvites: invitesSnapshot(),
+        groupInviteUnread: groupInvites.length,
+        suggestions,
       },
     });
   }, 300);
@@ -77,9 +106,11 @@ const devAids = async (ctx: MockContext) => {
   const dest = ctx.params.get('dest');
   const dialog = ctx.params.get('dialog');
   const sheet = ctx.params.get('sheet');
-  if (!dest && !dialog && sheet !== 'createGroup') return;
+  const demo = ctx.params.get('demo');
+  if (!dest && !dialog && sheet !== 'createGroup' && demo !== 'stranger') return;
   const [{ shell }, { contactsUi }] = await Promise.all([import('../../../shell/shellStore'), import('../../../features/contacts/contactsUi')]);
   setTimeout(() => {
+    if (demo === 'stranger' && !ctx.params.get('open')) shell.select('u-stranger2');
     if (dest === 'friends' || dest === 'groups' || dest === 'requests' || dest === 'addFriend' || dest === 'groupInvites') shell.setDestination(dest);
     if (dialog === 'addFriend') {
       contactsUi.openAddFriend();
@@ -115,6 +146,53 @@ const notice = (ok: boolean, text: string) => {
 };
 
 registerMockAdapter('__zaloContacts', {
+  watchGroupInvites: (on: boolean) => {
+    invitesWatched = !!on;
+    if (!invitesWatched) return postContacts({ groupInvites: invitesSnapshot() });
+    postContacts({ groupInvites: { ...invitesSnapshot(true), items: [] }, groupInviteUnread: 0 });
+    later(() => postContacts({ groupInvites: invitesSnapshot() }), 700);
+  },
+  loadMoreGroupInvites: () => {},
+  dismissSuggestion: (id: string) => {
+    suggestions = suggestions.filter((x) => x.id !== id);
+    postContacts({ suggestions });
+  },
+  requestInfo: (id: string) => ({
+    isFriend: friends.some((f) => f.id === id),
+    requested: sent.some((x) => x.id === id),
+    requesting: received.some((x) => x.id === id),
+    defaultMessage: 'Xin chào, mình là Nguyễn Minh Anh. Kết bạn với mình nhé!',
+    maxMessage: 150,
+  }),
+  block: async (_id: string) => {
+    await new Promise((r) => setTimeout(r, 400));
+    const text = 'Bạn đã chặn tin nhắn và cuộc gọi từ người này';
+    postContacts({ notice: notice(true, text) });
+    return { ok: true, text };
+  },
+  acceptGroupInvite: async (id: string) => {
+    await new Promise((r) => setTimeout(r, 600));
+    const inv = groupInvites.find((x) => x.id === id);
+    if (!inv) return { ok: false, text: 'Lời mời tham gia nhóm không tồn tại' };
+    if (inv.community) {
+      inv.pendingReview = true;
+      const text = 'Yêu cầu của bạn đã được gửi đến trưởng/phó cộng đồng chờ phê duyệt';
+      postContacts({ groupInvites: invitesSnapshot(), notice: notice(true, text) });
+      return { ok: false, pending: true, text };
+    }
+    groupInvites = groupInvites.filter((x) => x.id !== id);
+    groups = [...groups, { id, name: inv.name, avatar: inv.avatar, members: Number(inv.members) + 1, type: 0 }];
+    postContacts({ groupInvites: invitesSnapshot(), groups, notice: notice(true, 'Đã tham gia nhóm.') });
+    return { ok: true, text: 'Đã tham gia nhóm.' };
+  },
+  declineGroupInvite: async (id: string) => {
+    await new Promise((r) => setTimeout(r, 500));
+    const inv = groupInvites.find((x) => x.id === id);
+    groupInvites = groupInvites.filter((x) => x.id !== id);
+    const text = inv?.community ? 'Đã xoá lời mời vào cộng đồng' : 'Đã xoá lời mời vào nhóm';
+    postContacts({ groupInvites: invitesSnapshot(), notice: notice(true, text) });
+    return { ok: true, text };
+  },
   refresh: () => {
     postContacts({ loading: { requests: true } });
     later(() => postContacts({ loading: { requests: false }, received, sent, pendingRequestCount: received.length }), 900);
@@ -180,7 +258,8 @@ registerMockAdapter('__zaloContacts', {
       postContacts({ notice: n });
       return { ok: false, text: n.text };
     }
-    sent = [{ id, name: String(lastFound?.name ?? 'Người dùng Zalo'), avatar: String(lastFound?.avatar ?? ''), message, time: Date.now() }, ...sent];
+    const who = suggestions.find((x) => x.id === id) ?? conversations.find((c) => c.id === id) ?? (lastFound?.id === id ? lastFound : null);
+    sent = [{ id, name: String(who?.name ?? 'Người dùng Zalo'), avatar: String(who?.avatar ?? ''), message, time: Date.now() }, ...sent];
     postContacts({ sent, notice: notice(true, 'Đã gửi lời mời kết bạn.') });
     if (lastFound && lastFound.id === id) postContacts({ search: { seq: 3, status: 'found', user: { ...lastFound, requested: true } } });
     return { ok: true, text: 'Đã gửi lời mời kết bạn.' };

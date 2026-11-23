@@ -11,11 +11,23 @@
 //                  friend-request service (`acceptAddFriend`, `rejectRequestAddFriend`,
 //                  `undoRequestAddFriend`, `requestAddFriend`) — the exact calls the invitation page and
 //                  the add-friend dialog make, including their local cache updates.
+//   suggestions    the same recommendation cache, items with `recommType === 1` ("Có thể bạn quen"); dismissed with
+//                  the official `removeSuggestFriend(uid, recommSrc, recommType)` (server-side, like the suggestion card's ✕).
+//   block          the profile manager's `blockFriend(uid, SET_BLOCK)` + the store's BLOCK_CONVERSATION, as the
+//                  conversation menu's "Chặn tin nhắn" does.
 //   find by phone  friend-manager `getInfoByPhone(e164, SRC_FIND_FRIEND_FORM)` with the add-friend form's
 //                  phone normalisation, then the official friend-request status + default "say hi" text.
+//   group invites  the contact tab's invitation-box controller (DI singleton with `onInvitationListUIAppear`,
+//                  `getReceivedInvitations`, `acceptInvitation`, `rejectInvitation`; server `/api/group/inv-box/*`),
+//                  driven like the official "Lời mời vào nhóm và cộng đồng" page: it loads only while watched.
+//                  Unread count: the contact-tab unread manager (`getState().unread.newGroupInvitations`).
 //
 // Swift → JS : refresh() search(phone, iso?) resetSearch() sendRequest(id, message) → Promise<{ok, text}> accept(id)
 //              decline(id) cancel(id)
+//              watchGroupInvites(on) loadMoreGroupInvites() acceptGroupInvite(groupId) → Promise<{ok, pending?, text}>
+//              declineGroupInvite(groupId, blockGroup, blockInviter) → Promise<{ok, text}>
+//              dismissSuggestion(id) requestInfo(id) → Promise<{isFriend, requested, requesting, defaultMessage,
+//              maxMessage}> (a stranger's chat) block(id) → Promise<{ok, text}>
 //
 // JS → Swift : partial snapshots, each key replaces that section:
 //   friends:  [{id, name, zaloName, avatar, lastActive (ms, 0 unknown), online}]
@@ -27,6 +39,11 @@
 //   search:   {seq, status:'idle'|'searching'|'found'|'error', error?, user?:{id, name, zaloName, avatar,
 //              bio, isFriend, requested, requesting, defaultMessage, maxMessage}}
 //   notice:   {seq, ok, text}          (result of an accept/decline/cancel/send action)
+//   groupInvites: {available, watching, loading, total, hasMore, items:[{id (g-prefixed group id), name, avatar,
+//              members, community, inviterId, inviterName, inviterAvatar, inviterIsOwner, expiresAt (ms),
+//              pendingReview}]}            (items are read only while watched, like the official page)
+//   suggestions: [{id, name, avatar, reason, defaultMessage}]   ("Có thể bạn quen", newest first)
+//   groupInviteUnread: Int             (new invitations not seen on the invitation page; the contact tab's badge)
 (() => {
   'use strict';
   const NAME = window.__zaloContactsTestName || '__zaloContacts';
@@ -84,10 +101,26 @@
         if (!S.cfg && own(ex, 'sendToMeId') && own(ex, 'online_configs')) S.cfg = ex;
         if (!S.cfg && own(ex, 'sendToMeId')) S.cfgLite = ex;
         if (!S.lastActive && typeof ex._cacheLastActionTime === 'object' && typeof ex.getLastActionTime === 'function') S.lastActive = ex;
+        if (!S.srcKey && typeof ex.getFriendSuggestSourceKey === 'function') S.srcKey = ex;
+        if (!S.profiles && typeof ex.blockFriend === 'function' && typeof ex.removeFriend === 'function' && typeof ex.acceptFriend === 'function') S.profiles = ex;
         if (!S.lang && ex.default && typeof ex.default.str === 'function' && typeof ex.default.trans === 'function' && typeof ex.default.currentLanguage === 'function') S.lang = ex.default;
       } catch {}
     });
     return !!ready();
+  };
+  // Optional services the core `resolve()` may have passed before their modules loaded: looked up again on demand.
+  let extrasLast = 0;
+  const resolveExtras = () => {
+    if ((S.srcKey && S.profiles) || !window.__zaloRequire || Date.now() - extrasLast < 2000) return;
+    extrasLast = Date.now();
+    window.__zaloEachExport(window.__zaloRequire, (ex) => {
+      if (!ex || (typeof ex !== 'object' && typeof ex !== 'function')) return;
+      try {
+        if (ex.__compola_not_a_member__ !== undefined) return;
+        if (!S.srcKey && typeof ex.getFriendSuggestSourceKey === 'function') S.srcKey = ex;
+        if (!S.profiles && typeof ex.blockFriend === 'function' && typeof ex.removeFriend === 'function' && typeof ex.acceptFriend === 'function') S.profiles = ex;
+      } catch {}
+    });
   };
   const SRC_FIND = () => num((S.consts && S.consts.FRIEND_REQUEST_SRC_FIND_FRIEND_FORM) ?? 40);
   const MAX_MSG = () => num((S.consts && S.consts.MAX_CHAR_SAY_HI) || 150);
@@ -153,6 +186,27 @@
     }
     return out.sort((a, b) => b.time - a.time);
   };
+  const RECOMMEND = 1;                                   // recommType of a "Có thể bạn quen" suggestion
+  const sourceOf = (id) => num(safe(() => S.recoCache.recommFrObj[id].dataInfo.recommInfo.source, 0));
+  const suggestionsNow = () => {
+    const obj = safe(() => S.recoCache.recommFrObj, null);
+    if (!obj) return null;
+    resolveExtras();
+    const myName = str(me().displayName);
+    const out = [];
+    for (const k of Object.keys(obj)) {
+      const it = obj[k], d = it && it.dataInfo;
+      if (!d || d.recommType !== RECOMMEND || !d.userId) continue;
+      const src = num(d.recommInfo && d.recommInfo.source);
+      out.push({
+        id: String(d.userId), name: nameOfUser(d), avatar: str(d.avatar),
+        reason: langStr(safe(() => S.srcKey.getFriendSuggestSourceKey(src), '')) || '',
+        defaultMessage: safe(() => S.storage.getSayHiV2(myName, MAX_MSG(), src || SRC_FIND()), '') || '',
+        time: num(d.recommTime),
+      });
+    }
+    return out.sort((a, b) => b.time - a.time).slice(0, 50).map(({ time, ...x }) => x);
+  };
   let sent = [];                                         // refreshed from the server
   const mapSent = (obj) => {
     const out = [];
@@ -197,6 +251,8 @@
     step('groups', () => emit('groups', mapGroups()));
     step('received', () => { const received = receivedNow(); if (received) { emit('received', received); emit('pendingRequestCount', received.length); } });
     step('sent', () => emit('sent', sent));
+    step('suggestions', () => emit('suggestions', suggestionsNow()));
+    step('groupInvites', () => { if (syncGroupInvites()) publishGroupInvites(); });
   };
   let started = false;
   const kick = () => {
@@ -276,6 +332,128 @@
     }
   };
 
+  // ---- group invitations ----
+  // DI singletons found by the shape of their class (resolved through their own container when not instantiated yet).
+  const diFind = (test) => {
+    const req = window.__zaloRequire;
+    if (!req || typeof window.__zaloEachExport !== 'function') return null;
+    let found = null;
+    window.__zaloEachExport(req, (ex) => {
+      if (found || !ex || typeof ex !== 'object' || typeof ex.resolve !== 'function') return;
+      const map = safe(() => ex._registry._registryMap, null);
+      if (!(map instanceof Map)) return;
+      for (const [token, regs] of map) {
+        for (const r of regs || []) {
+          if (r && r.instance && typeof r.instance === 'object' && safe(() => test(r.instance), false)) { found = r.instance; return; }
+          const proto = safe(() => r.provider.useClass.prototype, null);
+          if (proto && safe(() => test(proto), false)) { found = safe(() => ex.resolve(token), null); if (found) return; }
+        }
+      }
+    });
+    return found;
+  };
+  const GI = { ctl: null, unread: null, tab: null, community: null, joinErrors: new Map() };
+  let giTries = 0, giLast = 0, giWatching = false, giAppeared = false, giTimer = null;
+  const scheduleGI = () => { if (giTimer) return; giTimer = setTimeout(() => { giTimer = null; publishGroupInvites(); }, 60); };
+  const wrapAfter = (o, m, after) => {
+    const f = o && o[m];
+    if (typeof f !== 'function' || f.__compola) return;
+    const w = function (...a) { const r = f.apply(this, a); try { after(a); } catch {} return r; };
+    w.__compola = true;
+    o[m] = w;
+  };
+  const resolveGI = () => {
+    if (!window.__zaloRequire) return false;
+    if (!(GI.ctl && GI.unread && GI.tab) && Date.now() - giLast >= 1000 && giTries < 60) {
+      giLast = Date.now(); giTries++;
+      if (!GI.ctl) GI.ctl = diFind((o) => typeof o.onInvitationListUIAppear === 'function' && typeof o.acceptInvitation === 'function' && typeof o.rejectInvitation === 'function' && typeof o.getInvitationSync === 'function');
+      if (!GI.unread) GI.unread = diFind((o) => typeof o.clearGroupInvitationUnread === 'function' && typeof o.onUpdateRequestTracking === 'function' && typeof o.getState === 'function');
+      if (!GI.tab) GI.tab = diFind((o) => typeof o.onOpenGroupInvitationTab === 'function' && typeof o.onOpenFriendRequestTab === 'function');
+      if (!GI.community) window.__zaloEachExport(window.__zaloRequire, (ex) => { try { if (!GI.community && ex && ex.__compola_not_a_member__ === undefined && typeof ex.isCommunityFromInfo === 'function') GI.community = ex; } catch {} });
+    }
+    if (GI.ctl) {
+      // The controller's own UI signals tell us when its list changed; its error handler only shows an (invisible) toast,
+      // so the join error code is kept for the caller.
+      for (const m of ['signalUpdateList', 'signalUpdateItem', 'signalUpdateListMeta']) wrapAfter(GI.ctl, m, scheduleGI);
+      wrapAfter(GI.ctl, 'handleJoinInvitationError', (a) => { if (a[0] && a[0].groupId) GI.joinErrors.set(a[0].groupId, a[1]); });
+    }
+    if (GI.unread) wrapAfter(GI.unread, '_updateState', scheduleGI);
+    return !!GI.ctl;
+  };
+  // Opens / closes the official invitation box the way the page's mount / unmount does.
+  const syncGroupInvites = () => {
+    if (!resolveGI()) return false;
+    if (giWatching && !giAppeared) {
+      giAppeared = true;
+      safe(() => GI.ctl.onInvitationListUIAppear(), null);
+      safe(() => GI.tab && GI.tab.onOpenGroupInvitationTab(), null);
+    } else if (!giWatching && giAppeared) {
+      giAppeared = false;
+      safe(() => GI.ctl.onInvitationListUIDisappear(), null);
+    }
+    return true;
+  };
+  const isCommunity = (g) => {
+    const f = GI.community && GI.community.isCommunityFromInfo;
+    return typeof f === 'function' ? !!safe(() => f(g), false) : num(g && g.type) === 2;
+  };
+  const PENDING_REVIEW = 1;                              // invitation type: my join request awaits the group's admins
+  const mapInvite = (inv) => {
+    const g = inv.groupInfo || {}, by = inv.inviterInfo || {}, owner = inv.grCreatorInfo || {};
+    const inviterId = str(by.userId);
+    return {
+      id: str(inv.groupId), name: str(g.displayName) || str(g.name), avatar: str(g.avatar), members: num(g.totalMember),
+      community: isCommunity(g),
+      inviterId, inviterName: safe(() => S.friends.getDName(inviterId), '') || str(by.displayName) || str(by.zaloName),
+      inviterAvatar: str(by.avatar), inviterIsOwner: !!inviterId && inviterId === str(owner.userId),
+      expiresAt: num(inv.expiredTs), pendingReview: num(inv.type) === PENDING_REVIEW,
+    };
+  };
+  const publishGroupInvites = () => {
+    if (!GI.ctl) { emit('groupInvites', { available: false, watching: giWatching, loading: false, total: 0, hasMore: false, items: [] }); return; }
+    const meta = safe(() => GI.ctl.getUIListMeta(), null) || {};
+    const items = [];
+    const data = safe(() => GI.ctl.data, null);
+    const now = Date.now();
+    if (giAppeared && data instanceof Map) {
+      for (const inv of data.values()) {
+        if (!inv || !inv.groupId || (num(inv.expiredTs) && num(inv.expiredTs) <= now)) continue;
+        try { items.push(mapInvite(inv)); } catch (e) { diag('group invite skipped: ' + e); }
+      }
+    }
+    emit('groupInvites', { available: true, watching: giWatching, loading: giAppeared && !!meta.loading, total: num(meta.total), hasMore: !!meta.hasMore, items });
+    const unread = safe(() => GI.unread.getState().unread.newGroupInvitations, null);
+    if (unread && typeof unread.size === 'number') emit('groupInviteUnread', unread.size);
+  };
+  const giText = (inv, base, fallback) =>
+    langStr((isCommunity((inv && inv.groupInfo) || {}) ? 'STR_COMMUNITY_' : 'STR_') + base) || langStr('STR_' + base) || fallback;
+  const errorOccur = () => langStr('STR_ERROR_OCCUR') || 'Đã có lỗi xảy ra. Vui lòng thử lại';
+  const giAction = async (id, run) => {
+    if (!syncGroupInvites()) { const text = 'Chưa sẵn sàng, vui lòng thử lại.'; notice(false, text); return { ok: false, text }; }
+    const inv = safe(() => GI.ctl.getInvitationSync(String(id)), null);
+    if (!inv) { const text = langStr('STR_GROUP_INVITATION_JOIN_ERR_212') || 'Lời mời tham gia nhóm không tồn tại'; notice(false, text); return { ok: false, text }; }
+    const result = await run(inv);
+    notice(result.ok || !!result.pending, result.text);
+    scheduleGI();
+    return result;
+  };
+  const acceptGroupInvite = (id) => giAction(id, async (inv) => {
+    GI.joinErrors.delete(inv.groupId);
+    let thrown = null;
+    try { await GI.ctl.acceptInvitation(inv, undefined); } catch (e) { thrown = e; }
+    const code = GI.joinErrors.has(inv.groupId) ? GI.joinErrors.get(inv.groupId) : (thrown ? num(thrown.error_code) || -1 : undefined);
+    GI.joinErrors.delete(inv.groupId);
+    if (code === undefined) return { ok: true, text: isCommunity(inv.groupInfo || {}) ? 'Đã tham gia cộng đồng.' : 'Đã tham gia nhóm.' };
+    const text = giText(inv, 'GROUP_INVITATION_JOIN_ERR_' + code, '') || errorOccur();
+    return { ok: false, pending: code === 240, text };
+  });
+  const declineGroupInvite = (id, blockGroup, blockInviter) => giAction(id, async (inv) => {
+    try { await GI.ctl.rejectInvitation(inv, { blockGroup: !!blockGroup, blockInviter: !!blockInviter }); } catch {}
+    // The official call reports failure only with a toast; it removes the invitation from its cache on success.
+    const ok = !safe(() => GI.ctl.getInvitationSync(inv.groupId), null);
+    return ok ? { ok: true, text: giText(inv, 'GROUP_INVITATION_DELETED', 'Đã xoá lời mời vào nhóm') } : { ok: false, text: errorOccur() };
+  });
+
   // ---- write actions (all official paths; results come back as `notice`) ----
   let noticeSeq = 0;
   const notice = (ok, text) => post({ notice: { seq: ++noticeSeq, ok, text } });
@@ -305,6 +483,51 @@
     cancel(id) {
       act(() => S.frSvc.undoRequestAddFriend(String(id)), 'Đã thu hồi lời mời kết bạn.', 'Không thể thu hồi lời mời.');
     },
+    watchGroupInvites(on) { giWatching = !!on; syncGroupInvites(); publishGroupInvites(); },
+    loadMoreGroupInvites() { if (syncGroupInvites() && giAppeared) safe(() => GI.ctl.loadMoreReceivedInvitations(), null); },
+    acceptGroupInvite(id) { return acceptGroupInvite(id); },
+    declineGroupInvite(id, blockGroup, blockInviter) { return declineGroupInvite(id, blockGroup, blockInviter); },
+    dismissSuggestion(id) {
+      const uid = String(id);
+      const d = safe(() => S.recoCache.recommFrObj[uid].dataInfo, null);
+      if (!resolve() || !d) return;
+      Promise.resolve(S.recoCache.removeSuggestFriend(uid, d.recommSrc, d.recommType))
+        .catch((e) => { diag('dismiss suggestion failed: ' + errText(e)); notice(false, errText(e) || 'Không thể ẩn gợi ý này.'); })
+        .finally(publish);
+    },
+    // Friendship state of a stranger whose chat is open, with the official "say hi" text for a request from the chat.
+    async requestInfo(id) {
+      const uid = String(id);
+      if (!resolve()) return null;
+      const src = num(S.consts && S.consts.FRIEND_REQUEST_SRC_CHAT) || SRC_FIND();
+      const isFriend = !!(await Promise.resolve(safe(() => S.friends.isFriend(uid), false)));
+      let requested = sent.some((x) => x.id === uid), requesting = (receivedNow() || []).some((x) => x.id === uid);
+      if (!isFriend) {
+        if (!safe(() => S.frSvc.getFriendRequestSource(uid), null)) safe(() => S.frSvc.setFriendRequestSource(uid, src), null);
+        try {
+          const st = await S.frSvc.getStatusFriendRequest(uid, true, true);
+          if (st) { requested = requested || num(st.isRequested) === 1 || st.isRequested === true; requesting = requesting || num(st.isRequesting) === 1 || st.isRequesting === true; }
+        } catch {}
+      }
+      return { isFriend, requested, requesting, defaultMessage: safe(() => S.storage.getSayHiV2(str(me().displayName), MAX_MSG(), src), '') || '', maxMessage: MAX_MSG() };
+    },
+    async block(id) {
+      const uid = String(id);
+      resolveExtras();
+      const setBlock = S.consts && S.consts.SET_BLOCK;
+      if (!resolve() || !S.profiles || typeof setBlock !== 'number') { const text = 'Chưa chặn được người này trên phiên bản này.'; notice(false, text); return { ok: false, text }; }
+      try {
+        await S.profiles.blockFriend(uid, setBlock);
+        safe(() => window.__zaloStore.dispatch({ type: 'BLOCK_CONVERSATION', payload: { blocked: true, userId: uid } }), null);
+        const text = langStr('STR_BLOCK_USER_TOAST_SUCCESS') || 'Bạn đã chặn tin nhắn và cuộc gọi từ người này';
+        notice(true, text);
+        return { ok: true, text };
+      } catch (e) {
+        const text = errText(e) || langStr('STR_ERROR_OCCUR') || 'Đã có lỗi xảy ra. Vui lòng thử lại';
+        notice(false, text);
+        return { ok: false, text };
+      }
+    },
     sendRequest(id, message) {
       const uid = String(id), text = String(message || '').slice(0, MAX_MSG());
       // One request per person at a time. The call itself is never cancelled; when it has not answered in ~60 s the caller is told it is still
@@ -312,7 +535,7 @@
       if (requesting.has(uid)) return Promise.resolve({ ok: false, pending: true, text: 'Lời mời kết bạn đang được gửi. Hãy chờ giây lát rồi kiểm tra mục “Đã gửi”.' });
       const run = act(async () => {
         if (!text.trim()) throw { error_message: 'Vui lòng nhập lời nhắn.' };
-        if (!safe(() => S.frSvc.getFriendRequestSource(uid), null)) safe(() => S.frSvc.setFriendRequestSource(uid, SRC_FIND()), null);
+        if (!safe(() => S.frSvc.getFriendRequestSource(uid), null)) safe(() => S.frSvc.setFriendRequestSource(uid, sourceOf(uid) || SRC_FIND()), null);
         await S.frSvc.requestAddFriend(uid, text, S.frSvc.getFriendRequestSource(uid));
         safe(() => S.storage.setStrangerCache(uid, 1), null);
       }, 'Đã gửi lời mời kết bạn.', 'Không thể gửi lời mời kết bạn.', () => {

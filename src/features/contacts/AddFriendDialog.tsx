@@ -3,16 +3,18 @@
 // `requestAddFriend`. Nothing is sent until "Gửi" is pressed; the search is reset when the dialog closes.
 
 import { ChevronDown, Clock, MessageCircle, UserCheck, UserPlus, X } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   acceptFriendRequest,
   cancelFriendRequest,
+  dismissSuggestion,
   findFriend,
   openContactConversation,
   resetFriendSearch,
   sendFriendRequest,
   useContacts,
   type FoundUser,
+  type FriendSuggestion,
 } from '../../engine/contacts';
 import { Avatar } from '../../ui/Avatar';
 import { openMenuBelow } from '../../ui/Menu';
@@ -45,6 +47,79 @@ const countries: Country[] = [
   { iso: 'TH', code: '+66', name: 'Thái Lan' },
   { iso: 'TW', code: '+886', name: 'Đài Loan' },
 ];
+
+// MARK: - "Có thể bạn quen"
+
+/**
+ * Suggestions of the official recommendation cache under the phone field: "Kết bạn" sends the official greeting right away,
+ * ✕ asks the server to stop suggesting the person. People already requested or befriended drop out.
+ */
+function Suggestions() {
+  const suggestions = useContacts((s) => s.suggestions);
+  const sent = useContacts((s) => s.sent);
+  const friends = useContacts((s) => s.friends);
+  const [state, setState] = useState<Record<string, 'sending' | 'sent'>>({});
+  const visible = useMemo(() => {
+    const taken = new Set([...sent.map((r) => r.id), ...friends.map((f) => f.id)]);
+    return suggestions.filter((x) => !taken.has(x.id) || state[x.id] === 'sent').slice(0, 20);
+  }, [suggestions, sent, friends, state]);
+  if (visible.length === 0) return null;
+
+  const add = async (x: FriendSuggestion) => {
+    setState((m) => ({ ...m, [x.id]: 'sending' }));
+    const result = await sendFriendRequest(x.id, x.defaultMessage || 'Xin chào, mình kết bạn nhé!');
+    setState((m) => {
+      const next = { ...m };
+      if (result.ok || result.pending) next[x.id] = 'sent';
+      else delete next[x.id];
+      return next;
+    });
+  };
+
+  return (
+    <div className="ct-suggest">
+      <div className="ct-recent-title">
+        <UserPlus size={13} /> Có thể bạn quen
+      </div>
+      {visible.map((x) => {
+        const st = state[x.id];
+        return (
+          <div key={x.id} className="ct-suggest-row">
+            <button className="ct-recent-main" onClick={() => openContactConversation(x.id, { name: x.name, avatar: x.avatar })} title="Nhắn tin">
+              <Avatar url={x.avatar} name={x.name} size={36} />
+              <span className="ct-recent-text">
+                <span className="truncate">{x.name || 'Người dùng Zalo'}</span>
+                <span className="ct-recent-phone truncate">{x.reason || 'Có thể bạn quen'}</span>
+              </span>
+            </button>
+            {st === 'sent' ? (
+              <span className="ct-suggest-sent">Đã gửi</span>
+            ) : (
+              <button
+                className="ct-btn ct-btn-tonal ct-suggest-add"
+                disabled={st === 'sending'}
+                onClick={() => void add(x)}
+                title="Gửi lời mời kết bạn"
+                aria-label={`Kết bạn với ${x.name}`}
+              >
+                {st === 'sending' ? <Spinner size={13} /> : 'Kết bạn'}
+              </button>
+            )}
+            <button
+              className="ct-recent-remove"
+              title="Ẩn gợi ý"
+              aria-label={`Ẩn gợi ý ${x.name}`}
+              disabled={st === 'sending'}
+              onClick={() => dismissSuggestion(x.id)}
+            >
+              <X size={14} />
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 // MARK: - Recent searches (this device only)
 
@@ -246,6 +321,7 @@ export function AddFriendDialog({ onClose }: { onClose: () => void }) {
                 ))}
               </div>
             )}
+            <Suggestions />
           </div>
           <div className="ct-dialog-footer">
             <button className="ct-btn ct-btn-secondary" onClick={onClose}>
