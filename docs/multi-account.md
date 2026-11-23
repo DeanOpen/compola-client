@@ -32,9 +32,9 @@ Status: contract. Implemented in milestones on `feature/multi-account-core`; see
   "active": "default",
   "maxAccounts": 5,
   "accounts": [
-    { "id": "default", "uid": "123…", "name": "Sales 1", "avatar": "https://…", "order": 0,
+    { "id": "default", "uid": "123…", "name": "Nguyễn A", "label": "Sales 1", "avatar": "https://…", "order": 0,
       "enabled": true, "addedAt": 1763900000000 },
-    { "id": "a1b2c3d4e", "uid": null, "name": null, "avatar": null, "order": 1, "enabled": true,
+    { "id": "a1b2c3d4e", "uid": null, "name": null, "label": null, "avatar": null, "order": 1, "enabled": true,
       "addedAt": 1763900100000 }
   ]
 }
@@ -47,7 +47,8 @@ Status: contract. Implemented in milestones on `feature/multi-account-core`; see
 - **`enabled`**: `false` keeps the account (data and session) without starting its renderers. It neither receives
   messages nor notifies (§8).
 - `name` and `avatar` are refreshed from the renderer's signed-in user, so the switcher can show them before the
-  renderer is up.
+  renderer is up. `label` is a local name an admin gave the account (`account_rename`); when set it is shown instead
+  of `name`, in the switcher and in notification titles.
 - The file is written atomically (tmp + rename). An unreadable file is kept as `accounts.json.bad` and the registry
   restarts from the accounts found on disk: `default`, plus every valid `Accounts/<id>/`.
 
