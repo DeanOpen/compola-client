@@ -420,3 +420,354 @@
   font-size: 11px;
   color: var(--zp-text-secondary);
 }
+
+/* ---- Wave 4 (docs/design-refs/wave4/poll): sectioned create form (Discord / Telegram), grouped settings rows with
+   descriptions (Telegram / Deputy), a vote summary row + faces per option (Skype), voter sections with vote pills
+   (WhatsApp). ---- */
+
+.poll-title-icon {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  background: var(--zp-selected);
+  color: var(--zp-primary);
+}
+
+.poll-form {
+  gap: 18px;
+}
+
+.poll-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.poll-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.poll-section-head .poll-field-label {
+  font-size: 11.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.poll-counter {
+  font-size: 11.5px;
+  color: var(--zp-text-secondary);
+}
+
+.poll-option-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 38px;
+  padding: 0 4px 0 10px;
+  border: 1px solid var(--zp-border-subtle);
+  border-radius: 8px;
+  background: var(--zp-surface);
+  transition: border-color 0.12s ease;
+}
+
+.poll-option-field:focus-within {
+  border-color: var(--zp-primary-pressed);
+}
+
+.poll-option-field.is-invalid {
+  border-color: var(--zp-danger);
+}
+
+.poll-option-field > svg {
+  flex: none;
+  opacity: 0.55;
+}
+
+.poll-option-input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--zp-text);
+  font-size: 14px;
+}
+
+.poll-option-input::placeholder {
+  color: var(--zp-text-secondary);
+}
+
+.poll-option-field .poll-remove,
+.poll-added-row .poll-remove {
+  width: 28px;
+  height: 28px;
+  color: var(--zp-text-secondary);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.poll-option-field:hover .poll-remove,
+.poll-option-field:focus-within .poll-remove,
+.poll-added-row:hover .poll-remove,
+.poll-added-row:focus-within .poll-remove {
+  opacity: 1;
+}
+
+.poll-option-field .poll-remove:hover {
+  color: var(--zp-danger);
+}
+
+.poll-add-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 38px;
+  padding: 0 10px;
+  border: 1px dashed var(--zp-border);
+  border-radius: 8px;
+  color: var(--zp-primary);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.poll-add-row:hover:not(:disabled) {
+  background: var(--zp-selected);
+  border-color: transparent;
+}
+
+.poll-add-row:disabled {
+  color: var(--zp-text-secondary);
+}
+
+.poll-settings-group {
+  gap: 0;
+  padding: 0;
+  border: 1px solid var(--zp-border-subtle);
+  background: var(--zp-surface);
+  overflow: hidden;
+}
+
+.poll-settings-group .poll-switch-row {
+  min-height: 52px;
+  padding: 8px 12px;
+}
+
+.poll-settings-group .poll-switch-row + .poll-switch-row {
+  border-top: 1px solid var(--zp-border-subtle);
+}
+
+.poll-deadline-row {
+  background: var(--zp-hover);
+}
+
+.poll-switch-icon {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--zp-selected);
+  color: var(--zp-primary);
+}
+
+.poll-switch-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.poll-switch-help {
+  font-size: 12px;
+  color: var(--zp-text-secondary);
+}
+
+/* Vote sheet */
+.poll-vote-page {
+  gap: 14px;
+}
+
+.poll-sheet-head {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.poll-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.poll-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 9px;
+  border-radius: 999px;
+  background: var(--zp-subtle);
+  font-size: 12px;
+  color: var(--zp-text-secondary);
+}
+
+.poll-chip.is-alert {
+  background: color-mix(in srgb, var(--zp-danger) 12%, transparent);
+  color: var(--zp-danger);
+}
+
+.poll-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--zp-hover);
+}
+
+.poll-summary-icon {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--zp-selected);
+  color: var(--zp-primary);
+}
+
+.poll-summary-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  font-weight: 500;
+}
+
+.poll-summary-pin {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--zp-link);
+}
+
+.poll-summary-link {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--zp-link);
+}
+
+.poll-summary-link:hover {
+  text-decoration: underline;
+}
+
+.poll-options-sheet {
+  gap: 8px;
+}
+
+.poll-options-sheet .poll-option-body {
+  min-height: 42px;
+  border-radius: 8px;
+}
+
+.poll-faces {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  padding-left: 6px;
+}
+
+.poll-faces.is-link {
+  cursor: pointer;
+}
+
+.poll-face {
+  margin-left: -6px;
+  box-shadow: 0 0 0 2px var(--zp-surface);
+}
+
+.poll-option-percent {
+  position: relative;
+  flex: none;
+  min-width: 34px;
+  text-align: right;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--zp-text);
+}
+
+/* Voter list */
+.poll-voters {
+  gap: 16px;
+}
+
+.poll-voter-group {
+  gap: 4px;
+}
+
+.poll-voter-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--zp-border-subtle);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.poll-voter-option {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.poll-vote-pill {
+  flex: none;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--zp-selected);
+  color: var(--zp-primary);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.poll-voter {
+  min-height: 44px;
+  padding: 0 4px;
+  border-radius: 8px;
+}
+
+.poll-voter:hover {
+  background: var(--zp-hover);
+}
+
+.poll-voter-name {
+  flex: 1;
+  min-width: 0;
+}
+
+.poll-voter-me {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--zp-subtle);
+}

@@ -1,12 +1,22 @@
 // Shared pieces of the poll card and sheets (Swift PollViews.swift: `PollSettingsLine`, `PollOptionRow`, `PollChrome`).
 
 import { CheckCircle2, CheckSquare, Circle, CircleDot, Clock, EyeOff, ListChecks, Square, UserRoundX, type LucideIcon } from 'lucide-react';
-import { formatPercent, formatPollDeadline, isPollExpired, type PollDetail, type PollOption } from '../../engine/models/poll';
+import { formatPercent, formatPollDeadline, isPollExpired, type PollDetail, type PollOption, type PollVoterUser } from '../../engine/models/poll';
+import { Avatar } from '../../ui/Avatar';
 import './dialog.css';
 import './poll.css';
 
 /** Setting chips under the question: deadline, one / many answers, hidden voters, hidden results (official `WYKB`). */
-export function PollSettingsLine({ poll, showsSingleChoice = false }: { poll: PollDetail; showsSingleChoice?: boolean }) {
+export function PollSettingsLine({
+  poll,
+  showsSingleChoice = false,
+  chips = false,
+}: {
+  poll: PollDetail;
+  showsSingleChoice?: boolean;
+  /** Pill chips in a wrapping row (sheet header) instead of the card's stacked lines. */
+  chips?: boolean;
+}) {
   const items: { icon: LucideIcon; text: string; alert?: boolean }[] = [];
   if (poll.expires !== null) items.push({ icon: Clock, text: 'Kết thúc lúc ' + formatPollDeadline(poll.expires), alert: isPollExpired(poll) });
   if (poll.multi) items.push({ icon: ListChecks, text: 'Chọn nhiều phương án' });
@@ -15,9 +25,9 @@ export function PollSettingsLine({ poll, showsSingleChoice = false }: { poll: Po
   if (poll.hidePreview) items.push({ icon: EyeOff, text: 'Ẩn kết quả khi chưa bình chọn' });
   if (!items.length) return null;
   return (
-    <div className="poll-settings">
+    <div className={chips ? 'poll-chips' : 'poll-settings'}>
       {items.map(({ icon: Icon, text, alert }) => (
-        <div key={text} className={`poll-setting ${alert ? 'is-alert' : ''}`}>
+        <div key={text} className={`${chips ? 'poll-chip' : 'poll-setting'} ${alert ? 'is-alert' : ''}`}>
           <Icon size={11} />
           <span>{text}</span>
         </div>
@@ -45,11 +55,19 @@ export function PollOptionRow({
   weight,
   showsCount = true,
   control,
+  voters,
+  showsPercent = false,
+  onShowVoters,
 }: {
   option: PollOption;
   weight: number;
   showsCount?: boolean;
   control?: OptionControl;
+  /** Who voted for it (sheet): up to three faces stacked before the count. */
+  voters?: PollVoterUser[];
+  showsPercent?: boolean;
+  /** The faces open the voter list. */
+  onShowVoters?: () => void;
 }) {
   const label = control ? undefined : `${option.content}, ${option.votes} phiếu, ${formatPercent(weight)}${option.voted ? ', đã chọn' : ''}`;
   return (
@@ -73,6 +91,25 @@ export function PollOptionRow({
         <div className={`poll-option-bar ${weight >= 1 ? 'is-full' : ''}`} style={{ width: `${Math.max(0, Math.min(1, weight)) * 100}%` }} />
         <span className="poll-option-text">{option.content}</span>
         {option.voted && !control && <CheckCircle2 size={12} className="tint poll-option-tick" />}
+        {voters && voters.length > 0 && (
+          <span
+            className={`poll-faces ${onShowVoters ? 'is-link' : ''}`}
+            onClick={
+              onShowVoters
+                ? (e) => {
+                    e.stopPropagation();
+                    onShowVoters();
+                  }
+                : undefined
+            }
+            title={voters.map((v) => v.name).join(', ')}
+          >
+            {voters.slice(0, 3).map((v) => (
+              <Avatar key={v.uid} url={v.avatar} name={v.name} size={20} className="poll-face" />
+            ))}
+          </span>
+        )}
+        {showsPercent && option.votes > 0 && <span className="poll-option-percent nums">{formatPercent(weight)}</span>}
         {showsCount && <span className="poll-option-count nums">{option.votes}</span>}
       </div>
     </div>
@@ -86,7 +123,9 @@ export function SwitchRow({
   onChange,
   disabled = false,
   help,
+  icon: Icon,
 }: {
+  icon?: LucideIcon;
   label: string;
   checked: boolean;
   onChange: (on: boolean) => void;
@@ -94,8 +133,16 @@ export function SwitchRow({
   help?: string;
 }) {
   return (
-    <label className={`poll-switch-row ${disabled ? 'is-disabled' : ''}`} title={help}>
-      <span className="poll-switch-label">{label}</span>
+    <label className={`poll-switch-row ${disabled ? 'is-disabled' : ''}`}>
+      {Icon && (
+        <span className="poll-switch-icon">
+          <Icon size={15} />
+        </span>
+      )}
+      <span className="poll-switch-text">
+        <span className="poll-switch-label">{label}</span>
+        {help && <span className="poll-switch-help">{help}</span>}
+      </span>
       <input type="checkbox" className="app-switch" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
     </label>
   );
