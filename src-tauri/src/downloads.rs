@@ -159,6 +159,8 @@ impl Outcome {
 
 /// Everything a transfer needs.
 struct Job {
+    /// The cookie jar of the account that asked.
+    jar: Arc<crate::net::cookies::CookieJar>,
     url: url::Url,
     destination: PathBuf,
     kind: String,
@@ -178,6 +180,8 @@ impl Job {
 
 pub struct DownloadManager {
     app: AppHandle,
+    /// The account's cookie jar.
+    jar: Arc<crate::net::cookies::CookieJar>,
     platform: Arc<Platform>,
     temp_dir: PathBuf,
     /// `downloadFrom|key` → token → cancel switch.
@@ -187,14 +191,15 @@ pub struct DownloadManager {
     next_token: AtomicU64,
 }
 
-/// The current manager (replaced when the engine boots another runtime).
+/// The current manager of each account (replaced when that account's engine boots another runtime).
 #[derive(Default)]
-struct Slot(Mutex<Option<Arc<DownloadManager>>>);
+struct Slot(Mutex<HashMap<String, Arc<DownloadManager>>>);
 
-pub fn install(app: &AppHandle, reg: &mut Registry, platform: &Arc<Platform>) {
+pub fn install(app: &AppHandle, reg: &mut Registry, platform: &Arc<Platform>, account: &Arc<crate::account::Account>) {
     let temp_dir = dirs::cache_dir().unwrap_or_else(std::env::temp_dir).join("Compola/download-tmp");
     let manager = Arc::new(DownloadManager {
         app: app.clone(),
+        jar: account.jar.clone(),
         platform: platform.clone(),
         temp_dir: temp_dir.clone(),
         tasks: Mutex::new(HashMap::new()),
@@ -204,7 +209,7 @@ pub fn install(app: &AppHandle, reg: &mut Registry, platform: &Arc<Platform>) {
     if app.try_state::<Slot>().is_none() {
         app.manage(Slot::default());
     }
-    if let Some(old) = app.state::<Slot>().0.lock().replace(manager.clone()) {
+    if let Some(old) = app.state::<Slot>().0.lock().insert(account.id().to_owned(), manager.clone()) {
         old.reset();
     }
     tauri::async_runtime::spawn_blocking(move || remove_stale_temps(&temp_dir, SystemTime::now()));
@@ -220,12 +225,10 @@ pub fn install(app: &AppHandle, reg: &mut Registry, platform: &Arc<Platform>) {
     });
 }
 
-/// Logout / account switch: nothing may keep writing, and a new account must not inherit verdicts.
-/// (To be called from `MainProcess::reset_account_state`.)
-#[allow(dead_code)]
-pub fn reset(app: &AppHandle) {
+/// Logout of `account`: nothing of it may keep writing, and its next session must not inherit verdicts.
+pub fn reset(app: &AppHandle, account: &str) {
     if let Some(slot) = app.try_state::<Slot>() {
-        if let Some(m) = slot.0.lock().as_ref() {
+        if let Some(m) = slot.0.lock().get(account) {
             m.reset();
         }
     }
@@ -378,8 +381,9 @@ impl DownloadManager {
             ttfb: Duration::from_secs_f64(ttfb / 1000.0),
             temp_dir: self.temp_dir.clone(),
             user_agent: self.platform.user_agent(),
+            jar: self.jar.clone(),
         };
-        let outcome = execute(&self.app, job, cancelled).await;
+        let outcome = execute(job, cancelled).await;
         if outcome.failure.as_ref().is_some_and(|f| f.code == 75404) {
             self.remember_not_found(url_string);
         }
@@ -428,7 +432,7 @@ impl Drop for TempFile {
 }
 
 /// fetch → decrypt → quarantine → atomic move. Temporary files live in `job.temp_dir`, never in the save folder.
-async fn execute(app: &AppHandle, job: Job, cancelled: Arc<AtomicBool>) -> Outcome {
+async fn execute(job: Job, cancelled: Arc<AtomicBool>) -> Outcome {
     if let Err(e) = std::fs::create_dir_all(&job.temp_dir) {
         log::warn!("download temp dir: {e}");
         return Outcome::failed(Failure::unknown());
@@ -436,12 +440,12 @@ async fn execute(app: &AppHandle, job: Job, cancelled: Arc<AtomicBool>) -> Outco
     let raw = TempFile::new(&job.temp_dir);
     let fetched = if job.is_photo() {
         let deadline = IMAGE_DEADLINE.max(job.ttfb);
-        match tokio::time::timeout(deadline, fetch_to_file(app, &job, raw.path())).await {
+        match tokio::time::timeout(deadline, fetch_to_file(&job, raw.path())).await {
             Ok(r) => r,
             Err(_) => Err(Failure::ttfb_timeout()),
         }
     } else {
-        fetch_to_file(app, &job, raw.path()).await
+        fetch_to_file(&job, raw.path()).await
     };
     if let Err(f) = fetched {
         log::info!("download type={} failed: {} ({})", job.kind, f.name, job.url.host_str().unwrap_or("-"));
@@ -474,7 +478,7 @@ pub fn sanitized_headers(headers: &[(String, String)], url: &url::Url) -> Vec<(S
 }
 
 /// Streams the body (following redirects by hand: sensitive headers do not leave the host they were meant for).
-async fn fetch_to_file(app: &AppHandle, job: &Job, file: &Path) -> Result<(), Failure> {
+async fn fetch_to_file(job: &Job, file: &Path) -> Result<(), Failure> {
     let max_bytes = if job.is_photo() { PHOTO_BYTE_CAP } else { MAX_FILE_BYTES };
     let head_timeout = if !job.ttfb.is_zero() {
         job.ttfb
@@ -489,7 +493,7 @@ async fn fetch_to_file(app: &AppHandle, job: &Job, file: &Path) -> Result<(), Fa
     let mut hops = 0;
     let mut response = loop {
         let sanitized = sanitized_headers(&headers, &url);
-        let r = match crate::net::fetch(app, &url, sanitized, &job.user_agent, head_timeout).await {
+        let r = match crate::net::fetch(&job.jar, &url, sanitized, &job.user_agent, head_timeout).await {
             Ok(r) => r,
             Err(crate::net::FetchError::Timeout) if !job.ttfb.is_zero() => return Err(Failure::ttfb_timeout()),
             Err(e) => return Err(Failure::from_fetch(&e)),

@@ -23,6 +23,8 @@ pub const MAX_OPEN_RANGE: u64 = 8 << 20;
 /// A parsed `compola-media` request.
 #[derive(Debug, PartialEq, Eq)]
 pub struct MediaRequest {
+    /// `account=` (validated id; `None` = the active account).
+    pub account: Option<String>,
     pub url: url::Url,
     pub flavour: Flavour,
     pub retry: bool,
@@ -95,8 +97,15 @@ pub fn parse_request_with_roots(uri: &http::Uri, roots: &[PathBuf]) -> Result<Re
     let mut asset = None;
     let mut flavour_text = None;
     let mut retry = false;
+    let mut account = None;
     for (key, value) in url::form_urlencoded::parse(query.as_bytes()) {
         match key.as_ref() {
+            "account" => {
+                if !crate::account::valid_id(&value) {
+                    return Err((400, "bad account"));
+                }
+                account = Some(value.into_owned());
+            }
             "url" => url = Some(value.into_owned()),
             "file" => file = Some(value.into_owned()),
             "asset" => asset = Some(value.into_owned()),
@@ -108,7 +117,7 @@ pub fn parse_request_with_roots(uri: &http::Uri, roots: &[PathBuf]) -> Result<Re
     match (url, file, asset) {
         (Some(raw), None, None) => {
             let flavour = Flavour::parse(flavour_text.as_deref().unwrap_or("")).ok_or((400, "bad flavour"))?;
-            parse_remote(&raw, flavour, retry).map(Request::Remote)
+            parse_remote(&raw, flavour, retry).map(|r| Request::Remote(MediaRequest { account, ..r }))
         }
         (None, Some(raw), None) => {
             let flavour = match flavour_text.as_deref().unwrap_or("image") {
@@ -146,7 +155,7 @@ fn parse_remote(raw: &str, flavour: Flavour, retry: bool) -> Result<MediaRequest
             url
         }
     };
-    Ok(MediaRequest { url, flavour, retry })
+    Ok(MediaRequest { account: None, url, flavour, retry })
 }
 
 /// What a `Range` header asks of a body of `total` bytes.
@@ -330,7 +339,10 @@ pub async fn respond(app: &tauri::AppHandle, request: &http::Request<Vec<u8>>) -
     let head = method == http::Method::HEAD;
     let range = request.headers().get(http::header::RANGE).and_then(|v| v.to_str().ok()).map(str::to_owned);
     match parsed {
-        Request::Remote(request) => serve(&MediaLoader::shared(app), request, range, head).await,
+        Request::Remote(request) => match MediaLoader::for_account(app, request.account.as_deref()) {
+            Ok(loader) => serve(&loader, request, range, head).await,
+            Err(_) => plain(404, "unknown account", None),
+        },
         Request::Local(path, flavour) => tokio::task::spawn_blocking(move || serve_local(&path, flavour, range.as_deref(), head))
             .await
             .unwrap_or_else(|e| failure(&MediaError::Io(e.to_string()))),
@@ -597,11 +609,20 @@ mod tests {
     }
 
     #[test]
+    fn account_parameter_is_validated() {
+        let req = |q: &str| parse_request(&uri(&format!("compola-media://load?url=https%3A%2F%2Fs120-ava-talk.zadn.vn%2Fa.jpg&flavour=image{q}")));
+        assert!(matches!(req("").unwrap(), Request::Remote(MediaRequest { account: None, .. })));
+        assert!(matches!(req("&account=a1b2c3d4e").unwrap(), Request::Remote(MediaRequest { account: Some(ref a), .. }) if a == "a1b2c3d4e"));
+        assert!(matches!(req("&account=default").unwrap(), Request::Remote(MediaRequest { account: Some(_), .. })));
+        assert_eq!(req("&account=..%2Fx").unwrap_err().0, 400);
+    }
+
+    #[test]
     fn parses_the_scheme_url() {
         let enc = |s: &str| url::form_urlencoded::byte_serialize(s.as_bytes()).collect::<String>();
         let original = "https://s120-ava-talk.zadn.vn/a/b.jpg?x=1&y=2";
         let r = parse_request(&uri(&format!("compola-media://load?url={}&flavour=cors&retry=1", enc(original)))).map(remote).unwrap();
-        assert_eq!(r, MediaRequest { url: url::Url::parse(original).unwrap(), flavour: Flavour::Cors, retry: true });
+        assert_eq!(r, MediaRequest { account: None, url: url::Url::parse(original).unwrap(), flavour: Flavour::Cors, retry: true });
         // Windows form, default flavour, http upgraded.
         let r = parse_request(&uri(&format!("http://compola-media.localhost/load?url={}", enc("http://res-zalo.zadn.vn/x.json")))).map(remote).unwrap();
         assert_eq!((r.url.as_str(), r.flavour, r.retry), ("https://res-zalo.zadn.vn/x.json", Flavour::Image, false));
