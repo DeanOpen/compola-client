@@ -1,6 +1,7 @@
 // Signed-in window in the Zalo PC layout (docs/zalo-pc-style.md): the blue 64px rail, the 344px list column, the chat,
 // and the 344px info panel on the right (toggled from the chat header). Logic from Swift `MainShellView`.
 
+import { AddAccountHost } from '../features/accounts/AddAccountSheet';
 import { MessagesSquare } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import { useShallow } from 'zustand/react/shallow';
@@ -95,6 +96,7 @@ export function MainShell() {
       <ComposerPrompts />
       <ConversationPrompts onUnlocked={(id) => useShell.getState().selection === id && openConversation(id)} />
       <FeatureHosts />
+      <AddAccountHost />
     </div>
   );
 }

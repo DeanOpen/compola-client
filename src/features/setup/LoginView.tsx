@@ -117,7 +117,8 @@ function HostSignedOut({ serverName }: { serverName: string }) {
   );
 }
 
-function QrBody({ state, notice, refresh }: { state: LoginState; notice: string | null; refresh: () => void }) {
+/** The QR card body; also the add-account sheet's content (features/accounts). */
+export function QrBody({ state, notice, refresh }: { state: LoginState; notice: string | null; refresh: () => void }) {
   const step = state.step;
   return (
     <div className="login-body">

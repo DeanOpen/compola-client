@@ -2,6 +2,7 @@
 // StickerSettings.swift), laid out like Zalo PC's settings dialog: a list of sections on the left, the section's grouped
 // rows on the right. Notification and sticker rows read / write the official client's own settings.
 
+import { AccountsSettings } from '../accounts/AccountsSettings';
 import { setConversationPrompt } from '../../engine/conversationActions';
 import { setStickerSuggest } from '../../engine/stickers';
 import {
@@ -192,7 +193,12 @@ export function SettingsDialog({ tab: requested, onTab, onClose }: { tab: Settin
             {tab === 'notifications' && <NotificationSettings />}
             {tab === 'privacy' && <PrivacySettings />}
             {tab === 'sticker' && <StickerSettings />}
-            {tab === 'account' && <AccountSettings onClose={onClose} />}
+            {tab === 'account' && (
+              <>
+                <AccountsSettings />
+                <AccountSettings onClose={onClose} />
+              </>
+            )}
             {tab === 'mcp' && <McpSettings />}
             {tab === 'schedules' && <ScheduleSettings />}
             {tab === 'addons' && <AddonSettings />}
