@@ -3,7 +3,7 @@
 import { styledSegments, tokenStyle, type TextStyleRange } from '../../engine/models/textStyles';
 import { AlertCircle, CornerDownLeft, Lock, Phone, PhoneIncoming, PhoneMissed, Video, VideoOff } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { performCardAction } from '../../engine/cardActions';
+import { startCall } from '../../engine/calls';
 import type { ChatMessage, Quote } from '../../engine/models/chat';
 import { setEngine, useEngine } from '../../engine/store';
 import { openExternal } from '../../engine/system';
@@ -129,7 +129,8 @@ export function BubbleContent({ message, firstInGroup, lastInGroup, album }: Con
             <button
               className="call-back"
               title={callBack.help || (k.video ? 'Gọi lại video' : 'Gọi lại')}
-              onClick={() => void performCardAction(message.conversationId, message.id, callBack.ref)}
+              // The adapter only describes this button (it has no plan for it); the call itself is the header's call path.
+              onClick={() => startCall(message.conversationId, k.video)}
               disabled={!callBack.enabled}
             >
               <CornerDownLeft size={12} /> {callBack.label}
