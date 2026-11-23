@@ -4,7 +4,7 @@
 earlier Mobbin "floating panels / Liquid Glass" brief: keep only its interaction patterns (hover toolbar, grouped
 context menu, ⌘K palette), and apply Zalo PC's layout, density and colours below.
 
-**Brand:** the app is **Compola** (not Compola). Logo: `src/assets/compola-logo.svg` / `.png`. Never use Zalo's logo,
+**Brand:** the app is **Compola** (formerly "Compola" in the Swift original). Logo: `src/assets/compola-logo.svg` / `.png`. Never use Zalo's logo,
 icon font, illustrations or images (VNG's assets); use lucide icons and the Compola logo. Say "Zalo" only for the
 service ("Đăng nhập bằng Zalo", "Mở Zalo trên điện thoại").
 
