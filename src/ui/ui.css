@@ -497,3 +497,19 @@
   gap: 8px;
   font-size: 12.5px;
 }
+
+.toast-sep {
+  margin: 0 6px;
+  opacity: 0.6;
+}
+
+.toast-action {
+  font: inherit;
+  font-weight: 600;
+  color: #8fc0ff;
+  pointer-events: auto;
+}
+
+.toast-action:hover {
+  text-decoration: underline;
+}

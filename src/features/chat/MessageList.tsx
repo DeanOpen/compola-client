@@ -46,6 +46,11 @@ export function MessageList({
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const [nearBottom, setNearBottom] = useState(true);
+  /** Messages from others that arrived while the reader was scrolled up (badge on the scroll-to-bottom button). */
+  const [unseen, setUnseen] = useState(0);
+  useEffect(() => {
+    if (nearBottom) setUnseen(0);
+  }, [nearBottom]);
   const nearBottomRef = useRef(true);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const state = useRef({ atTop: false, armed: true, firstId: msgs[0]?.id, lastId: newestId, height: 0, top: 0, pending: 0 as number | ReturnType<typeof setTimeout>, giveUp: 0 as number | ReturnType<typeof setTimeout> });
@@ -101,6 +106,11 @@ export function MessageList({
       setLoadingOlder(false);
     } else if (lastId !== st.lastId && st.lastId !== undefined) {
       if (nearBottomRef.current || msgs[msgs.length - 1]?.isMine) scrollToBottom(true);
+      else {
+        const from = msgs.findIndex((m) => m.id === st.lastId);
+        const fresh = from >= 0 ? msgs.slice(from + 1).filter((m) => !m.isMine).length : 1;
+        if (fresh) setUnseen((n) => n + fresh);
+      }
     }
     if (msgs.length !== 0 && st.firstId !== firstId) setLoadingOlder(false);
     st.firstId = firstId;
@@ -210,8 +220,14 @@ export function MessageList({
       </div>
     </div>
       {!nearBottom && (
-        <button className="scroll-bottom circle-glass pop-in" onClick={() => scrollToBottom(true)} aria-label="Cuộn xuống tin nhắn mới nhất">
+        <button
+          className="scroll-bottom circle-glass pop-in"
+          onClick={() => scrollToBottom(true)}
+          aria-label={unseen ? `${unseen} tin nhắn mới, cuộn xuống` : 'Cuộn xuống tin nhắn mới nhất'}
+          title={unseen ? `${unseen} tin nhắn mới` : 'Cuộn xuống tin nhắn mới nhất'}
+        >
           <ChevronDown size={16} strokeWidth={2.6} />
+          {unseen > 0 && <span className="scroll-bottom-count nums">{unseen > 99 ? '99+' : unseen}</span>}
         </button>
       )}
     </div>

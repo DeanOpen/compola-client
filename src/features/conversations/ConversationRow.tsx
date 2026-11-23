@@ -1,7 +1,9 @@
 // Rows of the conversation list column (Swift ConversationListRows.swift): the two-line row, the Messages-style pinned
 // tile, the avatar with the group badge.
 
-import { BellOff, Cloud, Pin, Users } from 'lucide-react';
+import { conversationActionsMenu } from '../conversationActions/menu';
+import { openMenuBelow } from '../../ui/Menu';
+import { BellOff, Cloud, MoreHorizontal, Pin, Users } from 'lucide-react';
 import { memo } from 'react';
 import { cssColor, displayName, selfConversationTitle, type ConversationLabel, type ConversationSummary, type StrangerBox } from '../../engine/models/conversations';
 import { Avatar } from '../../ui/Avatar';
@@ -131,6 +133,19 @@ export const ConversationRow = memo(function ConversationRow({
           {muted && <BellOff size={10} className="conv-row-muted" aria-label="Đã tắt thông báo" />}
           <span className="conv-row-spacer" />
           {p?.date && <span className="conv-row-time nums">{listTime(p.date)}</span>}
+          {/* Hover: ⋯ takes the time's place and opens the row menu (the same as right-click). */}
+          <button
+            className="conv-row-more"
+            title="Thêm"
+            aria-label={`Tùy chọn cho ${isSelf ? selfConversationTitle : displayName(conversation)}`}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              openMenuBelow(e.currentTarget, conversationActionsMenu(conversation.id, 'thread'), 'end');
+            }}
+          >
+            <MoreHorizontal size={16} />
+          </button>
         </div>
         <div className="conv-row-bottom">
           {typing ? (

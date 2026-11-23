@@ -17,7 +17,7 @@ import { ContentUnavailable } from '../../ui/ContentUnavailable';
 import { openMenuBelow } from '../../ui/Menu';
 import { useConversationSummary } from '../chat/ChatDetail';
 import { SharedMediaBrowser, SharedMediaSections, useBrowsingSharedMedia } from '../sharedMedia/SharedMedia';
-import { conversationMuteMenu } from '../settings/muteMenu';
+import { muteMenuWithUndo } from '../conversationActions/menu';
 import { menuPlan, pinConversation, requestDeleteConversation, setConversationPrompt, unpinConversation } from '../../engine/conversationActions';
 import './inspector.css';
 
@@ -139,7 +139,7 @@ function InspectorActions({ conversationId, isGroup }: { conversationId: string;
         label={muted ? 'Bật thông báo' : 'Tắt thông báo'}
         help={muted ? 'Bật thông báo' : 'Tắt thông báo'}
         onClick={(el) => {
-          const item = conversationMuteMenu(conversationId);
+          const item = muteMenuWithUndo(conversationId);
           if (item.kind === 'submenu') openMenuBelow(el, item.items);
           else if (item.kind === undefined || item.kind === 'item') item.onSelect();
         }}

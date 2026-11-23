@@ -7,7 +7,7 @@ import { create } from 'zustand';
 import { callAdapter, log, raceTimeout } from './call';
 import { bool, int, obj, str, strings, type Json } from './models/json';
 import { getEngine, setEngine, type ConversationActionsState, type EngineState } from './store';
-import { showToast } from './toast';
+import { showToast, showUndoToast } from './toast';
 
 /** The adapter's `F` table. */
 export const ActionFlag = {
@@ -160,9 +160,10 @@ const parseResult = (v: unknown): ActionResult => {
 };
 
 /** Shows the official toast text (empty: nothing to say). */
-export const report = (r: ActionResult) => {
+export const report = (r: ActionResult, undo?: () => void) => {
   if (!r.text || r.full || r.pinExists) return;
-  showToast(r.text, null);
+  if (r.ok && undo) showUndoToast(r.text, undo);
+  else showToast(r.text, null);
 };
 
 const raw = (method: string, args: unknown[]) =>
@@ -184,13 +185,13 @@ const call = async (method: string, args: unknown[], timeout = 40): Promise<Acti
 // MARK: Actions
 
 /** "Ghim hội thoại": a full tab opens the board instead (`POP_PINNED_CONVERSATION`). */
-export const pinConversation = async (id: string) => {
+export const pinConversation = async (id: string): Promise<void> => {
   const r = await call('pin', [id]);
   if (r.full) setConversationPrompt({ kind: 'pinBoard', id });
-  else report(r);
+  else report(r, () => void unpinConversation(id));
 };
 
-export const unpinConversation = async (id: string) => report(await call('unpin', [id]));
+export const unpinConversation = async (id: string): Promise<void> => report(await call('unpin', [id]), () => void pinConversation(id));
 
 export interface PinBoard {
   tab: number;
@@ -216,7 +217,8 @@ export const pinReplacing = async (unpinIds: string[], id: string) => {
   return r;
 };
 
-export const moveConversation = async (id: string, toOther: boolean) => report(await call(toOther ? 'archive' : 'unarchive', [id], 45));
+export const moveConversation = async (id: string, toOther: boolean): Promise<void> =>
+  report(await call(toOther ? 'archive' : 'unarchive', [id], 45), () => void moveConversation(id, !toOther));
 
 /** "Xóa hội thoại": asks the official confirmation first. */
 export const requestDeleteConversation = (id: string) => setConversationPrompt({ kind: 'delete', id });
@@ -227,8 +229,8 @@ export const confirmDeleteConversation = async (id: string) => {
   report(r);
 };
 
-export const markConversationRead = async (id: string) => report(await call('markRead', [id]));
-export const markConversationUnread = async (id: string) => report(await call('markUnread', [id]));
+export const markConversationRead = async (id: string): Promise<void> => report(await call('markRead', [id]), () => void markConversationUnread(id));
+export const markConversationUnread = async (id: string): Promise<void> => report(await call('markUnread', [id]), () => void markConversationRead(id));
 
 // MARK: Hidden chats
 
