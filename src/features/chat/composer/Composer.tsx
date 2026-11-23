@@ -8,6 +8,7 @@ import {
   AlarmClock,
   BarChart3,
   Camera,
+  FileText,
   ContactRound,
   ImageIcon,
   MessageCircleMore,
@@ -24,7 +25,8 @@ import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from
 import { mentionCandidates } from '../../../engine/chat';
 import { reminderComposeInfo, reportComposer, sendFiles, sendMedia, startScreenCapture, type ReminderComposeInfo } from '../../../engine/composer';
 import { MyCardSheet, ReminderComposeSheet } from './ComposerSheets';
-import type { ComposerDraft, MentionCandidate } from '../../../engine/models/chat';
+import type { ChatMessage, ComposerDraft, MentionCandidate } from '../../../engine/models/chat';
+import { RemoteImage } from '../../../ui/RemoteImage';
 import { Avatar } from '../../../ui/Avatar';
 import { openMenuBelow } from '../../../ui/Menu';
 import { openCreatePoll } from '../../poll/pollSheets';
@@ -332,11 +334,12 @@ export function Composer({
       </div>
       {draft.replyTo && (
         <div className="composer-reply slide-up">
+          <ReplyThumb message={draft.replyTo} />
           <span className="composer-reply-text">
             <span className="composer-reply-title">
               <Quote size={12} /> Trả lời {draft.replyTo.isMine ? 'chính mình' : draft.replyTo.senderName}
             </span>
-            <span className="composer-reply-body truncate">{draft.replyTo.text || 'Tin nhắn'}</span>
+            <span className="composer-reply-body truncate">{replyText(draft.replyTo)}</span>
           </span>
           <button className="icon-button" style={{ width: 24, height: 24 }} onClick={() => onDraftChange({ ...draft, replyTo: null })} title="Hủy trả lời" aria-label="Hủy trả lời">
             <X size={14} />
@@ -474,5 +477,29 @@ function MentionSuggestions({
         </button>
       ))}
     </div>
+  );
+}
+
+/** What a reply quotes, in one line: the text, or the kind of media (X-style reply preview). */
+const replyText = (m: ChatMessage) => {
+  const k = m.kind;
+  if (k.type === 'photo') return m.text && !m.text.startsWith('[') ? m.text : 'Hình ảnh';
+  if (k.type === 'video') return 'Video';
+  if (k.type === 'file') return k.name || 'Tệp';
+  if (k.type === 'sticker') return 'Sticker';
+  if (k.type === 'voice') return 'Tin nhắn thoại';
+  return m.text || 'Tin nhắn';
+};
+
+/** A small picture of the quoted photo / video / sticker beside the reply bar's text. */
+function ReplyThumb({ message }: { message: ChatMessage }) {
+  const k = message.kind;
+  const url = k.type === 'photo' || k.type === 'sticker' ? k.url : k.type === 'video' ? k.thumbnail : null;
+  if (k.type === 'file') return <span className="composer-reply-thumb is-icon"><FileText size={16} /></span>;
+  if (!url) return null;
+  return (
+    <span className="composer-reply-thumb">
+      <RemoteImage url={url} fit={k.type === 'sticker' ? 'contain' : 'cover'} className="fill" compact placeholder={<span />} />
+    </span>
   );
 }

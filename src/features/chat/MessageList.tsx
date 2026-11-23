@@ -6,7 +6,8 @@ import { ChevronDown } from 'lucide-react';
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { loadOlderMessages, react } from '../../engine/chat';
 import type { ChatMessage } from '../../engine/models/chat';
-import type { ConversationSummary } from '../../engine/models/conversations';
+import { selfConversationTitle, type ConversationSummary } from '../../engine/models/conversations';
+import { ConversationAvatar } from '../conversations/ConversationRow';
 import { useEngine } from '../../engine/store';
 import { Spinner } from '../../ui/Spinner';
 import { daySeparator, time } from './format';
@@ -186,6 +187,7 @@ export function MessageList({
             <Spinner size={14} />
           </div>
         )}
+        {!hasMore && msgs.length > 0 && <ThreadStart conversation={conversation} />}
         {days.map((day) => (
           // One section per day: its date pill sticks only while its own messages are on screen.
           <section key={day.id} className="day-group">
@@ -230,6 +232,30 @@ export function MessageList({
           {unseen > 0 && <span className="scroll-bottom-count nums">{unseen > 99 ? '99+' : unseen}</span>}
         </button>
       )}
+    </div>
+  );
+}
+
+/** The top of a fully loaded history (wave 4, after X / Pinterest DMs): who this is, and that it starts here. */
+function ThreadStart({ conversation }: { conversation: ConversationSummary }) {
+  const selfId = useEngine((s) => s.selfConversationId);
+  const isSelf = conversation.id === selfId;
+  const name = isSelf ? selfConversationTitle : conversation.name;
+  const sub = isSelf
+    ? 'Lưu trữ và truy cập nhanh những nội dung quan trọng'
+    : conversation.isGroup
+      ? conversation.members > 0
+        ? `${conversation.members} thành viên`
+        : 'Nhóm'
+      : null;
+  return (
+    <div className="thread-start">
+      <ConversationAvatar conversation={conversation} size={64} isSelf={isSelf} />
+      <div className="thread-start-name">{name}</div>
+      {sub && <div className="thread-start-sub">{sub}</div>}
+      <div className="thread-start-note">
+        {isSelf ? 'Đây là nơi bạn lưu tin nhắn, ảnh và tệp cho riêng mình.' : conversation.isGroup ? `Đây là khởi đầu của nhóm ${name}.` : `Đây là khởi đầu cuộc trò chuyện của bạn với ${name}.`}
+      </div>
     </div>
   );
 }
