@@ -554,16 +554,6 @@
   right: 8px;
 }
 
-.bubble-row.has-reactions:not(.is-mine) .react-strip {
-  right: auto;
-  left: -6px;
-}
-
-.bubble-row.has-reactions.is-mine .react-strip {
-  left: auto;
-  right: -6px;
-}
-
 .react-trigger-btn {
   display: grid;
   place-items: center;
@@ -592,12 +582,19 @@
   animation: compola-pop 120ms ease-out;
 }
 
+/* The strip grows toward the open side of the chat, never over the avatar or out of the pane:
+   rightwards for incoming messages, leftwards for mine. */
 .bubble-row:not(.is-mine) .react-strip {
-  right: -6px;
+  left: -6px;
 }
 
 .bubble-row.is-mine .react-strip {
-  left: -6px;
+  right: -6px;
+}
+
+/* While the reactions are open, the reply · forward · ⋯ bar steps aside. */
+.bubble-stack:has(.react-trigger:hover) .hover-bar {
+  visibility: hidden;
 }
 
 /* A small bridge so the strip stays open while the pointer moves up to it. */
