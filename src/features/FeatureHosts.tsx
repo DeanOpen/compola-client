@@ -1,5 +1,6 @@
 // Window-level overlays of the feature waves (sheets, banners, viewers), rendered once by the main shell.
 
+import { AttachDemoHost } from './attach/DemoHost';
 import { CallHosts } from './calls/hosts';
 import { CardHosts } from './cardSheets/hosts';
 import { CloudHosts } from './cloud/hosts';
@@ -18,6 +19,7 @@ export function FeatureHosts() {
       <SettingsHosts />
       <MediaHosts />
       <CallHosts />
+      <AttachDemoHost />
     </>
   );
 }

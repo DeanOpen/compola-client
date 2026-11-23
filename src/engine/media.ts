@@ -40,3 +40,12 @@ export const reactionImageUrl = (path: string): string | null => {
   if (!path || usesMock) return null;
   return `${origin}/load?asset=${encodeURIComponent('pc-dist/' + path)}`;
 };
+
+/**
+ * Preview of a file the user picked, pasted or dropped (outside the data folders): Rust serves it once
+ * `commands.mediaAllowPreviews([path])` allowed it (30 min). Null in the mock (no local files there).
+ */
+export const localPreviewUrl = (path: string, flavour: MediaFlavour = 'image'): string | null => {
+  if (!path.startsWith('/') || usesMock) return null;
+  return `${origin}/load?file=${encodeURIComponent(path)}&flavour=${schemeFlavour(flavour)}`;
+};

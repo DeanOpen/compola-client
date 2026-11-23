@@ -66,6 +66,8 @@ export const commands = {
   /** Tells Rust which chat is on screen (notifications for it are suppressed); null when none. */
   setOpenConversation: async (id: string | null) => (await backend()).invoke('ui_set_open_conversation', { id }),
   /** Whether notifications may show the message text. */
+  /** Lets the media scheme serve these user-picked / pasted / dropped files (`?file=`) for 30 min; returns the count. */
+  mediaAllowPreviews: async (paths: string[]) => (await backend()).invoke<number>('media_allow_previews', { paths }),
   setShowsPreview: async (shows: boolean) => (await backend()).invoke('ui_set_shows_preview', { shows }),
   /** Starts the official screenshot tool; the result arrives as `compola://screen-capture`. */
   screenCaptureStart: async (conversationId: string, withCompola: boolean) =>
