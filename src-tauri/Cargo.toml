@@ -48,6 +48,7 @@ plist = "1"
 arboard = "3"
 keyring = { version = "3", features = ["apple-native"] }
 rusqlite = { version = "0.37", features = ["bundled"] }
+fallible-iterator = "0.3"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 
 [profile.release]
