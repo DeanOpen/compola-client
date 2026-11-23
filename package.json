@@ -9,7 +9,9 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "dev:admin": "vite --config vite.admin.config.ts",
-    "build:admin": "tsc -p admin && vite build --config vite.admin.config.ts"
+    "build:admin": "tsc -p admin && vite build --config vite.admin.config.ts",
+    "dev:web": "vite --config vite.web.config.ts",
+    "build:web": "tsc && vite build --config vite.web.config.ts"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

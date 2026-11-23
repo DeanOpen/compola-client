@@ -3,7 +3,7 @@
 // src-tauri/src/remote/mod.rs; the store is fed by `compola://remote` plus the initial `remote_status`.
 
 import { create } from 'zustand';
-import { backend } from './backend';
+import { backend, usesWeb } from './backend';
 import { arr, bool, num, obj, optStr, str, strings, type Json } from './models/json';
 
 // MARK: - Shapes
@@ -360,6 +360,28 @@ export const shortDeviceId = (id: string | null | undefined) => {
 /** "MacBook của Lan · #3F9A2C" */
 export const deviceTitle = (name: string | null | undefined, id: string | null | undefined) =>
   [name || 'Thiết bị không tên', shortDeviceId(id)].filter(Boolean).join(' · ');
+
+/**
+ * Leaving the server: a joined desktop app "leaves" (restarts with its own engine); the web client signs out (back to
+ * the console's sign-in).
+ */
+export const leaveCopy = usesWeb
+  ? {
+      action: 'Đăng xuất',
+      menu: 'Đăng xuất',
+      title: 'Đăng xuất?',
+      row: 'Đăng xuất khỏi trình duyệt này',
+      message: (_server: string) => 'Bạn sẽ cần đăng nhập lại để dùng Compola trên trình duyệt này.',
+      detail: (server: string) => `Tài khoản Zalo vẫn đăng nhập trên ${server}; chỉ phiên của bạn trên trình duyệt này kết thúc.`,
+    }
+  : {
+      action: 'Rời máy chủ',
+      menu: 'Rời Compola Server',
+      title: 'Rời Compola Server?',
+      row: 'Rời Compola Server',
+      message: (server: string) => `Máy này sẽ ngừng dùng tài khoản Zalo của ${server}; tài khoản vẫn đăng nhập trên máy chủ.`,
+      detail: (server: string) => `Tài khoản Zalo vẫn đăng nhập trên ${server}. Ứng dụng khởi động lại và dùng riêng trên máy này.`,
+    };
 
 export const roleTitle = (r: RemoteRole | null | undefined) =>
   r === 'admin' ? 'Quản trị viên' : r === 'agent' ? 'Nhân viên' : r === 'viewer' ? 'Chỉ xem' : 'Chưa được cấp quyền';

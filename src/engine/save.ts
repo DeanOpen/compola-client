@@ -1,17 +1,19 @@
 // "Lưu về máy…" (Swift `NSSavePanel` + download): the user picks a destination, Rust's `media_save` writes the file
 // (from the image cache or through the cors download path, atomically, quarantined). See docs/media.md.
 
-import { commands, usesMock } from './backend';
+import { commands, usesMock, usesTauri, usesWeb } from './backend';
+import { mediaUrl } from './media';
 import { showToast } from './toast';
 
 /** Returns the saved path, or null when the user cancelled / it failed (a toast tells why). */
 export const saveMediaAs = async (url: string, suggestedName: string, conversationId: string | null = null): Promise<string | null> => {
   const name = suggestedName.replace(/[/\\:]/g, '-').trim() || 'Compola';
-  if (usesMock) {
+  // Browser: a download link (the web client loads it through the server's /media/load).
+  if (!usesTauri) {
     const a = document.createElement('a');
-    a.href = url;
+    a.href = usesWeb ? (mediaUrl(url, 'file') ?? url) : url;
     a.download = name;
-    a.target = '_blank';
+    if (!usesWeb) a.target = '_blank';
     a.rel = 'noopener';
     a.click();
     showToast('Đã lưu', conversationId);

@@ -9,7 +9,7 @@
 //   startCall(uid, video)                            the chat header's own action (groups: video → participant picker)
 
 import { create } from 'zustand';
-import { backend, usesMock } from './backend';
+import { backend, usesTauri } from './backend';
 import { callAdapter, fireAdapter, log } from './call';
 import { registerStateHandler } from './dispatch';
 import { arr, bool, int, obj, optStr, str, type Json } from './models/json';
@@ -374,7 +374,7 @@ const handleCallState = (state: Json) => {
  * only when the user already allowed notifications: an incoming call never triggers the permission prompt.
  */
 const announceIncomingCall = async (incoming: IncomingCall) => {
-  if (document.hasFocus() || usesMock) return;
+  if (document.hasFocus() || !usesTauri) return;
   try {
     const { isPermissionGranted, sendNotification } = await import('@tauri-apps/plugin-notification');
     if (!(await isPermissionGranted())) return;

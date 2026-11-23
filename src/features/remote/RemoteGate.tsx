@@ -5,7 +5,7 @@
 import { RefreshCw, WifiOff } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import logo from '../../assets/compola-logo.svg';
-import { deviceTitle, remote, useRemote, userTitle, type RemoteConnection } from '../../engine/remote';
+import { deviceTitle, leaveCopy, remote, useRemote, userTitle, type RemoteConnection } from '../../engine/remote';
 import { Alert } from '../../ui/Overlays';
 import { BrandBackground } from '../setup/BrandBackground';
 import { appName } from '../setup/SplashView';
@@ -75,7 +75,7 @@ export function RemoteConnectScreen() {
             </button>
           )}
           <button className="btn btn-glass" onClick={() => setConfirmLeave(true)}>
-            Rời máy chủ
+            {leaveCopy.action}
           </button>
         </div>
       </div>
@@ -99,15 +99,15 @@ export function RemoteBanner() {
   );
 }
 
-/** "Rời Compola Server?" (Settings, account menu). */
+/** "Rời Compola Server?" (web client: "Đăng xuất?") — Settings, account menu, gate. */
 export function LeaveServerAlert({ serverName, onClose }: { serverName?: string; onClose: () => void }) {
   return (
     <Alert
-      title="Rời Compola Server?"
-      message={`Máy này sẽ ngừng dùng tài khoản Zalo của ${serverName || 'máy chủ'}; tài khoản vẫn đăng nhập trên máy chủ.`}
+      title={leaveCopy.title}
+      message={leaveCopy.message(serverName || 'máy chủ')}
       buttons={[
         {
-          label: 'Rời máy chủ',
+          label: leaveCopy.action,
           role: 'destructive',
           onClick: () => {
             onClose();

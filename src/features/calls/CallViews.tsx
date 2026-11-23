@@ -6,6 +6,7 @@
 
 import { AlertTriangle, PhoneIncoming, PhoneOff, Users, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { usesWeb } from '../../engine/backend';
 import { dismissCallNotice, dismissIncomingCall, isInCall, showCallWindow, useCalls, type IncomingCall } from '../../engine/calls';
 import { Avatar } from '../../ui/Avatar';
 import { ZaloDialog } from './ZaloDialog';
@@ -87,7 +88,8 @@ export function CallStatusPill() {
   }
 
   const problem = calls.helperProblem;
-  if (!problem || dismissed === problem) return null;
+  // The web client has no call helper: its call buttons say so; no standing warning.
+  if (!problem || dismissed === problem || usesWeb) return null;
   return (
     <div className="call-pill-layer">
       <div className="call-pill is-warning cx-slide-down" role="status">

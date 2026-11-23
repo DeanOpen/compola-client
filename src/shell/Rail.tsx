@@ -7,7 +7,7 @@ import { Cloud, HardDrive, LogOut, MessageCircle, RefreshCw, Settings, SquareUse
 import { useMemo, useState, type MouseEvent } from 'react';
 import { useContacts } from '../engine/contacts';
 import { logOut } from '../engine/lifecycle';
-import { deviceTitle, useRemote, userTitle } from '../engine/remote';
+import { deviceTitle, leaveCopy, useRemote, userTitle } from '../engine/remote';
 import { LeaveServerAlert } from '../features/remote/RemoteGate';
 import { openMyProfile } from '../features/contacts/hosts';
 import { openSettings } from '../features/settings/hosts';
@@ -57,7 +57,7 @@ export function Rail() {
       { label: 'Cài đặt', icon: Settings, shortcut: '⌘,', onSelect: openSettings },
       { kind: 'separator' },
       joined
-        ? { label: 'Rời Compola Server', icon: LogOut, destructive: true, onSelect: () => setConfirmLeave(true) }
+        ? { label: leaveCopy.menu, icon: LogOut, destructive: true, onSelect: () => setConfirmLeave(true) }
         : { label: 'Đăng xuất', icon: LogOut, destructive: true, onSelect: () => void logOut() },
     ];
     openMenuBelow(e.currentTarget, items);

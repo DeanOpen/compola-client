@@ -11,7 +11,7 @@
 //   settings  the user changed the add-on's settings (`compola.settings` already updated)
 
 import { create } from 'zustand';
-import { backend, usesMock } from './backend';
+import { backend, usesTauri } from './backend';
 import { messageSearch } from './search';
 import { addonSettings, automation, refreshAutomation, useAutomation, type Addon, type Job } from './automation';
 
@@ -274,7 +274,7 @@ const deliver = (id: string, message: unknown) => running.get(id)?.worker.postMe
 let started = false;
 
 export const startAddonRuntime = async () => {
-  if (started || usesMock) return;
+  if (started || !usesTauri) return;
   started = true;
   useAutomation.subscribe(sync);
   const b = await backend();

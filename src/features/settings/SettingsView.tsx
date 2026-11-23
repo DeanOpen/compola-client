@@ -37,7 +37,7 @@ import {
 import logo from '../../assets/compola-logo.svg';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { backend, commands, usesMock } from '../../engine/backend';
+import { backend, commands, usesTauri, usesWeb } from '../../engine/backend';
 import { callAdapter, raceTimeout } from '../../engine/call';
 import { logOut } from '../../engine/lifecycle';
 import { obj } from '../../engine/models/json';
@@ -65,7 +65,7 @@ import { accents, appearances, setAppearancePref, textSizes, useAppearancePrefs,
 import { transferBlockedText } from '../../engine/transfer';
 import { AddonSettings, McpSettings, ScheduleSettings } from './AutomationSettings';
 import { SearchSettings } from './SearchSettings';
-import { adminOnlyHint, deviceTitle, useHostSettingsLocked, useRemote, userTitle } from '../../engine/remote';
+import { adminOnlyHint, deviceTitle, leaveCopy, useHostSettingsLocked, useRemote, userTitle } from '../../engine/remote';
 import { LeaveServerAlert } from '../remote/RemoteGate';
 import { ServerSettings } from '../remote/ServerSettings';
 import './settings.css';
@@ -300,7 +300,7 @@ function GeneralSettings({ onTab }: { onTab: (t: SettingsTab) => void }) {
       .info()
       .then((i) => setRuntime(i.runtimeVersion))
       .catch(() => {});
-    if (usesMock) return setVersion('0.1.0 (mock)');
+    if (!usesTauri) return setVersion(usesWeb ? 'Bản web' : '0.1.0 (mock)');
     void import('@tauri-apps/api/app')
       .then((m) => m.getVersion())
       .then(setVersion)
@@ -679,14 +679,14 @@ function AccountSettings({ onClose }: { onClose: () => void }) {
               <span className="st-value">{device}</span>
             </Row>
           </Section>
-          <Section title="Rời máy chủ" tone="danger">
+          <Section title={leaveCopy.action} tone="danger">
             <div className="st-row">
               <div className="st-row-text">
-                <div className="st-row-label">Rời Compola Server</div>
-                <div className="st-row-detail">Tài khoản Zalo vẫn đăng nhập trên {serverName || 'máy chủ'}. Ứng dụng khởi động lại và dùng riêng trên máy này.</div>
+                <div className="st-row-label">{leaveCopy.row}</div>
+                <div className="st-row-detail">{leaveCopy.detail(serverName || 'máy chủ')}</div>
               </div>
               <button className="st-button is-danger" onClick={() => setConfirmLogout(true)}>
-                <LogOut size={14} /> Rời máy chủ
+                <LogOut size={14} /> {leaveCopy.action}
               </button>
             </div>
           </Section>

@@ -9,6 +9,7 @@ import {
   errorText,
   remote,
   deviceTitle,
+  leaveCopy,
   roleTitle,
   scopeSummary,
   shortDeviceId,
@@ -369,10 +370,10 @@ function JoinedSettings({ onAdmin }: { onAdmin: (page: AdminPage) => void }) {
           <span className="st-value st-auto-mono selectable">{shortDeviceId(connection?.deviceId) || '—'}</span>
         </Row>
       </Section>
-      <Section title="Rời máy chủ" tone="danger">
-        <Row label="Rời Compola Server" detail="Tài khoản Zalo vẫn đăng nhập trên máy chủ. Ứng dụng khởi động lại và dùng riêng trên máy này.">
+      <Section title={leaveCopy.action} tone="danger">
+        <Row label={leaveCopy.row} detail={leaveCopy.detail('máy chủ')}>
           <button className="st-button is-danger" onClick={() => setConfirmLeave(true)}>
-            <LogOut size={14} /> Rời máy chủ
+            <LogOut size={14} /> {leaveCopy.action}
           </button>
         </Row>
       </Section>

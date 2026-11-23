@@ -11,7 +11,7 @@
 // sent like a composer message.
 
 import { create } from 'zustand';
-import { backend, commands, usesMock } from './backend';
+import { backend, commands, usesMock, usesTauri } from './backend';
 import { fireAdapter, log } from './call';
 import { sendText } from './chat';
 import { registerStateHandler } from './dispatch';
@@ -205,7 +205,7 @@ export const requestNotificationAuthorization = async () => applyAuthorization(a
 export const refreshNotificationAuthorization = async () => applyAuthorization(await queryAuthorization(false));
 
 export const openSystemNotificationSettings = async () => {
-  if (usesMock) return;
+  if (!usesTauri) return;
   try {
     const { openUrl } = await import('@tauri-apps/plugin-opener');
     await openUrl('x-apple.systempreferences:com.apple.Notifications-Settings.extension');
