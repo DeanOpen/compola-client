@@ -4,7 +4,7 @@
 // red actions.
 // Actions that need the conversation-actions port are shown disabled until it lands.
 
-import { BarChart3, Bell, BellOff, ChevronDown, ChevronRight, EyeOff, Info, Pencil, Pin, Settings, Tag, Timer, Trash2, UserPlus, UsersRound, LogOut, type LucideIcon } from 'lucide-react';
+import { BarChart3, Bell, BellOff, PinOff, ChevronDown, ChevronRight, EyeOff, Info, Pencil, Pin, Settings, Tag, Timer, Trash2, UserPlus, UsersRound, LogOut, type LucideIcon } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { mentionCandidates } from '../../engine/chat';
@@ -20,6 +20,7 @@ import { Spinner } from '../../ui/Spinner';
 import { useConversationSummary } from '../chat/ChatDetail';
 import { SharedMediaBrowser, SharedMediaSections, useBrowsingSharedMedia } from '../sharedMedia/SharedMedia';
 import { conversationMuteMenu } from '../settings/muteMenu';
+import { menuPlan, pinConversation, requestDeleteConversation, setConversationPrompt, unpinConversation } from '../../engine/conversationActions';
 import './inspector.css';
 
 const memberLimit = 8;
@@ -67,6 +68,9 @@ function ChatInspector({ conversation }: { conversation: ConversationSummary }) 
   }, [id, conversation.isGroup]);
 
   const shared = useMemo(() => sharedContent(loaded ?? []), [loaded]);
+  const actionsState = useEngine((s) => s.conversationActions);
+  const plan = useMemo(() => menuPlan(id, 'chatBox', useEngine.getState()), [id, actionsState]);
+  const threadPlan = useMemo(() => menuPlan(id, 'thread', useEngine.getState()), [id, actionsState]);
   const subtitle = id === selfId ? 'Chỉ mình bạn thấy' : conversation.isGroup ? (conversation.members > 0 ? `${conversation.members} thành viên` : 'Nhóm') : null;
 
   return (
@@ -121,12 +125,18 @@ function ChatInspector({ conversation }: { conversation: ConversationSummary }) 
       <Section title="Thiết lập bảo mật">
         <List>
           <Row icon={<Timer size={15} />} title="Tin nhắn tự xóa" subtitle="Không bao giờ" />
-          <Row icon={<EyeOff size={15} />} title="Ẩn trò chuyện" />
+          {plan.hide && (
+            <Row
+              icon={<EyeOff size={15} />}
+              title={plan.hide === 'hide' ? 'Ẩn trò chuyện' : 'Bỏ ẩn trò chuyện'}
+              onClick={() => setConversationPrompt({ kind: plan.hide === 'hide' ? 'hide' : 'unhide', id })}
+            />
+          )}
         </List>
       </Section>
 
       <div className="inspector-block inspector-danger">
-        <button className="inspector-danger-row" disabled title="Chưa hỗ trợ trên phiên bản này">
+        <button className="inspector-danger-row" disabled={!threadPlan.canDelete} onClick={() => requestDeleteConversation(id)}>
           <Trash2 size={16} /> Xóa lịch sử trò chuyện
         </button>
         {conversation.isGroup && (
@@ -146,6 +156,8 @@ function InspectorActions({ conversationId, isGroup }: { conversationId: string;
   const current = useEngine((s) => s.extras.labelByConversation[conversationId] ?? null);
   const currentLabel = labels.find((l) => l.id === current);
   const muted = useEngine((s) => s.mutedIds.has(conversationId));
+  const actionsState = useEngine((s) => s.conversationActions);
+  const plan = useMemo(() => menuPlan(conversationId, 'chatBox', useEngine.getState()), [conversationId, actionsState, muted]);
   const soon = (label: string) => `${label} — chưa hỗ trợ trên phiên bản này`;
   const action = (icon: LucideIcon, label: string) => (
     <ActionSlot label={label} help={soon(label)} disabled>
@@ -168,7 +180,17 @@ function InspectorActions({ conversationId, isGroup }: { conversationId: string;
       >
         {muted ? <Bell size={18} /> : <BellOff size={18} />}
       </ActionSlot>
-      {action(Pin, 'Ghim hội thoại')}
+      {plan.pin ? (
+        <ActionSlot
+          label={plan.pin === 'pin' ? 'Ghim hội thoại' : 'Bỏ ghim hội thoại'}
+          help={plan.pin === 'pin' ? 'Ghim hội thoại' : 'Bỏ ghim hội thoại'}
+          onClick={() => void (plan.pin === 'pin' ? pinConversation(conversationId) : unpinConversation(conversationId))}
+        >
+          {plan.pin === 'pin' ? <Pin size={18} /> : <PinOff size={18} />}
+        </ActionSlot>
+      ) : (
+        action(Pin, 'Ghim hội thoại')
+      )}
       {action(isGroup ? UserPlus : UsersRound, isGroup ? 'Thêm thành viên' : 'Tạo nhóm trò chuyện')}
       {isGroup && action(Settings, 'Quản lý nhóm')}
       <ActionSlot

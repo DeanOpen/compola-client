@@ -3,12 +3,15 @@
 // and ⋯, then 72px rows — pinned chats first, as the official list orders them. The list is exactly what the official
 // ConvListController computed for the active filter; search looks through every conversation.
 
-import { Archive, ArrowLeft, ChevronDown, EyeOff, LockOpen, MoreHorizontal, ShieldHalf, Tag, UserPlus, UserRoundSearch, UsersRound } from 'lucide-react';
+import { Archive, ArrowLeft, ChevronDown, EyeOff, Lock, LockOpen, MoreHorizontal, ShieldHalf, Tag, UserPlus, UserRoundSearch, UsersRound } from 'lucide-react';
 import { openAddFriend, openCreateGroup } from '../contacts/hosts';
-import { conversationMuteMenu } from '../settings/muteMenu';
-import { useCallback, useEffect, useMemo, useRef, type MouseEvent as ReactMouseEvent } from 'react';
+import { conversationActionsMenu } from '../conversationActions/menu';
+import { openLabelManager } from '../conversationActions/LabelManager';
+import { PINField } from '../conversationActions/ConversationPrompts';
+import { hiddenConversations, hiddenStateStallLimit, isHiddenConversation, relockHidden, unlockFromPINSearch } from '../../engine/conversationActions';
+import { openConversation } from '../../engine/chat';
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import { useShallow } from 'zustand/react/shallow';
-import { setConversationLabel } from '../../engine/conversations';
 import {
   cssColor,
   displayName,
@@ -50,11 +53,39 @@ export function ConversationListColumn() {
   const activeLabel = !isSearching ? labelFor(destination, extras.labels) : null;
   const offersLabelFilter = extras.loaded && (destination === 'inbox' || labelIdOf(destination) !== null);
 
+  // Hidden chats only show up when the search text is the PIN (official sidebar search).
+  const [pinMatches, setPinMatches] = useState<string[]>([]);
+  const lastSearch = useRef<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const found = query.length === 4 ? ((await hiddenConversations(query)) ?? []) : [];
+      if (cancelled) return;
+      setPinMatches(found);
+      // The search really changed and no longer is the PIN: the bypass of an earlier result ends (not while the mailbox is unlocked).
+      if (lastSearch.current !== null && lastSearch.current !== search && found.length === 0 && useShell.getState().unlockedHiddenIds === null) relockHidden();
+      lastSearch.current = search;
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [search]);
+
+  // The hidden-chat state did not arrive for a long while: say so instead of spinning forever (everything stays locked).
+  const [stalled, setStalled] = useState(false);
+  useEffect(() => {
+    setStalled(false);
+    if (actions.hiddenKnown) return;
+    const t = setTimeout(() => setStalled(true), hiddenStateStallLimit);
+    return () => clearTimeout(t);
+  }, [actions.hiddenKnown]);
+
   const items = useMemo<ListItem[]>(() => {
     const conv = (c: ConversationSummary): ListItem => ({ kind: 'conversation', conversation: c });
     if (isSearching) {
       const needle = query.toLocaleLowerCase('vi');
-      return conversations.filter((c) => !actions.hiddenIds.has(c.id) && displayName(c).toLocaleLowerCase('vi').includes(needle)).map(conv);
+      const byPIN = pinMatches.flatMap((id) => conversations.filter((c) => c.id === id)).map(conv);
+      return [...byPIN, ...conversations.filter((c) => !isHiddenConversation(getEngine(), c.id) && displayName(c).toLocaleLowerCase('vi').includes(needle)).map(conv)];
     }
     const byId = new Map(conversations.map((c) => [c.id, c]));
     if (destination === 'hidden') return (unlocked ?? []).flatMap((id) => (byId.has(id) ? [conv(byId.get(id)!)] : []));
@@ -67,7 +98,7 @@ export function ConversationListColumn() {
       const c = byId.get(id);
       return c ? [conv(c)] : [];
     });
-  }, [conversations, extras, actions, destination, isSearching, query, unlocked]);
+  }, [conversations, extras, actions, destination, isSearching, query, unlocked, pinMatches]);
 
   /** Zalo PC keeps pinned chats as rows (first, with a pin): no tiles. Their order is the official list's. */
   const listing = useMemo(() => {
@@ -81,7 +112,7 @@ export function ConversationListColumn() {
   const loading = conversations.length === 0 || !actions.hiddenKnown;
 
   const select = useCallback((id: string) => shell.select(id), []);
-  const onContextMenu = useCallback((e: ReactMouseEvent, id: string) => openContextMenu(e, conversationMenu(id)), []);
+  const onContextMenu = useCallback((e: ReactMouseEvent, id: string) => openContextMenu(e, conversationActionsMenu(id, 'thread')), []);
 
   // ⌘1…⌘9 open the pinned tiles while the list is on screen.
   const pinsRef = useRef(listing.pins);
@@ -140,7 +171,9 @@ export function ConversationListColumn() {
         <ListTabs destination={destination} activeLabel={activeLabel} offersLabelFilter={offersLabelFilter} />
       )}
       {loading ? (
-        <ConversationListLoading />
+        <ConversationListLoading stalled={stalled && !actions.hiddenKnown} />
+      ) : destination === 'hidden' && actions.hasHiddenPIN && unlocked === null && !isSearching ? (
+        <HiddenMailboxLocked />
       ) : listing.rows.length === 0 ? (
         <div className="conv-empty-wrap">
           {banner}
@@ -256,38 +289,11 @@ const bannerFor = (d: Destination, hiddenUnlocked: boolean) => {
     );
   if (d === 'hidden' && hiddenUnlocked)
     return (
-      <ListBanner icon={LockOpen} lead="Đang mở khoá.">
+      <ListBanner icon={LockOpen} lead="Đang mở khoá." actionTitle="Khoá" onAction={relockHiddenMailbox}>
         Tự khoá lại khi bạn rời {appName} một phút.
       </ListBanner>
     );
   return null;
-};
-
-/**
- * Context menu of a conversation. The full official menu (pin, mute, hide, delete, mark read…) arrives with the
- * conversation-actions wave; the label ("Phân loại") items are the official label manager already.
- */
-const conversationMenu = (id: string): MenuItem[] => {
-  const s = getEngine();
-  const current = s.extras.labelByConversation[id] ?? null;
-  const labels: MenuItem[] = s.extras.labels.map((l) => ({
-    label: l.name,
-    dot: cssColor(l.colorHex) ?? undefined,
-    checked: current === l.id,
-    onSelect: () => setConversationLabel(id, current === l.id ? null : l.id),
-  }));
-  return [
-    { label: 'Mở cuộc trò chuyện', onSelect: () => shell.select(id) },
-    { kind: 'separator' },
-    conversationMuteMenu(id),
-    {
-      kind: 'submenu',
-      label: 'Phân loại',
-      icon: Tag,
-      disabled: !s.extras.loaded,
-      items: labels.length ? labels : [{ label: 'Chưa có thẻ phân loại', disabled: true, onSelect: () => {} }],
-    },
-  ];
 };
 
 /** "Phân loại ▾": picks the label that filters the inbox ("Tất cả" clears it); shows the active label's name. */
@@ -312,7 +318,7 @@ function LabelFilterButton({ active }: { active: ConversationLabel | null }) {
           };
         }),
         { kind: 'separator' },
-        { label: 'Quản lý thẻ phân loại', disabled: true, onSelect: () => {} },
+        { label: 'Quản lý thẻ phân loại', onSelect: openLabelManager },
       ],
       'end',
     );
@@ -327,3 +333,48 @@ function LabelFilterButton({ active }: { active: ConversationLabel | null }) {
   );
 }
 
+
+/** "Khoá": forget the PIN bypass and leave a hidden chat that is still open. */
+const relockHiddenMailbox = () => {
+  useShell.setState({ unlockedHiddenIds: null });
+  relockHidden();
+  const selected = useShell.getState().selection;
+  if (selected && isHiddenConversation(getEngine(), selected)) shell.select(null);
+};
+
+/** "Trò chuyện ẩn" while locked: the 4-digit PIN lists the hidden chats (the same search the list field runs for a PIN). */
+function HiddenMailboxLocked() {
+  const [wrong, setWrong] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [token, setToken] = useState(0);
+  const submit = async (pin: string) => {
+    setChecking(true);
+    // Nothing is unlocked by this: the call lists the hidden chats, and opening one unlocks just that chat.
+    const ids = await hiddenConversations(pin);
+    setChecking(false);
+    setToken((t) => t + 1);
+    if (ids) {
+      setWrong(false);
+      useShell.setState({ unlockedHiddenIds: ids });
+      // A hidden chat already selected opens now (the PIN search results unlock what is opened from them).
+      const selected = useShell.getState().selection;
+      if (selected && ids.includes(selected) && unlockFromPINSearch(selected)) openConversation(selected);
+      return;
+    }
+    setWrong(true);
+    setTimeout(() => setWrong(false), 2500);
+  };
+  return (
+    <div className="hidden-locked">
+      <Lock size={44} className="tertiary" />
+      <div className="hidden-locked-title">Trò chuyện ẩn đang khoá</div>
+      <div className="secondary">Nhập mã PIN gồm 4 chữ số để xem các trò chuyện ẩn.</div>
+      <div className={wrong ? 'shake' : ''}>
+        <PINField key={token} onDone={(pin) => void submit(pin)} disabled={checking} />
+      </div>
+      <div className="hidden-locked-error" style={{ opacity: wrong ? 1 : 0 }}>
+        Mã PIN không đúng
+      </div>
+    </div>
+  );
+}

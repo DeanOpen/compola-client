@@ -7,12 +7,14 @@ import { obj, str } from './models/json';
 import { showToast } from './toast';
 import { handleConversationExtras, mergeConversations, resetConversations } from './conversations';
 import { dispatchState, registerStateHandler } from './dispatch';
+import { handleConversationActions, republishConversationActions, resetConversationActions } from './conversationActions';
 import { resetGroupMosaics } from './groupMosaic';
 import { handlePins, resetMessageActions, rewatchPins } from './messageActions';
 import type { Phase } from './models/phase';
 import { getEngine, resetAccount, setEngine } from './store';
 import './features';
 
+registerStateHandler('convActions', handleConversationActions);
 registerStateHandler('conversationExtras', handleConversationExtras);
 registerStateHandler('compose', handleCompose);
 registerStateHandler('pins', handlePins);
@@ -29,6 +31,7 @@ const setPhase = (phase: Phase) => {
 };
 
 const resetAccountState = () => {
+  resetConversationActions();
   resetGroupMosaics();
   resetConversations();
   resetMessageActions();
@@ -48,7 +51,10 @@ export const startEngine = (): Promise<void> => {
       b.listen('compola://page', (page) => {
         // The main page (re)loaded: watch the open conversation's pins again; its unanswered confirms are gone.
         dropComposerConfirms();
-        if (page === 'main' || page === 'Main') rewatchPins();
+        if (page === 'main' || page === 'Main') {
+          rewatchPins();
+          republishConversationActions();
+        }
       }),
       // A notification was clicked: show its conversation (the shell consumes the request).
       b.listen('compola://notification-click', (p) => {

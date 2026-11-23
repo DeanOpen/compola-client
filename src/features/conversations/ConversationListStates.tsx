@@ -5,9 +5,24 @@ import type { ReactNode } from 'react';
 import { isLabel, type Destination } from '../../shell/shellStore';
 import { ContentUnavailable } from '../../ui/ContentUnavailable';
 import { Spinner } from '../../ui/Spinner';
+import { hiddenStateStalledText } from '../../engine/conversationActions';
 
 /** Explanatory strip at the top of the stranger / "Khác" / unlocked-hidden mailboxes. */
-export function ListBanner({ icon: Icon, lead, separator = ' ', children }: { icon: LucideIcon; lead: string; separator?: ReactNode; children: ReactNode }) {
+export function ListBanner({
+  icon: Icon,
+  lead,
+  separator = ' ',
+  children,
+  actionTitle,
+  onAction,
+}: {
+  icon: LucideIcon;
+  lead: string;
+  separator?: ReactNode;
+  children: ReactNode;
+  actionTitle?: string;
+  onAction?: () => void;
+}) {
   return (
     <div className="list-banner">
       <Icon size={16} className="tint" style={{ flex: 'none' }} />
@@ -16,16 +31,21 @@ export function ListBanner({ icon: Icon, lead, separator = ' ', children }: { ic
         {separator}
         {children}
       </div>
+      {actionTitle && onAction && (
+        <button className="btn btn-glass btn-small" onClick={onAction}>
+          {actionTitle}
+        </button>
+      )}
     </div>
   );
 }
 
-/** "Đang đồng bộ hội thoại…" while the list has not arrived. */
-export function ConversationListLoading() {
+/** "Đang đồng bộ hội thoại…" while the list (or the hidden-chat state it depends on) has not arrived. */
+export function ConversationListLoading({ stalled = false }: { stalled?: boolean }) {
   return (
     <div className="conv-loading">
       <Spinner size={18} />
-      <span>Đang đồng bộ hội thoại…</span>
+      <span>{stalled ? hiddenStateStalledText : 'Đang đồng bộ hội thoại…'}</span>
     </div>
   );
 }

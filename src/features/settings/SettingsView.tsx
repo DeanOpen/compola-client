@@ -2,6 +2,7 @@
 // StickerSettings.swift), laid out like Zalo PC's settings dialog: a list of sections on the left, the section's grouped
 // rows on the right. Notification and sticker rows read / write the official client's own settings.
 
+import { setConversationPrompt } from '../../engine/conversationActions';
 import {
   Bell,
   Check,
@@ -291,9 +292,27 @@ function PrivacySettings() {
   return (
     <Section title="Thiết lập ẩn trò chuyện">
       {state.loaded && state.hiddenEnabled ? (
-        <Row label="Mã PIN ẩn trò chuyện" detail="Trò chuyện ẩn chỉ hiện khi nhập đúng mã PIN.">
-          <span className="st-value">{state.hasHiddenPIN ? 'Đã đặt' : 'Chưa đặt'}</span>
-        </Row>
+        // Swift `HiddenChatSettingsSection`: set the PIN, or change / reset it (the flows run in ConversationPrompts).
+        state.hasHiddenPIN ? (
+          <>
+            <Row label="Đổi mã PIN" detail="Đổi mã PIN cho trò chuyện ẩn">
+              <button className="btn btn-glass btn-small" onClick={() => setConversationPrompt({ kind: 'pinSettings', flow: 'changePIN' })}>
+                Đổi mã PIN
+              </button>
+            </Row>
+            <Row label="Đặt lại mã PIN" detail="Tất cả trò chuyện đang ẩn sẽ bị xóa và không thể khôi phục">
+              <button className="btn btn-glass btn-small btn-danger" onClick={() => setConversationPrompt({ kind: 'pinSettings', flow: 'resetPIN' })}>
+                Đặt lại mã PIN
+              </button>
+            </Row>
+          </>
+        ) : (
+          <Row label="Ẩn trò chuyện" detail="Đặt mã PIN cho các cuộc trò chuyện riêng tư để tránh người khác nhìn thấy trên máy của bạn">
+            <button className="btn btn-prominent btn-small" onClick={() => setConversationPrompt({ kind: 'pinSettings', flow: 'setPIN' })}>
+              Cài đặt mã PIN
+            </button>
+          </Row>
+        )
       ) : (
         <Row label={<span className="st-muted">{state.loaded ? 'Tính năng ẩn trò chuyện chưa được bật cho tài khoản này.' : 'Đang tải thiết lập từ Zalo…'}</span>} />
       )}

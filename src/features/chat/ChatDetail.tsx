@@ -1,4 +1,6 @@
-import { MessagesSquare } from 'lucide-react';
+import { Lock, MessagesSquare } from 'lucide-react';
+import { isConversationLocked, setConversationPrompt, useConversationUI } from '../../engine/conversationActions';
+import { Spinner } from '../../ui/Spinner';
 import { useMemo } from 'react';
 import { selfConversationTitle, type ConversationSummary } from '../../engine/models/conversations';
 import { useEngine } from '../../engine/store';
@@ -24,6 +26,38 @@ export const useConversationSummary = (id: string | null): ConversationSummary |
 /** Detail column of the conversation lists: the chat, or the "pick a conversation" state. */
 export function ChatDetail({ conversationId }: { conversationId: string | null }) {
   const conversation = useConversationSummary(conversationId);
+  const hiddenKnown = useEngine((s) => s.conversationActions.hiddenKnown);
+  // Re-render on lock changes (hidden ids, the one unlocked chat).
+  useEngine((s) => s.conversationActions.hiddenIds);
+  useConversationUI((s) => s.unlockedId);
+  if (conversationId && !hiddenKnown) {
+    return (
+      <div className="column">
+        <div className="toolbar" data-tauri-drag-region />
+        <div className="chat-loading">
+          <Spinner size={18} />
+        </div>
+      </div>
+    );
+  }
+  if (conversation && isConversationLocked(conversation.id)) {
+    const id = conversation.id;
+    return (
+      <div className="column">
+        <div className="toolbar" data-tauri-drag-region />
+        <ContentUnavailable
+          icon={Lock}
+          title="Trò chuyện ẩn"
+          description="Nhập mã PIN để mở trò chuyện"
+          actions={
+            <button className="btn btn-prominent" onClick={() => setConversationPrompt({ kind: 'unlock', id })}>
+              Nhập mã PIN
+            </button>
+          }
+        />
+      </div>
+    );
+  }
   if (!conversation) {
     return (
       <div className="column">
