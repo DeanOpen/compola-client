@@ -18,7 +18,10 @@ import {
   FileVideo,
   Link as LinkIcon,
   MessageSquareText,
+  Search,
   Upload,
+  User,
+  X,
   type LucideIcon,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -191,8 +194,13 @@ const extIcon = (name: string): { icon: LucideIcon; tone: string } => {
   return { icon: File, tone: 'is-doc' };
 };
 
-/** A file: icon, name, size and day; a click saves it ("Lưu về máy…"). */
-function FileRow({ message }: { message: ChatMessage }) {
+const typeLabel = (name: string) => {
+  const ext = name.includes('.') ? name.split('.').pop()!.toUpperCase() : '';
+  return ext && ext.length <= 5 ? ext : 'Tệp';
+};
+
+/** A file: icon, name, type · size (· day); a click saves it ("Lưu về máy…"). */
+function FileRow({ message, showDay = true }: { message: ChatMessage; showDay?: boolean }) {
   if (message.kind.type !== 'file') return null;
   const { name, size, url } = message.kind;
   const { icon: Icon, tone } = extIcon(name);
@@ -204,7 +212,7 @@ function FileRow({ message }: { message: ChatMessage }) {
       <span className="sm-row-text">
         <span className="sm-row-title truncate">{name}</span>
         <span className="sm-row-sub truncate">
-          {[size > 0 ? formatBytes(size) : null, daySeparator(message.date)].filter(Boolean).join(' · ')}
+          {[typeLabel(name), size > 0 ? formatBytes(size) : null, showDay ? daySeparator(message.date) : null].filter(Boolean).join(' · ')}
         </span>
       </span>
     </button>
@@ -254,10 +262,27 @@ export function SharedMediaBrowser({ conversationId, kind: filter }: { conversat
   const feeds = useSharedMedia(
     useShallow((s) => ({ images: feedOf(s, conversationId, 'images'), files: feedOf(s, conversationId, 'files'), links: feedOf(s, conversationId, 'links') })),
   );
+  const [query, setQuery] = useState('');
+  const [sender, setSender] = useState<string | null>(null);
+  useEffect(() => {
+    setQuery('');
+    setSender(null);
+  }, [conversationId]);
+  const all = useMemo(
+    () => (filter === 'all' ? mergedAll(feeds, loaded) : mergedList(feeds[filter].items, loaded, filter, loadedSince(feeds[filter]))),
+    [feeds, loaded, filter],
+  );
+  const senders = useMemo(() => {
+    const byId = new Map<string, string>();
+    for (const m of all) if (!byId.has(m.senderId)) byId.set(m.senderId, senderName(m));
+    return [...byId].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name, 'vi'));
+  }, [all]);
   const listing = useMemo(() => {
-    const items = filter === 'all' ? mergedAll(feeds, loaded) : mergedList(feeds[filter].items, loaded, filter, loadedSince(feeds[filter]));
+    const q = fold(query);
+    const items = all.filter((m) => (!sender || m.senderId === sender) && (!q || fold(searchText(m)).includes(q)));
     return { items, days: days(items) };
-  }, [feeds, loaded, filter]);
+  }, [all, query, sender]);
+  const narrowed = !!query.trim() || !!sender;
   const state = filterFeedState(filterKinds(filter).map((k) => feeds[k]));
   const sentinel = useRef<HTMLDivElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
@@ -280,6 +305,13 @@ export function SharedMediaBrowser({ conversationId, kind: filter }: { conversat
     return () => io.disconnect();
   }, [conversationId, filter, state.canLoadMore, depth]);
 
+  const chooseSender = (el: Element) =>
+    openMenuBelow(el, [
+      { label: 'Tất cả người gửi', checked: sender === null, onSelect: () => setSender(null) },
+      { kind: 'separator' },
+      ...senders.map((p) => ({ label: p.name, checked: sender === p.id, onSelect: () => setSender(p.id) })),
+    ]);
+
   const chooseFilter = (el: Element) =>
     openMenuBelow(
       el,
@@ -300,8 +332,29 @@ export function SharedMediaBrowser({ conversationId, kind: filter }: { conversat
           <ChevronDown size={14} />
         </button>
       </div>
+      <div className="sm-toolbar">
+        <label className="sm-search">
+          <Search size={14} />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={filter === 'images' ? 'Tìm theo người gửi' : 'Tìm theo tên file, link'}
+            aria-label="Tìm trong kho lưu trữ"
+          />
+          {query && (
+            <button className="sm-search-clear" onClick={() => setQuery('')} aria-label="Xóa tìm kiếm">
+              <X size={12} />
+            </button>
+          )}
+        </label>
+        <button className={`sm-chip ${sender ? 'is-on' : ''}`} onClick={(e) => chooseSender(e.currentTarget)} aria-haspopup="menu" disabled={!senders.length}>
+          <User size={13} />
+          <span className="truncate">{sender ? (senders.find((p) => p.id === sender)?.name ?? 'Người gửi') : 'Người gửi'}</span>
+          <ChevronDown size={12} />
+        </button>
+      </div>
       <div className="sm-browser-scroll" ref={scroller}>
-        <DropTarget conversationId={conversationId} />
+        {!narrowed && <DropTarget conversationId={conversationId} />}
         {listing.items.length === 0 ? (
           <div className="sm-placeholder">
             {state.failed ? (
@@ -314,6 +367,19 @@ export function SharedMediaBrowser({ conversationId, kind: filter }: { conversat
               </>
             ) : state.pending || state.loading ? (
               <Spinner size={16} />
+            ) : narrowed ? (
+              <>
+                <span>Không có kết quả phù hợp</span>
+                <button
+                  className="sm-link"
+                  onClick={() => {
+                    setQuery('');
+                    setSender(null);
+                  }}
+                >
+                  Xóa bộ lọc
+                </button>
+              </>
             ) : (
               <span>{filterEmpty[filter]}</span>
             )}
@@ -399,7 +465,27 @@ const itemMenu = (m: ChatMessage): MenuItem[] => {
   return items;
 };
 
-const senderLine = (m: ChatMessage) => `${m.isMine ? 'Bạn' : m.senderName || 'Thành viên'}, ${time(m.date)}`;
+const senderName = (m: ChatMessage) => (m.isMine ? 'Bạn' : m.senderName || 'Thành viên');
+const senderLine = (m: ChatMessage) => `${senderName(m)}, ${time(m.date)}`;
+
+/** Case / diacritic-insensitive (`đ` folds to `d`); file-name separators count as spaces ("hop dong" finds "Hop-dong.pdf"). */
+const fold = (text: string) =>
+  text
+    .replace(/[đĐ]/g, 'd')
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .replace(/[-_.\s]+/g, ' ')
+    .trim()
+    .toLowerCase();
+
+/** What the search looks at: file name, link title / address / site, and who sent it. */
+const searchText = (m: ChatMessage) => {
+  const k = m.kind;
+  const parts = [senderName(m)];
+  if (k.type === 'file') parts.push(k.name);
+  if (k.type === 'link') parts.push(k.title, k.url ?? '', k.source);
+  return parts.join(' ');
+};
 
 /** A photo / video tile; hover shows "Xem trong trò chuyện", right click the item menu. */
 function BrowserTile({ message }: { message: ChatMessage }) {
@@ -431,7 +517,7 @@ function BrowserRow({ message }: { message: ChatMessage }) {
           Xem trong trò chuyện
         </button>
       </div>
-      {message.kind.type === 'file' ? <FileRow message={message} /> : <LinkRow message={message} />}
+      {message.kind.type === 'file' ? <FileRow message={message} showDay={false} /> : <LinkRow message={message} />}
     </div>
   );
 }
