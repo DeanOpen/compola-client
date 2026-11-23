@@ -497,7 +497,8 @@
       schedule();
       return 'started';
     },
-    availability() { return safe(availability, null); },
+    // Compola: the current availability, re-posted so a (re)loaded UI is not left waiting for the next change.
+    availability() { lastAvail = null; publishAvailability(); return safe(availability, { canStart: false, reason: 'ERROR' }); },
     state() { return safe(compute, null); },
   };
 

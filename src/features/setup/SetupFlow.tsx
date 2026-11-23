@@ -1,12 +1,21 @@
 // First-run setup inside the main window: sign-in (QR) → sync history from the phone → welcome (Swift `SetupFlowView`,
-// `SetupCard`, `SetupSidebar`, `SetupStepper`). The sync step drives the phone → PC transfer, a later wave: until then it
-// explains and lets the user continue.
+// `SetupCard`, `SetupSidebar`, `SetupStepper`). The sync step drives the phone → PC transfer (engine/transfer.ts).
 
-import { Check, Clock, Minus, Phone, Plus, Search, ShieldCheck, Smartphone, Smile, Inbox, Wifi, type LucideIcon } from 'lucide-react';
+import { Check, Clock, Minus, Phone, Plus, Search, ShieldCheck, Smartphone, Smile, Inbox, TriangleAlert, Wifi, type LucideIcon } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import appIcon from '../../assets/app-icon.png';
 import illoSync from '../../assets/illo-sync.png';
+import { fireAdapter } from '../../engine/call';
 import { useEngine } from '../../engine/store';
+import {
+  dismissTransfer,
+  respondToTransfer,
+  stageTitle,
+  startTransfer,
+  transferBlockedText,
+  transferCountText,
+  waitingDetail,
+} from '../../engine/transfer';
 import { Avatar } from '../../ui/Avatar';
 import { Spinner } from '../../ui/Spinner';
 import { BrandBackground } from './BrandBackground';
@@ -102,9 +111,109 @@ function SetupSidebar({ stage, syncOutcome }: { stage: Stage; syncOutcome: SyncO
   );
 }
 
-/** Setup step 2 (Swift `SetupSyncStep` intro). Starting the transfer arrives with the transfer wave. */
+/** Setup step 2 (Swift `SetupSyncStep`): intro → waiting for the phone → transferring → finished / failed, mirroring the
+ * official sync state machine (`engine.transfer`) with only the numbers it reports. */
 function SyncStep({ onDone }: { onDone: (outcome: SyncOutcome) => void }) {
-  const canStart = useEngine((s) => s.canStartTransfer);
+  const canStartTransfer = useEngine((s) => s.canStartTransfer);
+  const blocked = useEngine((s) => s.transferStartBlockedReason);
+  const transfer = useEngine((s) => s.transfer);
+  const offered = transfer?.phase === 'offer';
+  const canStart = offered || canStartTransfer;
+
+  // Ask for the current availability on mount (and every few seconds while it can't start), so the button never waits
+  // on a change the UI missed.
+  useEffect(() => {
+    if (canStart) return;
+    fireAdapter('__zaloTransfer', 'availability');
+    const t = setInterval(() => fireAdapter('__zaloTransfer', 'availability'), 3000);
+    return () => clearInterval(t);
+  }, [canStart]);
+
+  const startSync = () => (offered ? respondToTransfer(true) : canStartTransfer ? startTransfer() : undefined);
+  const later = () => {
+    if (transfer?.phase === 'offer') respondToTransfer(false);
+    else if (transfer?.phase === 'failed') dismissTransfer();
+    onDone('skipped');
+  };
+
+  if (transfer?.phase === 'waitingForPhone') {
+    return (
+      <div className="setup-step fade-in">
+        <img src={illoSync} width={190} alt="" draggable={false} />
+        <div className="setup-heading" style={{ fontSize: 21 }}>Mở Zalo trên điện thoại để xác nhận</div>
+        <p className="setup-lead">{waitingDetail(transfer)}</p>
+        <div className="sync-pill">
+          <Spinner size={13} /> Đang chờ xác nhận từ điện thoại…
+        </div>
+        <div className="setup-actions">
+          <button className="btn-link" onClick={() => respondToTransfer(false)}>Huỷ</button>
+        </div>
+      </div>
+    );
+  }
+
+  if (transfer?.phase === 'transferring') {
+    const count = transferCountText(transfer);
+    return (
+      <div className="setup-step fade-in">
+        <img src={illoSync} width={190} alt="" draggable={false} />
+        <div className="setup-heading" style={{ fontSize: 21 }}>Đang nhận tin nhắn…</div>
+        <p className="setup-lead">Giữ Zalo mở trên điện thoại. {appName} sẽ mở ngay khi đồng bộ xong.</p>
+        <div className="sync-progress">
+          <div className={'sync-bar' + (transfer.progress == null ? ' indeterminate' : '')}>
+            <div style={{ width: `${Math.round((transfer.progress ?? 0.3) * 100)}%` }} />
+          </div>
+          <div className="sync-progress-row">
+            <span>{count}</span>
+            {transfer.progress != null && <span>{Math.round(transfer.progress * 100)}%</span>}
+          </div>
+          <div className="sync-progress-stage">
+            {stageTitle(transfer)}
+            {transfer.stageIndex != null && transfer.stageCount != null && ` · Bước ${transfer.stageIndex}/${transfer.stageCount}`}
+          </div>
+        </div>
+        <div className="setup-actions">
+          <button className="btn-link danger" onClick={() => respondToTransfer(false)}>Huỷ đồng bộ</button>
+        </div>
+      </div>
+    );
+  }
+
+  if (transfer?.phase === 'finished') {
+    return (
+      <div className="setup-step fade-in">
+        <div className="sync-result ok"><Check size={44} strokeWidth={3} /></div>
+        <div className="setup-heading" style={{ fontSize: 21 }}>Đã đồng bộ xong</div>
+        <p className="setup-lead">
+          {transfer.syncedConversations > 0
+            ? `${transfer.syncedConversations} cuộc trò chuyện từ điện thoại đã có trên máy Mac này.`
+            : 'Tin nhắn từ điện thoại đã được đồng bộ sang máy Mac này.'}
+        </p>
+        <div className="setup-actions">
+          <button className="btn btn-prominent btn-large" onClick={() => { dismissTransfer(); onDone('done'); }}>Tiếp tục</button>
+        </div>
+      </div>
+    );
+  }
+
+  if (transfer?.phase === 'failed') {
+    const retry = () => {
+      if (transfer.canRetry) respondToTransfer(true);
+      else if (canStartTransfer) { dismissTransfer(); startTransfer(); }
+    };
+    return (
+      <div className="setup-step fade-in">
+        <div className="sync-result fail"><TriangleAlert size={36} /></div>
+        <div className="setup-heading" style={{ fontSize: 21 }}>Đồng bộ không thành công</div>
+        <p className="setup-lead">{transfer.message ?? transfer.failure}</p>
+        <div className="setup-actions">
+          <button className="btn btn-prominent btn-large" disabled={!transfer.canRetry && !canStartTransfer} onClick={retry}>Thử lại</button>
+          <button className="btn-link" onClick={later}>Để sau</button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="setup-step fade-in">
       <img src={illoSync} width={190} alt="" draggable={false} />
@@ -121,7 +230,7 @@ function SyncStep({ onDone }: { onDone: (outcome: SyncOutcome) => void }) {
         <Bullet icon={Wifi} text="Giữ Zalo mở và có mạng cho đến khi xong." />
       </div>
       <div className="setup-actions">
-        <button className="btn btn-prominent btn-large" disabled={!canStart} onClick={() => onDone('done')}>
+        <button className="btn btn-prominent btn-large" disabled={!canStart} onClick={startSync}>
           {canStart ? (
             'Đồng bộ ngay'
           ) : (
@@ -130,7 +239,8 @@ function SyncStep({ onDone }: { onDone: (outcome: SyncOutcome) => void }) {
             </>
           )}
         </button>
-        <button className="btn-link" onClick={() => onDone('skipped')}>
+        {!canStart && blocked && <div className="sync-blocked">{transferBlockedText(blocked)}</div>}
+        <button className="btn-link" onClick={later}>
           Để sau, chỉ nhận tin nhắn mới
         </button>
       </div>
