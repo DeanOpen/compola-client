@@ -4,7 +4,7 @@
 
 import { useEngine } from '../../store';
 import { conversations, groupMembers } from '../mockData';
-import { mockContext, onMockBoot, registerMockAdapter } from '../registry';
+import { mockContext, onMockBoot, registerMockAdapter, registerMockCommand } from '../registry';
 
 let busy = false;
 let pickerToken = 0;
@@ -126,3 +126,16 @@ onMockBoot(({ emit, post, params }) => {
   }
   if (params.has('callPicker')) setTimeout(() => showPicker(params.get('callPicker') === 'k15' ? 'g-k15' : 'g-team', true, params.get('callPicker') === 'add'), 1200);
 });
+
+// Rust calls/: the helper's current state, and bringing its window forward.
+registerMockCommand('calls_status', () => {
+  const missing = mockContext().params.get('callHelper') === 'missing';
+  return {
+    helperInstalled: !missing,
+    running: !missing,
+    pid: missing ? null : 4242,
+    problem: missing ? 'Không tìm thấy ZaloCall trong bộ cài Zalo. Hãy mở lại Compola để cài lại.' : null,
+    nativeState: missing ? null : 'ready',
+  };
+});
+registerMockCommand('call_show_window', () => undefined);
