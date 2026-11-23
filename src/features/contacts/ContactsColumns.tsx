@@ -7,14 +7,17 @@ import { useEffect } from 'react';
 import { refreshContacts, useContacts } from '../../engine/contacts';
 import { shell, type Destination } from '../../shell/shellStore';
 import { GroupInvitesPage, RequestsPage } from './ContactsRequestsView';
-import { FriendsPage, GroupsPage } from './ContactsView';
+import { FriendsPage, GroupsPage, useVisibleFriends, useVisibleGroups } from './ContactsView';
 import { contactsUi } from './contactsUi';
 import './contacts.css';
+import './contactsPages.css';
 
 /** Content column for Danh bạ destinations: the sub-nav. */
 export function ContactsContentColumn({ destination }: { destination: Destination }) {
   const pending = useContacts((s) => s.pendingRequestCount);
   const inviteUnread = useContacts((s) => s.groupInviteUnread);
+  const friendCount = useVisibleFriends().length;
+  const groupCount = useVisibleGroups().length;
 
   useEffect(() => {
     refreshContacts();
@@ -27,14 +30,20 @@ export function ContactsContentColumn({ destination }: { destination: Destinatio
     contactsUi.openAddFriend();
   }, [destination]);
 
-  const item = (d: Destination, label: string, icon: LucideIcon, badge?: number) => {
+  const item = (d: Destination, label: string, icon: LucideIcon, badge?: number, count?: number) => {
     const Icon = icon;
     const selected = destination === d || (d === 'friends' && destination === 'addFriend');
     return (
       <button key={d} className={`ct-nav-item ${selected ? 'is-selected' : ''}`} aria-current={selected} onClick={() => shell.setDestination(d)}>
-        <Icon size={20} strokeWidth={1.8} />
+        <span className="cp-nav-icon">
+          <Icon size={18} strokeWidth={1.9} />
+        </span>
         <span className="ct-nav-label truncate">{label}</span>
-        {!!badge && badge > 0 && <span className="ct-nav-badge nums">{badge > 99 ? '99+' : badge}</span>}
+        {!!badge && badge > 0 ? (
+          <span className="ct-nav-badge nums">{badge > 99 ? '99+' : badge}</span>
+        ) : count ? (
+          <span className="cp-nav-count nums">{count}</span>
+        ) : null}
       </button>
     );
   };
@@ -54,8 +63,8 @@ export function ContactsContentColumn({ destination }: { destination: Destinatio
         </button>
       </div>
       <nav className="ct-nav" aria-label="Danh bạ">
-        {item('friends', 'Danh sách bạn bè', UserRound)}
-        {item('groups', 'Danh sách nhóm và cộng đồng', Users)}
+        {item('friends', 'Danh sách bạn bè', UserRound, undefined, friendCount)}
+        {item('groups', 'Danh sách nhóm và cộng đồng', Users, undefined, groupCount)}
         {item('requests', 'Lời mời kết bạn', UserPlus, pending)}
         {item('groupInvites', 'Lời mời vào nhóm và cộng đồng', UsersRound, inviteUnread)}
       </nav>

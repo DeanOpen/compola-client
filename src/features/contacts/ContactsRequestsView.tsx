@@ -1,8 +1,10 @@
 // Friend requests (Lời mời kết bạn) and group invitations (Lời mời vào nhóm) (Swift ContactsRequestsView.swift) in Zalo PC's
 // layout: cards for received requests (Từ chối / Đồng ý) and sent ones (Thu hồi lời mời), group invitations (Từ chối / Tham gia).
-// Every action goes through the official client's services; its result comes back as a `notice` (a toast).
+// Every action goes through the official client's services; its result comes back as a `notice` (a toast). Wave 4
+// (docs/design-refs/wave4/contacts): card heads with a "new" dot, quoted greetings, primary accept / join, an expiry chip,
+// and the sent requests as dense rows.
 
-import { MailOpen, MessageCircle, RefreshCw, UserPlus, UsersRound } from 'lucide-react';
+import { Clock, MailOpen, MessageCircle, RefreshCw, UserPlus, UsersRound } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import {
   acceptFriendRequest,
@@ -24,6 +26,7 @@ import { Avatar } from '../../ui/Avatar';
 import { Sheet } from '../../ui/Overlays';
 import { Spinner } from '../../ui/Spinner';
 import { ContactsEmpty, ContactsLoading, ContactsPageHeader, DialogHeader } from './ContactsShared';
+import './contactsPages.css';
 
 type RequestAction = 'accept' | 'decline' | 'cancel';
 
@@ -79,7 +82,7 @@ export function RequestsPage() {
       <>
         {received.length > 0 && (
           <>
-            <div className="ct-list-title">Lời mời đã nhận ({received.length})</div>
+            <SectionTitle title="Lời mời đã nhận" count={received.length} />
             <div className="ct-cards">
               {received.map((r) => (
                 <ReceivedCard key={r.id} request={r} busy={busy.has(r.id)} perform={(a) => perform(r.id, a)} />
@@ -89,10 +92,10 @@ export function RequestsPage() {
         )}
         {sent.length > 0 && (
           <>
-            <div className="ct-list-title">Lời mời đã gửi ({sent.length})</div>
-            <div className="ct-cards">
+            <SectionTitle title="Lời mời đã gửi" count={sent.length} />
+            <div className="ct-panel cp-sent">
               {sent.map((r) => (
-                <SentCard key={r.id} request={r} busy={busy.has(r.id)} perform={(a) => perform(r.id, a)} />
+                <SentRow key={r.id} request={r} busy={busy.has(r.id)} perform={(a) => perform(r.id, a)} />
               ))}
             </div>
           </>
@@ -111,62 +114,73 @@ export function RequestsPage() {
   );
 }
 
-function CardUser({ request, extra }: { request: FriendRequest; extra: string }) {
+/** Section heading of a requests page: title + count chip. */
+function SectionTitle({ title, count }: { title: string; count: number }) {
   return (
-    <div className="ct-card-user">
-      <Avatar url={request.avatar} name={request.name} size={48} />
-      <div className="ct-card-name">
-        <span className="ct-card-title truncate">{request.name || 'Người dùng Zalo'}</span>
-        <span className="ct-card-extra truncate">{extra}</span>
-      </div>
+    <div className="ct-list-title cp-section-title">
+      {title}
+      <span className="cp-count nums">{count}</span>
     </div>
   );
 }
 
+/** Requests younger than a day get the "new" dot (Lovable / Teams inbox pattern). */
+const isRecent = (date: number | null) => !!date && Date.now() - date < 86_400_000;
+
 function ReceivedCard({ request, busy, perform }: { request: FriendRequest; busy: boolean; perform: (a: RequestAction) => void }) {
-  const extra = request.date ? ago(request.date) : 'Muốn kết bạn với bạn';
   return (
-    <div className={`ct-card ${busy ? 'is-busy' : ''}`}>
-      <CardUser request={request} extra={extra} />
-      <button
-        className="ct-card-corner"
-        title="Nhắn tin"
-        aria-label={`Nhắn tin cho ${request.name}`}
-        onClick={() => openContactConversation(request.id, { name: request.name, avatar: request.avatar })}
-      >
-        <MessageCircle size={18} />
-      </button>
-      <div className={`ct-card-message ${request.message ? '' : 'is-empty'}`}>{request.message || 'Không có lời nhắn'}</div>
+    <div className={`ct-card cp-card ${busy ? 'is-busy' : ''}`}>
+      <div className="cp-card-head">
+        <span className="cp-card-avatar">
+          <Avatar url={request.avatar} name={request.name} size={48} />
+          {isRecent(request.date) && <span className="cp-new-dot" title="Lời mời mới" />}
+        </span>
+        <div className="ct-card-name">
+          <span className="ct-card-title truncate">{request.name || 'Người dùng Zalo'}</span>
+          <span className="ct-card-extra truncate">{request.date ? `${ago(request.date)} · Muốn kết bạn` : 'Muốn kết bạn với bạn'}</span>
+        </div>
+        <button
+          className="cp-card-icon"
+          title="Nhắn tin"
+          aria-label={`Nhắn tin cho ${request.name}`}
+          onClick={() => openContactConversation(request.id, { name: request.name, avatar: request.avatar })}
+        >
+          <MessageCircle size={17} />
+        </button>
+      </div>
+      <div className={`cp-quote ${request.message ? '' : 'is-empty'}`}>{request.message || 'Không có lời nhắn'}</div>
       <div className="ct-card-cta">
         <button className="ct-btn ct-btn-secondary" disabled={busy} onClick={() => perform('decline')}>
           Từ chối
         </button>
-        <button className="ct-btn ct-btn-tonal" disabled={busy} onClick={() => perform('accept')}>
-          {busy ? <Spinner size={13} /> : 'Đồng ý'}
+        <button className="ct-btn ct-btn-primary" disabled={busy} onClick={() => perform('accept')}>
+          {busy ? <Spinner size={13} className="on-accent" /> : 'Đồng ý'}
         </button>
       </div>
     </div>
   );
 }
 
-function SentCard({ request, busy, perform }: { request: FriendRequest; busy: boolean; perform: (a: RequestAction) => void }) {
-  const extra = request.date ? ago(request.date) : 'Đang chờ người này chấp nhận';
+/** A sent request: one dense row (OpenAI / Upwork pending-invites pattern) with "Thu hồi". */
+function SentRow({ request, busy, perform }: { request: FriendRequest; busy: boolean; perform: (a: RequestAction) => void }) {
   return (
-    <div className={`ct-card is-sent ${busy ? 'is-busy' : ''}`}>
-      <CardUser request={request} extra={extra} />
+    <div className={`cp-sent-row ${busy ? 'is-busy' : ''}`}>
+      <Avatar url={request.avatar} name={request.name} size={40} />
+      <span className="ct-row-text">
+        <span className="ct-row-name truncate">{request.name || 'Người dùng Zalo'}</span>
+        <span className="ct-row-sub truncate">{request.date ? `Đã gửi ${ago(request.date)}` : 'Đang chờ người này chấp nhận'}</span>
+      </span>
       <button
-        className="ct-card-corner"
+        className="cp-card-icon"
         title="Nhắn tin"
         aria-label={`Nhắn tin cho ${request.name}`}
         onClick={() => openContactConversation(request.id, { name: request.name, avatar: request.avatar })}
       >
-        <MessageCircle size={18} />
+        <MessageCircle size={17} />
       </button>
-      <div className="ct-card-cta">
-        <button className="ct-btn ct-btn-secondary ct-btn-grow" disabled={busy} onClick={() => perform('cancel')}>
-          {busy ? <Spinner size={13} /> : 'Thu hồi lời mời'}
-        </button>
-      </div>
+      <button className="ct-btn ct-btn-secondary cp-sent-cancel" disabled={busy} onClick={() => perform('cancel')}>
+        {busy ? <Spinner size={13} /> : 'Thu hồi lời mời'}
+      </button>
     </div>
   );
 }
@@ -224,7 +238,7 @@ export function GroupInvitesPage() {
   } else {
     body = (
       <>
-        <div className="ct-list-title">Lời mời đã nhận ({Math.max(invites.total, items.length)})</div>
+        <SectionTitle title="Lời mời đã nhận" count={Math.max(invites.total, items.length)} />
         <div className="ct-cards">
           {items.map((inv) => (
             <GroupInviteCard
@@ -276,8 +290,8 @@ function GroupInviteCard({ invite, busy, onJoin, onDecline }: { invite: GroupInv
   const expiry = inviteExpiryText(invite.expiresAt);
   const kind = invite.community ? 'Cộng đồng' : 'Nhóm';
   return (
-    <div className={`ct-card ct-invite-card ${busy ? 'is-busy' : ''}`}>
-      <div className="ct-card-user">
+    <div className={`ct-card cp-card ct-invite-card ${busy ? 'is-busy' : ''}`}>
+      <div className="cp-card-head">
         <Avatar url={invite.avatar} name={invite.name} size={48} />
         <div className="ct-card-name">
           <span className="ct-card-title truncate">{invite.name}</span>
@@ -286,13 +300,19 @@ function GroupInviteCard({ invite, busy, onJoin, onDecline }: { invite: GroupInv
           </span>
         </div>
       </div>
-      <div className="ct-invite-from">
-        <span className="ct-invite-from-label">Lời mời từ</span>
-        <Avatar url={invite.inviterAvatar} name={invite.inviterName} size={20} />
-        <span className="truncate">{invite.inviterName || 'Người dùng Zalo'}</span>
+      {(invite.pendingReview || expiry) && (
+        <span className={`cp-chip ${invite.pendingReview ? 'is-pending' : ''}`}>
+          <Clock size={12} /> {invite.pendingReview ? 'Chờ phê duyệt' : expiry}
+        </span>
+      )}
+      <div className="cp-invite-from">
+        <Avatar url={invite.inviterAvatar} name={invite.inviterName} size={22} />
+        <span className="cp-invite-from-text truncate">
+          <span className="ct-invite-from-label">Lời mời từ </span>
+          <b>{invite.inviterName || 'Người dùng Zalo'}</b>
+        </span>
         {invite.inviterIsOwner && <span className="ct-invite-owner">{invite.community ? 'Trưởng cộng đồng' : 'Trưởng nhóm'}</span>}
       </div>
-      <div className="ct-invite-expiry">{invite.pendingReview ? 'Chờ phê duyệt' : (expiry ?? ' ')}</div>
       <div className="ct-card-cta">
         {invite.pendingReview ? (
           <button className="ct-btn ct-btn-tonal ct-btn-grow" disabled>
@@ -303,8 +323,8 @@ function GroupInviteCard({ invite, busy, onJoin, onDecline }: { invite: GroupInv
             <button className="ct-btn ct-btn-secondary" disabled={busy} onClick={onDecline}>
               Từ chối
             </button>
-            <button className="ct-btn ct-btn-tonal" disabled={busy} onClick={onJoin}>
-              {busy ? <Spinner size={13} /> : 'Tham gia'}
+            <button className="ct-btn ct-btn-primary" disabled={busy} onClick={onJoin}>
+              {busy ? <Spinner size={13} className="on-accent" /> : 'Tham gia'}
             </button>
           </>
         )}
