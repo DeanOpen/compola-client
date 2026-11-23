@@ -435,12 +435,13 @@ const muteUntilText = (ms: number) => {
 function PersonInfo({ conversationId }: { conversationId: string }) {
   const friend = useContacts((s) => s.friends.find((f) => f.id === conversationId) ?? null);
   const activity = friend ? lastSeenText({ id: friend.id, name: friend.name, avatar: friend.avatar, role: 'member', isMe: false, lastActive: friend.lastActive, online: friend.online, canRemove: false }) : null;
+  if (!friend) return null;
   return (
     <section className="inspector-block">
       <div className="inspector-list">
         {friend?.zaloName && friend.zaloName !== friend.name && <Row icon={<AtSign size={15} />} title={friend.zaloName} subtitle="Tên Zalo" />}
         {activity && <Row icon={<Activity size={15} />} title={activity} subtitle="Hoạt động" />}
-        <Row icon={<UserRound size={15} />} title="Xem trang cá nhân" onClick={() => openContactProfile(conversationId)} />
+        {friend && <Row icon={<UserRound size={15} />} title="Xem trang cá nhân" onClick={() => openContactProfile(conversationId)} />}
       </div>
     </section>
   );

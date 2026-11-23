@@ -34,7 +34,9 @@ export function Rail() {
 
   const accountMenu = (e: MouseEvent<HTMLButtonElement>) => {
     const items: MenuItem[] = [
-      { kind: 'label', label: name },
+      // Who is signed in (wave 4, after Snowflake's account menu): name, then the number.
+      { kind: 'label', label: profile?.phone ? `${name} · ${profile.phone}` : name },
+      // The profile card shows friends only; a card for the account itself is not there yet.
       { label: 'Hồ sơ của bạn', icon: UserRound, disabled: true, onSelect: () => {} },
       { label: 'Đồng bộ tin nhắn từ điện thoại…', icon: RefreshCw, disabled: !canStartTransfer, onSelect: openTransfer },
       { label: 'Cài đặt', icon: Settings, shortcut: '⌘,', onSelect: openSettings },
@@ -53,7 +55,7 @@ export function Rail() {
       <div className="rail-group">
         <RailItem
           icon={MessageCircle}
-          label="Tin nhắn"
+          label={counts.inbox + counts.strangers > 0 ? `Tin nhắn · ${counts.inbox + counts.strangers} chưa đọc` : 'Tin nhắn'}
           badge={counts.inbox + counts.strangers}
           selected={messagesActive}
           onClick={() => {
@@ -61,7 +63,10 @@ export function Rail() {
             if (!isConversationList(destination) || destination === 'myCloud') shell.setDestination('inbox');
           }}
         />
-        <RailItem icon={SquareUser} label="Danh bạ" badge={contacts.pendingRequestCount + contacts.groupInviteUnread} selected={isContacts(destination)} onClick={() => shell.setDestination('friends')} />
+        <RailItem
+          icon={SquareUser}
+          label={contactsLabel(contacts.pendingRequestCount, contacts.groupInviteUnread)}
+          badge={contacts.pendingRequestCount + contacts.groupInviteUnread} selected={isContacts(destination)} onClick={() => shell.setDestination('friends')} />
       </div>
       <div className="rail-spacer" data-tauri-drag-region />
       <div className="rail-group">
@@ -104,3 +109,9 @@ function RailItem({
     </button>
   );
 }
+
+/** "Danh bạ · 2 lời mời kết bạn, 1 lời mời vào nhóm" for the tooltip. */
+const contactsLabel = (requests: number, invites: number) => {
+  const parts = [requests > 0 && `${requests} lời mời kết bạn`, invites > 0 && `${invites} lời mời vào nhóm`].filter(Boolean);
+  return parts.length ? `Danh bạ · ${parts.join(', ')}` : 'Danh bạ';
+};
