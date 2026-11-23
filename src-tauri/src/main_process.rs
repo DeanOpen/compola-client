@@ -287,6 +287,8 @@ impl MainProcess {
         }
         self.stop_shared_worker();
         crate::shared_worker::router(&self.app).reset_session();
+        crate::downloads::reset(&self.app);
+        crate::calls::reset(&self.app);
         if let Some(sqlite) = &self.sqlite {
             sqlite.close_all();
         }

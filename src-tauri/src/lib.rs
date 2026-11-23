@@ -14,6 +14,7 @@ mod net;
 mod notifications;
 mod platform;
 mod runtime;
+mod screen_capture;
 mod shared_worker;
 mod sqlite_host;
 mod values;
@@ -65,6 +66,7 @@ pub fn run() {
     let _ = rustls::crypto::ring::default_provider().install_default();
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
         .register_asynchronous_uri_scheme_protocol(host::SCHEME, host::protocol::handle)
         .register_asynchronous_uri_scheme_protocol(media::protocol::SCHEME, media::protocol::handle)
         .manage(host::Hosts::default())
@@ -86,13 +88,19 @@ pub fn run() {
             engine::engine_retry_runtime,
             engine::engine_show_renderer,
             engine::engine_switch_to_sqlite,
+            engine::ui_set_open_conversation,
+            engine::ui_set_shows_preview,
             media::media_save,
+            screen_capture::screen_capture_start,
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application")
-        .run(|_app, event| {
+        .run(|app, event| {
+            // main `stop()`: the native helpers do not outlive the app.
             if let tauri::RunEvent::Exit = event {
                 net::fingerprint::FingerprintProxy::shared().shutdown();
+                calls::shutdown(app);
+                screen_capture::shutdown(app);
             }
         });
 }

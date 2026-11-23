@@ -538,6 +538,120 @@ pub fn is_timeout_message(message: &str) -> bool {
     message.contains("timed out") || message.contains("timeout") || message.contains("deadline exceeded")
 }
 
+// ---- Main-process requests (downloads): no page involved, same jar / user agent / header set ----
+
+/// Why a [`fetch`] got no response (or lost its body).
+#[derive(Debug)]
+pub enum FetchError {
+    Timeout,
+    NameNotResolved,
+    Connect,
+    Tls,
+    Other(String),
+}
+
+impl FetchError {
+    fn from_reqwest(e: reqwest::Error) -> Self {
+        let mut chain = e.to_string();
+        let mut source = std::error::Error::source(&e);
+        while let Some(s) = source {
+            chain.push_str(": ");
+            chain.push_str(&s.to_string());
+            source = s.source();
+        }
+        let lower = chain.to_ascii_lowercase();
+        if e.is_timeout() {
+            FetchError::Timeout
+        } else if lower.contains("dns error") || lower.contains("failed to lookup address") || lower.contains("nodename nor servname") {
+            FetchError::NameNotResolved
+        } else if lower.contains("certificate") || lower.contains("tls") || lower.contains("handshake") {
+            FetchError::Tls
+        } else if e.is_connect() {
+            FetchError::Connect
+        } else {
+            FetchError::Other(chain)
+        }
+    }
+}
+
+enum StreamBody {
+    Live(reqwest::Response),
+    Buffered(Option<Vec<u8>>),
+}
+
+/// A response whose body is read chunk by chunk, so large downloads never sit in memory.
+pub struct StreamingResponse {
+    pub status: u16,
+    pub headers: Vec<(String, String)>,
+    body: StreamBody,
+}
+
+impl StreamingResponse {
+    pub fn header(&self, name: &str) -> Option<&str> {
+        self.headers.iter().find(|(k, _)| k.eq_ignore_ascii_case(name)).map(|(_, v)| v.as_str())
+    }
+
+    /// The next piece of the body; `None` at the end.
+    pub async fn chunk(&mut self) -> Result<Option<Vec<u8>>, FetchError> {
+        match &mut self.body {
+            StreamBody::Live(r) => r.chunk().await.map(|c| c.map(|b| b.to_vec())).map_err(FetchError::from_reqwest),
+            StreamBody::Buffered(b) => Ok(b.take().filter(|b| !b.is_empty())),
+        }
+    }
+}
+
+/// One GET the way Electron's main process makes it (its `net` session): the client's cookie jar, user agent and
+/// Chromium header set, through the fingerprint helper when it runs. Redirects are **not** followed (the caller
+/// decides which headers may follow them); `head_timeout` bounds the wait for the response head.
+pub async fn fetch(
+    app: &AppHandle,
+    url: &url::Url,
+    mut headers: Vec<(String, String)>,
+    user_agent: &str,
+    head_timeout: Duration,
+) -> Result<StreamingResponse, FetchError> {
+    static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+    let jar = app.state::<Arc<CookieJar>>().inner().clone();
+    apply_client_headers(&mut headers);
+    if let Some(cookie) = jar.header_for(url) {
+        headers.push(("cookie".into(), cookie));
+    }
+    if !headers.iter().any(|(k, _)| k.eq_ignore_ascii_case("user-agent")) {
+        headers.push(("User-Agent".into(), user_agent.to_owned()));
+    }
+
+    if let Some(helper) = fingerprint::FingerprintProxy::shared().ready(Duration::from_secs(3)).await {
+        match helper.perform("GET", url.as_str(), &headers, &[], Some(head_timeout)).await {
+            Ok(r) => {
+                jar.store_from_headers(url, &r.headers);
+                return Ok(StreamingResponse { status: r.status, headers: r.headers, body: StreamBody::Buffered(Some(r.body)) });
+            }
+            Err(fingerprint::Error::Unavailable) => log::warn!("fingerprint helper unavailable — reqwest fallback"),
+            Err(fingerprint::Error::Failed(msg)) => {
+                return Err(if is_timeout_message(&msg) { FetchError::Timeout } else { FetchError::Other(msg) });
+            }
+            Err(fingerprint::Error::TooLarge) => return Err(FetchError::Other("body too large".into())),
+        }
+    }
+
+    let client = CLIENT.get_or_init(|| reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).build().expect("http client"));
+    let mut map = HeaderMap::new();
+    for (k, v) in &headers {
+        if let (Ok(name), Ok(value)) = (HeaderName::from_bytes(k.as_bytes()), HeaderValue::from_str(v)) {
+            map.append(name, value);
+        }
+    }
+    let send = client.get(url.clone()).headers(map).send();
+    let resp = match tokio::time::timeout(head_timeout, send).await {
+        Err(_) => return Err(FetchError::Timeout),
+        Ok(r) => r.map_err(FetchError::from_reqwest)?,
+    };
+    let headers: Vec<(String, String)> =
+        resp.headers().iter().map(|(k, v)| (k.as_str().to_owned(), String::from_utf8_lossy(v.as_bytes()).into_owned())).collect();
+    jar.store_from_headers(url, &headers);
+    Ok(StreamingResponse { status: resp.status().as_u16(), headers, body: StreamBody::Live(resp) })
+}
+
 /// Headers Chromium 108 adds to every renderer request (notably **no** `Origin`/`Referer`).
 pub fn apply_client_headers(headers: &mut Vec<(String, String)>) {
     let mut set_default = |name: &str, value: String| {

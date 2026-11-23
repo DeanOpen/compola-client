@@ -364,6 +364,13 @@ impl HostObserver for Engine {
             }
             return;
         }
+        // Engine-side handling the UI doesn't need to see: the renderer's own notification sound rules.
+        if let Some(n) = state.get("notification").filter(|n| n.get("kind").and_then(Value::as_str) == Some("sound")) {
+            if let Some(url) = n.get("url").and_then(Value::as_str) {
+                crate::notifications::play_notification_sound(&self.app, url);
+            }
+            return;
+        }
         emit_ui(&self.app, "compola://state", state);
     }
 
@@ -491,4 +498,16 @@ pub fn engine_switch_to_sqlite(engine: EngineState<'_>) {
         m.switch_storage(crate::main_process::StorageBackend::Sqlite);
     }
     engine.log_out();
+}
+
+/// The UI reports the conversation on screen (notification suppression backstop).
+#[tauri::command]
+pub fn ui_set_open_conversation(app: AppHandle, id: Option<String>) {
+    crate::notifications::set_open_conversation(&app, id);
+}
+
+/// The UI's "show message preview in notifications" setting.
+#[tauri::command]
+pub fn ui_set_shows_preview(app: AppHandle, shows: bool) {
+    crate::notifications::set_shows_preview(&app, shows);
 }
