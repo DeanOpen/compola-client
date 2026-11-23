@@ -171,6 +171,9 @@ pub fn allowed_local_roots() -> Vec<PathBuf> {
 /// Swift `isLocalFile(_:under:)`: the symlink-resolved path lies strictly inside one of `roots`.
 pub fn is_local_file_under(path: &Path, roots: &[PathBuf]) -> bool {
     let Ok(resolved) = std::fs::canonicalize(path) else { return false };
+    if preview_allowed(&resolved) {
+        return true;
+    }
     roots.iter().filter_map(|r| std::fs::canonicalize(r).ok()).any(|root| resolved != root && resolved.starts_with(&root))
 }
 
@@ -355,4 +358,37 @@ mod tests {
         assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
         let _ = std::fs::remove_dir_all(&dir);
     }
+}
+
+// ---- previews of files the user is about to send ----
+
+/// Files the user dropped or pasted (anywhere on disk), allowed for `?file=` previews until they are sent or 30 min
+/// pass. Only exact files the UI registered, never folders.
+static PREVIEWS: std::sync::OnceLock<parking_lot::Mutex<Vec<(PathBuf, std::time::Instant)>>> = std::sync::OnceLock::new();
+
+fn previews() -> &'static parking_lot::Mutex<Vec<(PathBuf, std::time::Instant)>> {
+    PREVIEWS.get_or_init(Default::default)
+}
+
+fn preview_allowed(resolved: &Path) -> bool {
+    let mut list = previews().lock();
+    list.retain(|(_, at)| at.elapsed() < std::time::Duration::from_secs(1800));
+    list.iter().any(|(p, _)| p == resolved)
+}
+
+/// Lets the UI preview (thumbnail / play) files the user just dropped or pasted, through
+/// `compola-media://load?file=<path>`. Only regular files are accepted.
+#[tauri::command]
+pub fn media_allow_previews(paths: Vec<String>) -> usize {
+    let mut list = previews().lock();
+    let mut n = 0;
+    for p in paths {
+        if let Ok(resolved) = std::fs::canonicalize(&p) {
+            if resolved.is_file() {
+                list.push((resolved, std::time::Instant::now()));
+                n += 1;
+            }
+        }
+    }
+    n
 }

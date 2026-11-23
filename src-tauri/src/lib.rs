@@ -107,6 +107,7 @@ pub fn run() {
             engine::engine_call_with_files,
             engine::ui_widen_window,
             engine::clipboard_paste_files,
+            media::media_allow_previews,
             calls::calls_status,
             calls::call_show_window,
             notifications::notification_authorization,
