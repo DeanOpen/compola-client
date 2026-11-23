@@ -3,7 +3,7 @@
 
 import type { Json } from '../models/json';
 
-export const ME = { userId: 'u-me', displayName: 'Nguyễn Minh Anh', zaloName: 'Minh Anh', avatar: '', phoneNumber: '0901234567' };
+export const ME = { userId: 'u-me', displayName: 'Nguyễn Minh Anh', zaloName: 'Minh Anh', avatar: '', phoneNumber: '0901234567', username: 'minhanh.ng', bio: 'Product @ Compola · Sài Gòn ☕️', gender: 1, birthday: '12/08/1996' };
 export const SELF_CONV = 'u-me-cloud';
 
 const now = Date.now();

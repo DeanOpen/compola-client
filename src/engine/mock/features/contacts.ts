@@ -126,6 +126,7 @@ const devAids = async (ctx: MockContext) => {
         }, 200);
     }
     if (dialog?.startsWith('profile:')) contactsUi.showProfile(dialog.slice(8));
+    if (dialog === 'myProfile') contactsUi.showMyProfile();
     if (sheet === 'createGroup') {
       const picks = ctx.params.get('picks');
       contactsUi.composeGroup(picks ? picks.split(',') : []);

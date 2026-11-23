@@ -64,6 +64,12 @@ export const dispatchState = (payload: unknown) => {
         displayName: str(user.displayName) || str(user.zaloName),
         avatar: optStr(user.avatar),
         phone: optStr(user.phoneNumber),
+        zaloName: optStr(user.zaloName),
+        username: optStr(user.username),
+        bio: optStr(user.bio),
+        cover: optStr(user.cover),
+        gender: typeof user.gender === 'number' ? user.gender : null,
+        birthday: optStr(user.birthday),
       },
     });
   }

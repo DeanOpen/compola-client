@@ -7,6 +7,7 @@ import { Cloud, HardDrive, LogOut, MessageCircle, RefreshCw, Settings, SquareUse
 import { useMemo, type MouseEvent } from 'react';
 import { useContacts } from '../engine/contacts';
 import { logOut } from '../engine/lifecycle';
+import { openMyProfile } from '../features/contacts/hosts';
 import { openSettings } from '../features/settings/hosts';
 import { openTransfer } from '../features/transfer/hosts';
 import { useEngine } from '../engine/store';
@@ -36,8 +37,7 @@ export function Rail() {
     const items: MenuItem[] = [
       // Who is signed in (wave 4, after Snowflake's account menu): name, then the number.
       { kind: 'label', label: profile?.phone ? `${name} · ${profile.phone}` : name },
-      // The profile card shows friends only; a card for the account itself is not there yet.
-      { label: 'Hồ sơ của bạn', icon: UserRound, disabled: true, onSelect: () => {} },
+      { label: 'Hồ sơ của bạn', icon: UserRound, onSelect: openMyProfile },
       { label: 'Đồng bộ tin nhắn từ điện thoại…', icon: RefreshCw, disabled: !canStartTransfer, onSelect: openTransfer },
       { label: 'Cài đặt', icon: Settings, shortcut: '⌘,', onSelect: openSettings },
       { kind: 'separator' },

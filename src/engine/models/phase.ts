@@ -39,4 +39,13 @@ export interface Profile {
   displayName: string;
   avatar: string | null;
   phone: string | null;
+  /** Optional details of the official user slice ("Hồ sơ của bạn"); null / undefined when the client has none. */
+  zaloName?: string | null;
+  username?: string | null;
+  bio?: string | null;
+  cover?: string | null;
+  /** Zalo: 0 = nam, 1 = nữ. */
+  gender?: number | null;
+  /** "dd/mm/yyyy" as the official profile shows it. */
+  birthday?: string | null;
 }

@@ -2,10 +2,13 @@
 // ringed avatar, the names, a relationship pill, the actions, then "Thông tin cá nhân" key / value rows. Used by the "Thêm bạn"
 // result and by a friend's profile dialog (Swift `FoundUserCard` / `FriendCard`).
 
-import { BadgeCheck, Clock, MessageCircle, UserCheck, UserPlus } from 'lucide-react';
+import { BadgeCheck, Cloud, Clock, MessageCircle, Settings, UserCheck, UserPlus } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { ago, contactProfile, openContactConversation, useContacts, type ContactProfile } from '../../engine/contacts';
+import { mediaUrl } from '../../engine/media';
+import { setEngine, useEngine } from '../../engine/store';
 import { Avatar } from '../../ui/Avatar';
+import { openSettings } from '../settings/hosts';
 import { Sheet } from '../../ui/Overlays';
 import { ContactCallActions, DialogHeader } from './ContactsShared';
 import './addFriend.css';
@@ -27,6 +30,7 @@ export function ProfileHero({
   status,
   online = false,
   relationship = 'none',
+  cover = null,
 }: {
   avatar: string | null;
   name: string;
@@ -34,11 +38,18 @@ export function ProfileHero({
   status?: string | null;
   online?: boolean;
   relationship?: Relationship;
+  /** Cover photo URL; the brand band when absent. */
+  cover?: string | null;
 }) {
+  const coverSrc = mediaUrl(cover);
   const pill = relationship === 'none' ? null : pills[relationship];
   return (
     <div className="af-hero">
-      <div className="af-hero-band" aria-hidden />
+      <div
+        className="af-hero-band"
+        aria-hidden
+        style={coverSrc ? { backgroundImage: `url("${coverSrc}")`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined}
+      />
       <span className="af-hero-avatar">
         <Avatar url={avatar} name={name} size={84} />
         {online && <span className="af-hero-presence" aria-label="Đang hoạt động" />}
@@ -120,6 +131,60 @@ export function FriendProfileDialog({ id, onClose }: { id: string; onClose: () =
           rows={[
             { label: 'Giới thiệu', value: profile?.bio || null },
             { label: 'Loại tài khoản', value: profile?.isOfficialAccount ? 'Tài khoản chính thức' : null },
+          ]}
+        />
+      </div>
+    </Sheet>
+  );
+}
+
+const genderText = (g: number | null | undefined) => (g === 0 ? 'Nam' : g === 1 ? 'Nữ' : null);
+
+/** "Hồ sơ của bạn": the signed-in account (official user slice), with "Cloud của tôi" and Cài đặt. */
+export function MyProfileDialog({ onClose }: { onClose: () => void }) {
+  const profile = useEngine((s) => s.profile);
+  const selfId = useEngine((s) => s.selfConversationId);
+  if (!profile) return null;
+  return (
+    <Sheet onClose={onClose} width={400}>
+      <DialogHeader title="Hồ sơ của bạn" onClose={onClose} />
+      <div className="ct-dialog-body af-profile">
+        <ProfileHero
+          avatar={profile.avatar}
+          name={profile.displayName}
+          secondaryName={profile.zaloName}
+          relationship="self"
+          cover={profile.cover}
+        />
+        <div className="af-actions">
+          <button
+            className="ct-btn ct-btn-primary af-action-main"
+            disabled={!selfId}
+            onClick={() => {
+              onClose();
+              if (selfId) setEngine({ navigationRequest: selfId });
+            }}
+          >
+            <Cloud size={15} /> Cloud của tôi
+          </button>
+          <button
+            className="ct-btn"
+            onClick={() => {
+              onClose();
+              openSettings();
+            }}
+          >
+            <Settings size={15} /> Cài đặt
+          </button>
+        </div>
+        <ProfileDetails
+          rows={[
+            { label: 'Điện thoại', value: profile.phone },
+            { label: 'Tên Zalo', value: profile.zaloName && profile.zaloName !== profile.displayName ? profile.zaloName : null },
+            { label: 'Username', value: profile.username ? `@${profile.username}` : null },
+            { label: 'Giới thiệu', value: profile.bio },
+            { label: 'Giới tính', value: genderText(profile.gender) },
+            { label: 'Ngày sinh', value: profile.birthday },
           ]}
         />
       </div>

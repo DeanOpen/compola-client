@@ -121,6 +121,12 @@
           const st = store.getState();
           const u = st.user || {};
           const user = { userId: u.userId || '', displayName: u.displayName || '', zaloName: u.zaloName || '', avatar: u.avatar || '', phoneNumber: u.phoneNumber || '' };
+          // Optional profile details of the official user slice ("Hồ sơ của bạn"), only when the client has them.
+          if (typeof u.username === 'string' && u.username) user.username = u.username;
+          if (typeof u.status === 'string' && u.status) user.bio = u.status;
+          if (typeof u.cover === 'string' && u.cover) user.cover = u.cover;
+          if (typeof u.gender === 'number') user.gender = u.gender;
+          if (typeof u.sdob === 'string' && u.sdob) user.birthday = u.sdob;
           const key = JSON.stringify(user);
           if (key !== lastUser) { lastUser = key; post({ page: 'main', user }); }
         };
