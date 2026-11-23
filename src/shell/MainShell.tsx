@@ -1,7 +1,7 @@
 // Signed-in window (Swift `MainShellView`): Mail / Messages-style columns. The sidebar picks a destination, the
 // content column lists it and the detail column shows the chat; the inspector slides in on the right.
 
-import { BookUser, HardDrive, MessagesSquare } from 'lucide-react';
+import { MessagesSquare } from 'lucide-react';
 import { useEffect } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { closeConversation, openConversation } from '../engine/chat';
@@ -12,13 +12,16 @@ import { ChatDetail } from '../features/chat/ChatDetail';
 import { ChatInspectorColumn } from '../features/inspector/ChatInspector';
 import { ConversationListColumn } from '../features/conversations/ConversationListColumn';
 import { QuickSwitcher } from '../features/quickSwitcher/QuickSwitcher';
-import { MediaViewerHost } from '../features/chat/MediaViewer';
+import { MediaViewerHost } from '../features/media/MediaViewer';
+import { FeatureHosts } from '../features/FeatureHosts';
+import { ContactsContentColumn, ContactsDetailColumn } from '../features/contacts/ContactsColumns';
+import { CloudContentColumn, CloudDetailColumn } from '../features/cloud/CloudColumns';
 import { ContentUnavailable } from '../ui/ContentUnavailable';
 import { Alert } from '../ui/Overlays';
 import { ToastView } from '../ui/Toast';
 import { useShellShortcuts } from './keyboard';
 import { Sidebar } from './Sidebar';
-import { isConversationList, labelIdOf, officialFilter, shell, useShell, type Destination } from './shellStore';
+import { isContacts, isConversationList, labelIdOf, officialFilter, shell, useShell, type Destination } from './shellStore';
 import './shell.css';
 
 export function MainShell() {
@@ -82,6 +85,7 @@ export function MainShell() {
       )}
       <QuickSwitcher />
       <MediaViewerHost />
+      <FeatureHosts />
       {composerConfirm && (
         <Alert
           title={composerConfirm.title}
@@ -99,22 +103,16 @@ export function MainShell() {
 /** Middle column: the list for the sidebar destination. */
 function ContentColumn({ destination }: { destination: Destination }) {
   if (isConversationList(destination)) return <ConversationListColumn />;
-  const title = destination === 'zcloud' ? 'zCloud' : 'Danh bạ';
-  return (
-    <div className="column">
-      <ColumnToolbar title={title} />
-      <ContentUnavailable
-        icon={destination === 'zcloud' ? HardDrive : BookUser}
-        title={title}
-        description="Mục này sẽ có trong bản cập nhật tới."
-      />
-    </div>
-  );
+  if (isContacts(destination)) return <ContactsContentColumn destination={destination} />;
+  if (destination === 'zcloud') return <CloudContentColumn />;
+  return <ConversationListColumn />;
 }
 
 /** Right column: the chat (contact cards and zCloud screens arrive with their features). */
 function DetailColumn({ destination, selection }: { destination: Destination; selection: string | null }) {
   if (isConversationList(destination)) return <ChatDetail conversationId={selection} />;
+  if (isContacts(destination)) return <ContactsDetailColumn destination={destination} />;
+  if (destination === 'zcloud') return <CloudDetailColumn />;
   return (
     <div className="column">
       <div className="toolbar" data-tauri-drag-region />

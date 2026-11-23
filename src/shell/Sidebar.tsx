@@ -22,6 +22,8 @@ import {
 import { useMemo, type ReactNode } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { logOut } from '../engine/lifecycle';
+import { openSettings } from '../features/settings/hosts';
+import { openTransfer } from '../features/transfer/hosts';
 import { inboxTitle, typeFilterTitle, TypeFilter } from '../engine/models/conversations';
 import { useEngine } from '../engine/store';
 import { unreadCounts } from '../features/conversations/support';
@@ -151,8 +153,8 @@ function AccountFooter() {
       onClick={(e) =>
         openMenuBelow(e.currentTarget, [
           { kind: 'label', label: name },
-          { label: 'Đồng bộ tin nhắn từ điện thoại…', icon: RefreshCw, disabled: !canStartTransfer, onSelect: () => {} },
-          { label: 'Cài đặt…', icon: Settings, disabled: true, onSelect: () => {} },
+          { label: 'Đồng bộ tin nhắn từ điện thoại…', icon: RefreshCw, disabled: !canStartTransfer, onSelect: openTransfer },
+          { label: 'Cài đặt…', icon: Settings, shortcut: '⌘,', onSelect: openSettings },
           { kind: 'separator' },
           { label: 'Đăng xuất', icon: LogOut, destructive: true, onSelect: () => void logOut() },
         ])
