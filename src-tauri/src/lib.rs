@@ -13,6 +13,7 @@ mod media;
 mod net;
 mod notifications;
 mod platform;
+mod remote;
 mod runtime;
 mod screen_capture;
 mod shared_worker;
@@ -86,9 +87,15 @@ pub fn run() {
         .manage(Arc::new(shared_worker::SharedWorkerRouter::default()))
         .manage(Arc::new(net::cookies::CookieJar::load(platform::app_support().join("cookies.json"))))
         .setup(|app| {
+            // Compola Server first: `emit_ui` forwards to it, and a joined app does not run its own engine.
+            let remote = remote::Remote::new(app.handle().clone());
+            app.manage(remote.clone());
             let engine = engine::Engine::new(app.handle().clone());
             app.manage(engine.clone());
-            engine.start();
+            if !remote.is_joined() {
+                engine.start();
+            }
+            remote.start();
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -115,6 +122,19 @@ pub fn run() {
             media::media_save,
             media::media_open_file,
             screen_capture::screen_capture_start,
+            remote::remote_status,
+            remote::remote_state,
+            remote::remote_set_server,
+            remote::remote_regenerate_code,
+            remote::remote_kick,
+            remote::remote_join,
+            remote::remote_leave,
+            remote::remote_retry,
+            remote::remote_wait_connected,
+            remote::remote_invoke,
+            remote::remote_call_with_files,
+            remote::remote_media_save,
+            remote::remote_media_open_file,
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application")

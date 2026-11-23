@@ -370,6 +370,56 @@ impl Engine {
     }
 }
 
+impl Engine {
+    /// `window[target][method](...args)` in the main renderer page (see `engine_call`).
+    pub async fn call_adapter(&self, target: &str, method: &str, args: Vec<Value>) -> Result<Value, String> {
+        if !target.starts_with("__zalo") && !target.starts_with("__swz") {
+            return Err("unknown target".into());
+        }
+        let host = main_host(self)?;
+        host.call_js(&format!(
+            "const t = window[{}]; if (!t || typeof t[{m}] !== 'function') throw new Error('no ' + {} + '.' + {m}); return await t[{m}](...{});",
+            js_literal(&json!(target)),
+            js_literal(&json!(target)),
+            js_literal(&Value::Array(args)),
+            m = js_literal(&json!(method)),
+        ))
+        .await
+    }
+
+    /// `call_adapter` whose adapter clicks a hidden `<input type=file>`: the input receives the files at `paths` (see
+    /// `engine_call_with_files`). Null when there is nothing to send.
+    pub async fn call_adapter_with_files(&self, target: &str, method: &str, args: Vec<Value>, paths: Vec<String>) -> Result<Value, String> {
+        if !target.starts_with("__zalo") {
+            return Err("unknown target".into());
+        }
+        if paths.is_empty() {
+            return Ok(Value::Null);
+        }
+        main_host(self)?
+            .call_js(&format!(
+                "window.__compolaPendingFiles = await window.__compolaLoadFiles({}); const t = window[{}]; return await t[{}](...{});",
+                js_literal(&json!(paths)),
+                js_literal(&json!(target)),
+                js_literal(&json!(method)),
+                js_literal(&Value::Array(args)),
+            ))
+            .await
+    }
+
+    /// Runtime version, storage backend and the recent renderer log (`engine_info`).
+    pub fn info(&self) -> Value {
+        let st = self.inner.lock();
+        let storage = self.main_process().map(|m| if m.storage == crate::main_process::StorageBackend::Sqlite { "sqlite" } else { "idb" });
+        json!({ "runtimeVersion": st.runtime_version, "storage": storage, "recentLog": st.recent_log })
+    }
+
+    /// Everything the main page posted since it loaded (`engine_replay`).
+    pub fn replay(&self) -> Vec<Value> {
+        self.inner.lock().replay.iter().cloned().collect()
+    }
+}
+
 impl MainProcess {
     fn jar_clear(&self) {
         self.app.state::<Arc<crate::net::cookies::CookieJar>>().clear_zalo();
@@ -479,27 +529,14 @@ pub fn engine_phase(engine: EngineState<'_>) -> Phase {
 
 #[tauri::command]
 pub fn engine_info(engine: EngineState<'_>) -> Value {
-    let st = engine.inner.lock();
-    let storage = engine.main_process().map(|m| if m.storage == crate::main_process::StorageBackend::Sqlite { "sqlite" } else { "idb" });
-    json!({ "runtimeVersion": st.runtime_version, "storage": storage, "recentLog": st.recent_log })
+    engine.info()
 }
 
 /// Calls `window[target][method](...args)` in the main renderer page (the host-script adapters:
 /// `__zaloChat`, `__zaloCompose`, `__zaloPoll`, …) and returns its JSON result.
 #[tauri::command]
 pub async fn engine_call(engine: EngineState<'_>, target: String, method: String, args: Vec<Value>) -> Result<Value, String> {
-    if !target.starts_with("__zalo") && !target.starts_with("__swz") {
-        return Err("unknown target".into());
-    }
-    let host = main_host(&engine)?;
-    host.call_js(&format!(
-        "const t = window[{}]; if (!t || typeof t[{m}] !== 'function') throw new Error('no ' + {} + '.' + {m}); return await t[{m}](...{});",
-        js_literal(&json!(target)),
-        js_literal(&json!(target)),
-        js_literal(&Value::Array(args)),
-        m = js_literal(&json!(method)),
-    ))
-    .await
+    engine.call_adapter(&target, &method, args).await
 }
 
 /// Development aid: evaluates an async function body in the main renderer page.
@@ -565,39 +602,30 @@ pub async fn engine_call_with_files(
     files: Option<Vec<String>>,
     pick: Option<String>,
 ) -> Result<Value, String> {
-    if !target.starts_with("__zalo") {
-        return Err("unknown target".into());
-    }
     let paths = match files {
         Some(f) => f,
-        None => {
-            use tauri_plugin_dialog::DialogExt;
-            let mut dialog = app.dialog().file();
-            if pick.as_deref() == Some("media") {
-                dialog = dialog.add_filter("Ảnh hoặc Video", &["jpg", "jpeg", "png", "gif", "webp", "heic", "mp4", "mov", "m4v", "webm"]);
-            }
-            let (tx, rx) = tokio::sync::oneshot::channel();
-            dialog.pick_files(move |picked| {
-                let _ = tx.send(picked);
-            });
-            match rx.await.ok().flatten() {
-                Some(list) => list.into_iter().filter_map(|p| p.into_path().ok()).map(|p| p.to_string_lossy().into_owned()).collect(),
-                None => return Ok(Value::Null),
-            }
-        }
+        None => match pick_files(&app, pick.as_deref()).await {
+            Some(paths) => paths,
+            None => return Ok(Value::Null),
+        },
     };
-    if paths.is_empty() {
-        return Ok(Value::Null);
+    engine.call_adapter_with_files(&target, &method, args, paths).await
+}
+
+/// The native open panel of the file buttons (`pick`: `media` = images + movies, anything else = any file); None when
+/// the user cancelled.
+pub(crate) async fn pick_files(app: &AppHandle, pick: Option<&str>) -> Option<Vec<String>> {
+    use tauri_plugin_dialog::DialogExt;
+    let mut dialog = app.dialog().file();
+    if pick == Some("media") {
+        dialog = dialog.add_filter("Ảnh hoặc Video", &["jpg", "jpeg", "png", "gif", "webp", "heic", "mp4", "mov", "m4v", "webm"]);
     }
-    main_host(&engine)?
-        .call_js(&format!(
-            "window.__compolaPendingFiles = await window.__compolaLoadFiles({}); const t = window[{}]; return await t[{}](...{});",
-            js_literal(&json!(paths)),
-            js_literal(&json!(target)),
-            js_literal(&json!(method)),
-            js_literal(&Value::Array(args)),
-        ))
-        .await
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    dialog.pick_files(move |picked| {
+        let _ = tx.send(picked);
+    });
+    let list = rx.await.ok().flatten()?;
+    Some(list.into_iter().filter_map(|p| p.into_path().ok()).map(|p| p.to_string_lossy().into_owned()).collect())
 }
 
 /// Widens (or narrows back) the main window when the inspector opens, so the chat keeps its width (Swift InspectorRoom).
@@ -648,5 +676,5 @@ pub fn clipboard_paste_files() -> Result<Vec<String>, String> {
 /// Everything the main page posted since it loaded (compacted), for a UI that (re)loaded after it: dispatch in order.
 #[tauri::command]
 pub fn engine_replay(engine: EngineState<'_>) -> Vec<Value> {
-    engine.inner.lock().replay.iter().cloned().collect()
+    engine.replay()
 }

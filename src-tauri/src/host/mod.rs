@@ -426,7 +426,8 @@ impl Hosts {
     }
 }
 
-/// Emits to the UI window.
+/// Emits to the UI window (and to the UI windows of Compola apps joined to this one, see `crate::remote`).
 pub fn emit_ui<S: serde::Serialize + Clone>(app: &AppHandle, event: &str, payload: S) {
+    crate::remote::forward_event(app, event, &payload);
     let _ = app.emit_to("main", event, payload);
 }

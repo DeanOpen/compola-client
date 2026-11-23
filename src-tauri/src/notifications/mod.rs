@@ -204,6 +204,43 @@ pub fn install(app: &AppHandle, reg: &mut Registry) {
     });
 }
 
+fn notifier(app: &AppHandle) -> Arc<Notifier> {
+    if app.try_state::<Arc<Notifier>>().is_none() {
+        app.manage(Arc::new(Notifier {
+            app: app.clone(),
+            live: Mutex::new(HashMap::new()),
+            open_conversation: Mutex::new(None),
+            shows_preview: AtomicBool::new(true),
+            focus_wired: AtomicBool::new(false),
+        }));
+    }
+    app.state::<Arc<Notifier>>().inner().clone()
+}
+
+/// The click / reply handler of `UNUserNotificationCenter`, installed once in a joined app (no engine `install`).
+#[cfg(target_os = "macos")]
+static REMOTE_UN_WIRED: AtomicBool = AtomicBool::new(false);
+
+/// Shows a notification the renderer of the Compola Server this app joined created (`crate::remote`): same banner,
+/// suppression and click / reply handling as a local one, without the renderer's callbacks.
+pub fn deliver_remote(app: &AppHandle, title: String, body: String, tag: String, silent: bool, image: Option<Vec<u8>>) {
+    let n = notifier(app);
+    #[cfg(target_os = "macos")]
+    if un::available() && !REMOTE_UN_WIRED.swap(true, Ordering::SeqCst) {
+        let handler_app = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            un::init(Box::new(move |id, conv, response| {
+                if let Some(n) = handler_app.try_state::<Arc<Notifier>>() {
+                    n.handle_response(&id, &conv, response);
+                }
+            }));
+        });
+    }
+    let id = uuid::Uuid::new_v4().to_string().to_uppercase();
+    n.live.lock().insert(id.clone(), Live { host: Weak::new(), tag: tag.clone() });
+    n.deliver(NotificationRequest { title, body, tag, silent, icon: None }, id, image);
+}
+
 /// The UI reports the conversation on screen (suppression backstop); `None` when none is open.
 #[allow(dead_code)]
 pub fn set_open_conversation(app: &AppHandle, id: Option<String>) {
@@ -279,6 +316,7 @@ impl Notifier {
                 }
                 None => None,
             };
+            crate::remote::forward_notification(&this.app, &request.title, &request.body, &request.tag, request.silent, image.as_deref());
             this.deliver(request, deliver_id, image);
         });
         Some(id)

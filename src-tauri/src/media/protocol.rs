@@ -289,43 +289,61 @@ fn from_file(path: &PathBuf, range: Option<&str>, head: bool) -> http::Response<
 }
 
 pub fn handle(ctx: UriSchemeContext<'_, Wry>, request: http::Request<Vec<u8>>, responder: UriSchemeResponder) {
+    let app = ctx.app_handle().clone();
+    // Joined to a Compola Server: the media (CDN, the host's files, its runtime assets) come from the host; only the
+    // previews of files picked on this Mac stay local.
+    if request.method() != http::Method::OPTIONS && !is_local_preview(request.uri()) {
+        if let Some(client) = crate::remote::client(&app) {
+            tauri::async_runtime::spawn(async move { responder.respond(client.forward_media(&request).await) });
+            return;
+        }
+    }
+    tauri::async_runtime::spawn(async move { responder.respond(respond(&app, &request).await) });
+}
+
+/// A `?file=` request for a file the user picked / pasted / dropped on this Mac (`media_allow_previews`).
+fn is_local_preview(uri: &http::Uri) -> bool {
+    let Some(query) = uri.query() else { return false };
+    url::form_urlencoded::parse(query.as_bytes())
+        .find(|(k, _)| k == "file")
+        .and_then(|(_, v)| std::fs::canonicalize(v.as_ref()).ok())
+        .is_some_and(|p| super::preview_allowed(&p))
+}
+
+/// The response to a `compola-media` request (also what a Compola Server answers its joined apps, `crate::remote`).
+pub async fn respond(app: &tauri::AppHandle, request: &http::Request<Vec<u8>>) -> http::Response<Vec<u8>> {
     let method = request.method().clone();
     if method == http::Method::OPTIONS {
-        let response = base(204)
+        return base(204)
             .header("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
             .header("Access-Control-Allow-Headers", "Range")
             .body(Vec::new())
             .unwrap_or_default();
-        return responder.respond(response);
     }
     if method != http::Method::GET && method != http::Method::HEAD {
-        return responder.respond(plain(405, "method not allowed", None));
+        return plain(405, "method not allowed", None);
     }
     let parsed = match parse_request(request.uri()) {
         Ok(r) => r,
-        Err((status, reason)) => return responder.respond(plain(status, reason, None)),
+        Err((status, reason)) => return plain(status, reason, None),
     };
     let head = method == http::Method::HEAD;
     let range = request.headers().get(http::header::RANGE).and_then(|v| v.to_str().ok()).map(str::to_owned);
-    let app = ctx.app_handle().clone();
-    tauri::async_runtime::spawn(async move {
-        let response = match parsed {
-            Request::Remote(request) => serve(&MediaLoader::shared(&app), request, range, head).await,
-            Request::Local(path, flavour) => tokio::task::spawn_blocking(move || serve_local(&path, flavour, range.as_deref(), head))
-                .await
-                .unwrap_or_else(|e| failure(&MediaError::Io(e.to_string()))),
-            Request::Asset(path) => {
-                let asar = app.try_state::<Arc<crate::engine::Engine>>().and_then(|e| e.main_process()).map(|m| m.asar.clone());
-                match asar {
-                    Some(asar) => tokio::task::spawn_blocking(move || serve_asset(asar.read(&path), &path, range.as_deref(), head))
-                        .await
-                        .unwrap_or_else(|e| failure(&MediaError::Io(e.to_string()))),
-                    None => plain(503, "runtime not loaded", None),
-                }
+    match parsed {
+        Request::Remote(request) => serve(&MediaLoader::shared(app), request, range, head).await,
+        Request::Local(path, flavour) => tokio::task::spawn_blocking(move || serve_local(&path, flavour, range.as_deref(), head))
+            .await
+            .unwrap_or_else(|e| failure(&MediaError::Io(e.to_string()))),
+        Request::Asset(path) => {
+            let asar = app.try_state::<Arc<crate::engine::Engine>>().and_then(|e| e.main_process()).map(|m| m.asar.clone());
+            match asar {
+                Some(asar) => tokio::task::spawn_blocking(move || serve_asset(asar.read(&path), &path, range.as_deref(), head))
+                    .await
+                    .unwrap_or_else(|e| failure(&MediaError::Io(e.to_string()))),
+                None => plain(503, "runtime not loaded", None),
             }
-        };
-        responder.respond(response);
-    });
+        }
+    }
 }
 
 /// Replaces the Cache-Control of a successful response.
