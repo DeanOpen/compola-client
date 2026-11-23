@@ -1,5 +1,6 @@
 // The content of a bubble row per message kind (Swift `MessageRow.content` + `bubble`): text, media, files, cards.
 
+import { styledSegments, tokenStyle, type TextStyleRange } from '../../engine/models/textStyles';
 import { AlertCircle, CornerDownLeft, Lock, Phone, PhoneIncoming, PhoneMissed, Video, VideoOff } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { performCardAction } from '../../engine/cardActions';
@@ -219,10 +220,17 @@ export function MessageText({ message, fallback }: { message: ChatMessage; fallb
   const myId = useEngine((s) => s.profile?.userId ?? null);
   const text = message.text || fallback || '';
   const runs = textRuns(text, message.mentions, myId);
+  // "Định dạng tin nhắn": the official rich-text ranges cut every run where the style changes.
+  const styles = message.kind.type === 'text' ? (message.kind.styles ?? []) : [];
+  const styled = styles.length ? styledText(text, styles) : null;
+  let at = 0;
   return (
     <span className="message-text selectable">
       {runs.map((r, i) => {
-        if (r.kind === 'text') return <span key={i}>{r.text}</span>;
+        const from = at;
+        at += r.text.length;
+        const body = styled ? styled(from, at, i) : r.text;
+        if (r.kind === 'text') return <span key={i}>{body}</span>;
         if (r.kind === 'link')
           return (
             <a
@@ -233,7 +241,7 @@ export function MessageText({ message, fallback }: { message: ChatMessage; fallb
                 void openExternal(r.url);
               }}
             >
-              {r.text}
+              {body}
             </a>
           );
         return (
@@ -242,11 +250,45 @@ export function MessageText({ message, fallback }: { message: ChatMessage; fallb
             className={`mention ${r.aimsAtMe ? 'is-me' : ''} ${r.clickable ? 'is-clickable' : ''}`}
             onClick={r.clickable ? () => setEngine({ navigationRequest: r.uid }) : undefined}
           >
-            {r.text}
+            {body}
           </span>
         );
       })}
     </span>
   );
 }
+
+/** The pieces of [from, to) with their styles; list bullets / numbers and indents go in front of the lines that carry them. */
+const styledText = (text: string, ranges: TextStyleRange[]) => {
+  const segments = styledSegments(text.length, ranges);
+  // Numbered lines count up while consecutive lines are numbered.
+  const numbers = new Map<number, number>();
+  let n = 0;
+  for (let line = 0; line <= text.length; ) {
+    const next = text.indexOf('\n', line);
+    const end = next < 0 ? text.length : next;
+    const seg = segments.find((s) => s.start <= line && line < s.end);
+    if (seg?.tokens.includes('lst_2')) numbers.set(line, (n += 1));
+    else n = 0;
+    if (next < 0) break;
+    line = end + 1;
+  }
+  return (from: number, to: number, key: number) =>
+    segments
+      .filter((s) => s.end > from && s.start < to)
+      .map((s, j) => {
+        const a = Math.max(from, s.start);
+        const b = Math.min(to, s.end);
+        const lineStart = a === 0 || text[a - 1] === '\n';
+        const indent = lineStart ? Number(s.tokens.find((t) => t.startsWith('ind_'))?.slice(4) ?? 0) : 0;
+        const marker = !lineStart ? null : s.tokens.includes('lst_1') ? '• ' : s.tokens.includes('lst_2') ? `${numbers.get(a) ?? 1}. ` : null;
+        return (
+          <span key={`${key}-${j}`} style={tokenStyle(s.tokens)}>
+            {indent > 0 && <span className="rtf-indent" style={{ width: Math.min(indent, 120) }} />}
+            {marker && <span className="rtf-marker">{marker}</span>}
+            {text.slice(a, b)}
+          </span>
+        );
+      });
+};
 

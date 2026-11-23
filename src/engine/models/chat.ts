@@ -2,6 +2,7 @@
 // full JSON shapes). Values are produced by the official renderer's own services; nothing here is synthesized.
 // Dates are epoch milliseconds.
 
+import { parseTextStyles, type TextStyleRange } from './textStyles';
 import { arr, bool, int, num, obj, optStr, str, strings, url, webLink, type Json } from './json';
 
 /** An @mention inside a text: `pos`/`len` are UTF-16 offsets (JS string indices) covering "@Name". */
@@ -113,7 +114,8 @@ export interface PollInfo {
 }
 
 export type MessageKind =
-  | { type: 'text' }
+  /** `styles`: Zalo rich text ("Định dạng tin nhắn") ranges, offsets into the message text. */
+  | { type: 'text'; styles?: TextStyleRange[] }
   | { type: 'photo'; url: string | null; width: number; height: number }
   | { type: 'sticker'; url: string | null }
   | { type: 'gif'; url: string | null }
@@ -225,8 +227,10 @@ const plausibleMs = (ms: number): number | null => (ms > 0 && ms < 4_102_444_800
 export const parseKind = (json: Json): MessageKind => {
   const text = (k: string) => str(json[k]);
   switch (str(json.type, 'text')) {
-    case 'text':
-      return { type: 'text' };
+    case 'text': {
+      const styles = parseTextStyles(json.styles, Number.MAX_SAFE_INTEGER);
+      return styles.length ? { type: 'text', styles } : { type: 'text' };
+    }
     case 'photo':
       return { type: 'photo', url: url(json.url), width: int(json.width), height: int(json.height) };
     case 'sticker':
@@ -433,17 +437,20 @@ export interface ComposerDraft {
   text: string;
   mentions: Mention[];
   replyTo: ChatMessage | null;
+  /** "Định dạng" ranges (offsets into `text`); absent = plain text. */
+  styles?: TextStyleRange[];
 }
 
 /** `other` after `self`, one line below when both have text; its mention offsets move with it. */
 export const appendDraft = (self: ComposerDraft, other: ComposerDraft): ComposerDraft => {
-  if (!self.text) return { text: other.text, mentions: other.mentions, replyTo: self.replyTo ?? other.replyTo };
+  if (!self.text) return { text: other.text, mentions: other.mentions, replyTo: self.replyTo ?? other.replyTo, styles: other.styles };
   if (!other.text) return self;
   const shift = self.text.length + 1;
   return {
     text: self.text + '\n' + other.text,
     mentions: [...self.mentions, ...other.mentions.map((m) => ({ ...m, pos: m.pos + shift }))],
     replyTo: self.replyTo ?? other.replyTo,
+    styles: [...(self.styles ?? []), ...(other.styles ?? []).map((r) => ({ ...r, start: r.start + shift }))],
   };
 };
 

@@ -20,7 +20,8 @@
 //   realtime      Redux store subscription; incoming messages arrive through the official sync.
 //   typing        wraps the official typing manager's `addItemTyping`.
 //
-// Swift → JS : open(convId) close(convId) loadMore(convId) sendText(convId, text, quoteMsgId?, mentions?) → 'sent'|'not-open'|'not-ready'|'error'
+// Swift → JS : open(convId) close(convId) loadMore(convId) sendText(convId, text, quoteMsgId?, mentions?, styles?) → 'sent'|'not-open'|'not-ready'|'error'
+//              (styles: the official RTF ranges [{start, len, st}], see `textStylesOf`; text kinds carry them back as `kind.styles`)
 //              markRead(convId) react(convId, msgId, emoji)
 //              resolveMedia(convId, msgId, 'photo'|'videoThumb'|'video') → Promise<{state:'ok', path, source, quality}
 //                | {state:'expired'} | {state:'unavailable', reason} | {state:'unsupported'}>
@@ -494,6 +495,31 @@
     return { kind: { type: 'zinstant', title, text, thumb }, text: body || title || FALLBACK.media };
   };
 
+  // Rich text ("Định dạng tin nhắn"): the official RTF format is `{styles:[{start, len, st}], ver}` — in the content's
+  // `params` when `action === 'rtf'` (official `updateMessageFormat`), or `textProperties` on the message. `st` is a comma
+  // list of b · i · u · s · f_<px> · c_<hex> · ind_<n> · lst_1 · lst_2 (official `normalizeFormat` / `denormalizeFormat`).
+  // Only well-formed ranges inside the text are kept; null when there is nothing to draw.
+  const STYLE_TOKEN = /^(b|i|u|s|f_\d{1,2}|c_[0-9a-fA-F]{6}|ind_\d{1,3}|lst_[12])$/;
+  const cleanStyles = (list, length) => {
+    if (!Array.isArray(list)) return null;
+    const out = [];
+    for (const r of list) {
+      if (!r || typeof r !== 'object') continue;
+      const start = Number(r.start), len = Number(r.len);
+      if (!Number.isInteger(start) || !Number.isInteger(len) || start < 0 || len <= 0 || start + len > length) continue;
+      const st = String(r.st || '').split(',').map((x) => x.trim()).filter((x) => STYLE_TOKEN.test(x));
+      if (st.length) out.push({ start, len, st: st.join(',') });
+      if (out.length >= 500) break;
+    }
+    return out.length ? out : null;
+  };
+  const textStylesOf = (m, o, p, text) => safe(() => {
+    if (!text) return null;
+    const fromParams = o.action === 'rtf' && p && Array.isArray(p.styles) ? p.styles : null;
+    const props = fromParams ? null : parseJSON(m.textProperties);
+    return cleanStyles(fromParams || (props && props.styles), text.length);
+  }, null);
+
   // Hidden: cards the official client does not draw. mapAll drops them.
   const HIDDEN = { kind: null, text: '' };
 
@@ -510,7 +536,11 @@
       case MSG.TEXT:
         if (o.action === 'recommened.link' && absUrl(o.href)) return linkOf(o);
         if (o.action === 'msginfo.actionlist') { const txt = infoText(p) || str(o.title); return notice('info.circle', txt); }
-        return { kind: { type: 'text' }, text: asText || str(o.title) || str(o.msg) || str(o.description) };
+        {
+          const text = asText || str(o.title) || str(o.msg) || str(o.description);
+          const styles = textStylesOf(m, o, p, text);
+          return { kind: styles ? { type: 'text', styles } : { type: 'text' }, text };
+        }
       case MSG.PHOTO: case MSG.PHOTO_2:
         return { kind: { type: 'photo', url: o.normalUrl || o.hdUrl || o.oriUrl || o.thumbUrl || str(o.href) || str(o.thumb), width: num(p.width || o.width), height: num(p.height || o.height) }, text: str(o.title) || FALLBACK.photo };
       case MSG.DOODLE:
@@ -1028,7 +1058,7 @@
     return { cc, info, direct: cc.convId !== convId };
   };
 
-  const doSendText = async (convId, text, quoteMsgId, mentions) => {
+  const doSendText = async (convId, text, quoteMsgId, mentions, styles) => {
     convId = String(convId);
     const box = await boxFor(convId, !!quoteMsgId);
     if (typeof box === 'string') return box;
@@ -1041,7 +1071,9 @@
         else diag('send: quoted message not found');
       }
       const list = isGroupId(convId) ? cleanMentions(mentions, String(text)) : [];
-      await cc._processSendMessage(MSG.TEXT, String(text), list, quoted, true, info, true, null, null);
+      // Formatting: the official chat box passes `{styles}` as the 10th argument (`_sendRichText`: `i.styles = e.format`).
+      const format = cleanStyles(styles, String(text).length);
+      await cc._processSendMessage(MSG.TEXT, String(text), list, quoted, true, info, true, null, null, format ? { styles: format } : null);
       await sleep(50);
     } catch (e) {
       diag('send failed: ' + scrubErr(e));
@@ -1316,7 +1348,7 @@
       dirty = true; schedule();
     },
     // Sends share the controller's quote banner: run them one at a time.
-    sendText(convId, text, quoteMsgId, mentions) { return serial(() => doSendText(convId, text, quoteMsgId, mentions)); },
+    sendText(convId, text, quoteMsgId, mentions, styles) { return serial(() => doSendText(convId, text, quoteMsgId, mentions, styles)); },
     // Group members for the composer's @-popover, through the official suggestion engine.
     async mentionCandidates(convId, query, mentioned) {
       convId = String(convId);

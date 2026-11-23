@@ -154,7 +154,7 @@ export function ChatView({ conversation }: { conversation: ConversationSummary }
     setSendTick((t) => t + 1);
     void (async () => {
       // Untrimmed text: the engine re-bases mention offsets when it trims.
-      if (await sendText(sent.text, id, sent.replyTo?.id ?? null, sent.mentions)) return;
+      if (await sendText(sent.text, id, sent.replyTo?.id ?? null, sent.mentions, sent.styles ?? [])) return;
       // Nothing was sent. The view may be gone by now: the engine keeps the text for this conversation's composer.
       stashFailedDraft(sent, id);
     })();

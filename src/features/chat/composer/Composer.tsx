@@ -7,7 +7,14 @@
 import {
   AlarmClock,
   BarChart3,
+  Bold,
   Camera,
+  CaseSensitive,
+  ChevronDown,
+  Eraser,
+  Italic,
+  Strikethrough,
+  Underline,
   FileText,
   ContactRound,
   ImageIcon,
@@ -25,6 +32,19 @@ import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from
 import { mentionCandidates } from '../../../engine/chat';
 import { reminderComposeInfo, reportComposer, sendFiles, sendMedia, startScreenCapture, type ReminderComposeInfo } from '../../../engine/composer';
 import { MyCardSheet, ReminderComposeSheet } from './ComposerSheets';
+import {
+  clearTokens,
+  commonTokens,
+  mediumSize,
+  rebaseTextStyles,
+  setGroupToken,
+  styledSegments,
+  textColors,
+  textSizes,
+  toggleToken,
+  tokenStyle,
+  type TextStyleRange,
+} from '../../../engine/models/textStyles';
 import type { ChatMessage, ComposerDraft, MentionCandidate } from '../../../engine/models/chat';
 import { RemoteImage } from '../../../ui/RemoteImage';
 import { Avatar } from '../../../ui/Avatar';
@@ -81,6 +101,27 @@ export function Composer({
   // the draft still is the text they were found for; a send with no answer holds that text away from the strip.
   const [showStickers, setShowStickers] = useState(false);
   const [showEmoji, setShowEmoji] = useState(false);
+  // "Định dạng" (official ⌘⇧X): the formatting row works on the selected text.
+  const [showFormat, setShowFormat] = useState(false);
+  const [sel, setSel] = useState({ start: 0, end: 0 });
+  const styles = draft.styles ?? [];
+  const active = commonTokens(draft.text.length, styles, sel.start, sel.end);
+  const hasSelection = sel.end > sel.start;
+  /** The field's selection right now (the row's buttons keep the focus in the field, see onMouseDown). */
+  const liveSel = () => {
+    const el = field.current;
+    return el && document.activeElement === el ? { start: el.selectionStart, end: el.selectionEnd } : sel;
+  };
+  const applyFormat = (make: (start: number, end: number) => TextStyleRange[]) => {
+    const { start, end } = liveSel();
+    if (end <= start && make.length) return;
+    onDraftChange({ ...draft, styles: make(start, end) });
+    requestAnimationFrame(() => {
+      field.current?.focus();
+      field.current?.setSelectionRange(start, end);
+    });
+  };
+  const toggle = (t: 'b' | 'i' | 'u' | 's') => applyFormat((a, b) => toggleToken(draft.text.length, styles, a, b, t));
   const emojiButton = useRef<HTMLButtonElement>(null);
   /** Inserts at the caret (replacing a selection) and keeps it after the insertion. */
   const insertText = (t: string) => {
@@ -153,7 +194,7 @@ export function Composer({
     const typed = typing.for ?? draft.text;
     setTyping({ stickers: [], for: null });
     setSendingSuggestion(sticker.key);
-    onDraftChange({ ...draft, text: '', mentions: [] });
+    onDraftChange({ ...draft, text: '', mentions: [], styles: [] });
     void sendSticker(sticker, target, 'suggestion', typed, index).then((outcome) => {
       setSendingSuggestion(null);
       if (outcome.kind === 'done') return;
@@ -217,7 +258,7 @@ export function Composer({
 
   const update = (text: string, caret: number) => {
     const mentions = rebaseMentions(draft.text, text, draft.mentions);
-    onDraftChange({ ...draft, text, mentions });
+    onDraftChange({ ...draft, text, mentions, styles: rebaseTextStyles(draft.text, text, draft.styles ?? []) });
     refreshQuery(text, caret, mentions);
   };
 
@@ -225,7 +266,7 @@ export function Composer({
     if (!query) return;
     const next = insertMention(draft.text, draft.mentions, query, c);
     pendingCaret.current = next.caret;
-    onDraftChange({ ...draft, text: next.text, mentions: next.mentions });
+    onDraftChange({ ...draft, text: next.text, mentions: next.mentions, styles: rebaseTextStyles(draft.text, next.text, draft.styles ?? []) });
     setQuery(null);
     setCandidates([]);
     field.current?.focus();
@@ -235,6 +276,19 @@ export function Composer({
     // An open IME composition owns Return / arrows / Esc (keyCode 229 = composition key in WebKit).
     if (e.nativeEvent.isComposing || composing.current || e.keyCode === 229) return;
     const el = e.currentTarget;
+    if (e.metaKey && !e.altKey && !e.ctrlKey) {
+      const k = e.key.toLowerCase();
+      if (e.shiftKey && k === 'x') {
+        e.preventDefault();
+        return setShowFormat((v) => !v);
+      }
+      if (!e.shiftKey && (k === 'b' || k === 'i' || k === 'u') && el.selectionEnd > el.selectionStart) {
+        e.preventDefault();
+        const { selectionStart: s0, selectionEnd: e0 } = el;
+        onDraftChange({ ...draft, styles: toggleToken(draft.text.length, styles, s0, e0, k) });
+        return;
+      }
+    }
     if (suggestionsOpen) {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
@@ -331,7 +385,15 @@ export function Composer({
         />
         <ToolButton icon={ContactRound} label="Gửi danh thiếp" onClick={() => setShowMyCard(true)} />
         {!reminderHidden && <ToolButton icon={AlarmClock} label="Tạo nhắc hẹn" onClick={openReminder} />}
-        <ToolButton icon={Type} label="Định dạng tin nhắn" disabled />
+        <button
+          className={`composer-tool ${showFormat ? 'is-active' : ''}`}
+          title="Định dạng tin nhắn (⌘⇧X)"
+          aria-label="Định dạng tin nhắn"
+          aria-pressed={showFormat}
+          onClick={() => setShowFormat((v) => !v)}
+        >
+          <Type size={20} strokeWidth={1.7} />
+        </button>
         <ToolButton
           icon={MoreHorizontal}
           label="Tiện ích khác"
@@ -343,6 +405,20 @@ export function Composer({
           }
         />
       </div>
+      {showFormat && (
+        <FormatRow
+          active={active}
+          enabled={hasSelection}
+          hasStyles={styles.length > 0}
+          onToggle={toggle}
+          onSize={(px) => applyFormat((a, b) => setGroupToken(draft.text.length, styles, a, b, 'f_', px === mediumSize ? null : `f_${px}`))}
+          onColor={(hex) => applyFormat((a, b) => setGroupToken(draft.text.length, styles, a, b, 'c_', hex ? `c_${hex}` : null))}
+          onClear={() => {
+            const { start, end } = liveSel();
+            onDraftChange({ ...draft, styles: end > start ? clearTokens(draft.text.length, styles, start, end) : [] });
+          }}
+        />
+      )}
       {draft.replyTo && (
         <div className="composer-reply slide-up">
           <ReplyThumb message={draft.replyTo} />
@@ -364,7 +440,7 @@ export function Composer({
       )}
       {suggestionsOpen && <MentionSuggestions candidates={candidates} selected={selected} setSelected={setSelected} pick={pick} />}
       <div className="composer-row">
-        <div className="composer-input" style={{ height }}>
+        <div className={`composer-input ${styles.length ? 'has-styles' : ''}`} style={{ height }}>
           <div className="composer-mirror" ref={mirror} aria-hidden>
             {renderMirror(draft)}
           </div>
@@ -379,7 +455,11 @@ export function Composer({
             onKeyDown={onKeyDown}
             onCompositionStart={() => (composing.current = true)}
             onCompositionEnd={() => (composing.current = false)}
-            onSelect={(e) => refreshQuery(draft.text, e.currentTarget.selectionStart)}
+            onSelect={(e) => {
+              const el = e.currentTarget;
+              refreshQuery(draft.text, el.selectionStart);
+              setSel((old) => (old.start === el.selectionStart && old.end === el.selectionEnd ? old : { start: el.selectionStart, end: el.selectionEnd }));
+            }}
             onScroll={(e) => mirror.current && (mirror.current.scrollTop = e.currentTarget.scrollTop)}
             onPaste={(e) => {
               // Files / an image on the clipboard: ⌘V attaches them (asked first, like Zalo PC's paste preview).
@@ -444,22 +524,136 @@ function ToolButton({ icon: Icon, label, disabled = false, onClick }: { icon: Lu
 }
 
 /** Same text as the field, transparent, with the mention tokens highlighted behind the real text. */
+/** What the field shows behind the text: mention tokens, and the "Định dạng" styles. With styles, the mirror draws the
+ * glyphs (the textarea's own text turns transparent) using width-preserving styles, so the caret stays aligned. */
 const renderMirror = (draft: ComposerDraft) => {
+  const text = draft.text;
+  const mentions = [...draft.mentions].sort((a, b) => a.pos - b.pos);
+  const segments = styledSegments(text.length, draft.styles ?? []);
+  const cuts = new Set<number>([0, text.length]);
+  for (const m of mentions) cuts.add(m.pos).add(m.pos + m.len);
+  for (const sg of segments) cuts.add(sg.start).add(sg.end);
+  const points = [...cuts].filter((x) => x >= 0 && x <= text.length).sort((a, b) => a - b);
   const parts: React.ReactNode[] = [];
-  let at = 0;
-  for (const m of [...draft.mentions].sort((a, b) => a.pos - b.pos)) {
-    if (m.pos < at) continue;
-    parts.push(draft.text.slice(at, m.pos));
+  for (let i = 0; i + 1 < points.length; i += 1) {
+    const a = points[i];
+    const b = points[i + 1];
+    const inMention = mentions.some((m) => m.pos <= a && b <= m.pos + m.len);
+    const tokens = segments.find((sg) => sg.start <= a && b <= sg.end)?.tokens ?? [];
+    const style = tokenStyle(tokens, true);
     parts.push(
-      <mark key={m.pos} className="composer-token">
-        {draft.text.slice(m.pos, m.pos + m.len)}
-      </mark>,
+      inMention ? (
+        <mark key={a} className="composer-token" style={style}>
+          {text.slice(a, b)}
+        </mark>
+      ) : (
+        <span key={a} style={style}>
+          {text.slice(a, b)}
+        </span>
+      ),
     );
-    at = m.pos + m.len;
   }
-  parts.push(draft.text.slice(at) + '​');
+  parts.push('\u200b');
   return parts;
 };
+
+/** The formatting row (official RTF toolbar subset the sender supports): B, I, U, S, Cỡ chữ, Màu chữ, Bỏ định dạng. */
+function FormatRow({
+  active,
+  enabled,
+  hasStyles,
+  onToggle,
+  onSize,
+  onColor,
+  onClear,
+}: {
+  active: Set<string>;
+  enabled: boolean;
+  hasStyles: boolean;
+  onToggle: (t: 'b' | 'i' | 'u' | 's') => void;
+  onSize: (px: number) => void;
+  onColor: (hex: string) => void;
+  onClear: () => void;
+}) {
+  const hint = enabled ? undefined : 'Chọn đoạn văn bản để định dạng';
+  const btn = (t: 'b' | 'i' | 'u' | 's', Icon: LucideIcon, label: string, keys?: string) => (
+    <button
+      className={`format-button ${active.has(t) ? 'is-on' : ''}`}
+      disabled={!enabled}
+      title={hint ?? (keys ? `${label} (${keys})` : label)}
+      aria-label={label}
+      aria-pressed={active.has(t)}
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={() => onToggle(t)}
+    >
+      <Icon size={16} strokeWidth={2} />
+    </button>
+  );
+  const size = [...active].find((t) => t.startsWith('f_'));
+  const color = [...active].find((t) => t.startsWith('c_'));
+  return (
+    <div className="format-row slide-up" role="toolbar" aria-label="Định dạng tin nhắn">
+      {btn('b', Bold, 'In đậm', '⌘B')}
+      {btn('i', Italic, 'In nghiêng', '⌘I')}
+      {btn('u', Underline, 'Gạch chân', '⌘U')}
+      {btn('s', Strikethrough, 'Gạch ngang')}
+      <span className="format-sep" />
+      <button
+        className={`format-button is-wide ${size ? 'is-on' : ''}`}
+        disabled={!enabled}
+        title={hint ?? 'Cỡ chữ'}
+        aria-label="Cỡ chữ"
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={(e) =>
+          openMenuBelow(
+            e.currentTarget,
+            [...textSizes].reverse().map((z) => ({
+              label: z.title,
+              checked: size ? size === `f_${z.px}` : z.px === mediumSize,
+              onSelect: () => onSize(z.px),
+            })),
+          )
+        }
+      >
+        <CaseSensitive size={18} strokeWidth={1.8} />
+        <ChevronDown size={12} />
+      </button>
+      <button
+        className="format-button is-wide"
+        disabled={!enabled}
+        title={hint ?? 'Đổi màu chữ'}
+        aria-label="Đổi màu chữ"
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={(e) =>
+          openMenuBelow(
+            e.currentTarget,
+            textColors.map((c) => ({
+              label: c.title,
+              dot: c.hex ? `#${c.hex}` : 'var(--text)',
+              checked: color ? color === `c_${c.hex}` : !c.hex,
+              onSelect: () => onColor(c.hex),
+            })),
+          )
+        }
+      >
+        <span className="format-color" style={{ background: color ? `#${color.slice(2)}` : 'var(--text)' }} />
+        <ChevronDown size={12} />
+      </button>
+      <span className="format-sep" />
+      <button
+        className="format-button"
+        disabled={!enabled && !hasStyles}
+        title={enabled ? 'Bỏ định dạng nội dung đã chọn' : 'Bỏ tất cả định dạng'}
+        aria-label="Bỏ định dạng"
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={onClear}
+      >
+        <Eraser size={16} strokeWidth={1.9} />
+      </button>
+      <span className="format-hint">{enabled ? '' : 'Chọn đoạn văn bản để định dạng'}</span>
+    </div>
+  );
+}
 
 function MentionSuggestions({
   candidates,

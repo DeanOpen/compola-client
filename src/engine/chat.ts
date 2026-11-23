@@ -1,6 +1,7 @@
 // Chat, bridged to `host-scripts/chat-adapter.js` (`window.__zaloChat`). Port of ZaloEngine+Chat.swift.
 // Contract: models/chat.ts. All actions run through the official client's own services.
 
+import { sliceTextStyles, type TextStyleRange } from './models/textStyles';
 import { commands } from './backend';
 import { callAdapter, fireAdapter, log, tryAdapter } from './call';
 import { appendDraft, parseChatMessage, parseReactionDetail, type ChatMessage, type ComposerDraft, type Mention, type MentionCandidate, type ReactionDetail } from './models/chat';
@@ -40,7 +41,13 @@ const isSpace = (c: string) => /\s/.test(c);
  * `mentions` are UTF-16 offsets into `text` as typed; they are re-based when the text is trimmed and dropped when
  * they no longer point at their "@Name". Resolves false when the official client could not take the message.
  */
-export const sendText = async (text: string, conversationId: string, quoting: string | null = null, mentions: Mention[] = []): Promise<boolean> => {
+export const sendText = async (
+  text: string,
+  conversationId: string,
+  quoting: string | null = null,
+  mentions: Mention[] = [],
+  styles: TextStyleRange[] = [],
+): Promise<boolean> => {
   const trimmed = text.trim();
   if (!trimmed) return true;
   let leading = 0;
@@ -52,7 +59,11 @@ export const sendText = async (text: string, conversationId: string, quoting: st
     .sort((a, b) => a.pos - b.pos);
   let result: unknown;
   try {
-    result = await callAdapter('__zaloChat', 'sendText', conversationId, trimmed, quoting, wire);
+    // "Định dạng": the ranges follow the trim; none = a plain text send, as before.
+    const format = sliceTextStyles(styles, leading, trimmed.length);
+    result = format.length
+      ? await callAdapter('__zaloChat', 'sendText', conversationId, trimmed, quoting, wire, format)
+      : await callAdapter('__zaloChat', 'sendText', conversationId, trimmed, quoting, wire);
   } catch (e) {
     result = String(e);
   }

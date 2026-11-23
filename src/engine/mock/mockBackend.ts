@@ -192,7 +192,7 @@ export const createMockBackend = (): Backend => {
         publishChat(id, false, older);
       }, 700);
     },
-    sendText: async (id: string, text: string, quoteId: string | null, mentions: Json[]) => {
+    sendText: async (id: string, text: string, quoteId: string | null, mentions: Json[], styles?: Json[]) => {
       const list = history(id);
       const quoted = quoteId ? list.find((m) => m.id === quoteId) : null;
       const m = message(id, {
@@ -202,6 +202,7 @@ export const createMockBackend = (): Backend => {
         status: 'sending',
         mentions,
         quote: quoted ? { senderName: quoted.isMine ? ME.displayName : quoted.senderName, text: quoted.text } : null,
+        ...(styles?.length ? { kind: { type: 'text', styles } } : {}),
       });
       if (text.includes('#fail')) return 'error';
       list.push(m);
