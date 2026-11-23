@@ -2,8 +2,8 @@
 // the official find-by-phone → the profile card with its friend state → "Kết bạn" → the message step → the official
 // `requestAddFriend`. Nothing is sent until "Gửi" is pressed; the search is reset when the dialog closes.
 
-import { ChevronDown, Clock, MessageCircle, UserCheck, UserPlus, X } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Check, ChevronDown, Clock, MessageCircle, Smartphone, UserCheck, UserPlus, UserX, X, XCircle, type LucideIcon } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   acceptFriendRequest,
   cancelFriendRequest,
@@ -21,7 +21,8 @@ import { openMenuBelow } from '../../ui/Menu';
 import { Sheet } from '../../ui/Overlays';
 import { Spinner } from '../../ui/Spinner';
 import { DialogHeader } from './ContactsShared';
-import { ProfileCover } from './ContactsView';
+import { ProfileDetails, ProfileHero, type Relationship } from './ProfileCard';
+import './addFriend.css';
 
 interface Country {
   iso: string;
@@ -77,26 +78,26 @@ function Suggestions() {
   };
 
   return (
-    <div className="ct-suggest">
-      <div className="ct-recent-title">
-        <UserPlus size={13} /> Có thể bạn quen
-      </div>
+    <section className="af-section">
+      <SectionTitle icon={UserPlus} title="Có thể bạn quen" count={visible.length} />
       {visible.map((x) => {
         const st = state[x.id];
         return (
-          <div key={x.id} className="ct-suggest-row">
-            <button className="ct-recent-main" onClick={() => openContactConversation(x.id, { name: x.name, avatar: x.avatar })} title="Nhắn tin">
-              <Avatar url={x.avatar} name={x.name} size={36} />
-              <span className="ct-recent-text">
-                <span className="truncate">{x.name || 'Người dùng Zalo'}</span>
-                <span className="ct-recent-phone truncate">{x.reason || 'Có thể bạn quen'}</span>
+          <div key={x.id} className="af-row">
+            <button className="af-row-main" onClick={() => openContactConversation(x.id, { name: x.name, avatar: x.avatar })} title="Nhắn tin">
+              <Avatar url={x.avatar} name={x.name} size={40} />
+              <span className="af-row-text">
+                <span className="af-row-name truncate">{x.name || 'Người dùng Zalo'}</span>
+                <span className="af-row-sub truncate">{x.reason || 'Có thể bạn quen'}</span>
               </span>
             </button>
             {st === 'sent' ? (
-              <span className="ct-suggest-sent">Đã gửi</span>
+              <span className="af-row-done">
+                <Check size={14} /> Đã gửi
+              </span>
             ) : (
               <button
-                className="ct-btn ct-btn-tonal ct-suggest-add"
+                className="ct-btn ct-btn-tonal af-row-add"
                 disabled={st === 'sending'}
                 onClick={() => void add(x)}
                 title="Gửi lời mời kết bạn"
@@ -105,21 +106,40 @@ function Suggestions() {
                 {st === 'sending' ? <Spinner size={13} /> : 'Kết bạn'}
               </button>
             )}
-            <button
-              className="ct-recent-remove"
-              title="Ẩn gợi ý"
-              aria-label={`Ẩn gợi ý ${x.name}`}
-              disabled={st === 'sending'}
-              onClick={() => dismissSuggestion(x.id)}
-            >
-              <X size={14} />
-            </button>
+            {st !== 'sent' && (
+              <button
+                className="af-row-remove"
+                title="Ẩn gợi ý"
+                aria-label={`Ẩn gợi ý ${x.name}`}
+                disabled={st === 'sending'}
+                onClick={() => dismissSuggestion(x.id)}
+              >
+                <X size={14} />
+              </button>
+            )}
           </div>
         );
       })}
+    </section>
+  );
+}
+
+function SectionTitle({ icon: Icon, title, count }: { icon: LucideIcon; title: string; count?: number }) {
+  return (
+    <div className="af-section-title">
+      <Icon size={14} />
+      <span>{title}</span>
+      {count ? <span className="af-section-count nums">{count}</span> : null}
     </div>
   );
 }
+
+/** "0912345678" → "0912 345 678" (Vietnamese mobile grouping); other numbers as typed. */
+const prettyPhone = (phone: string): string => {
+  const digits = phone.replace(/\s+/g, '');
+  if (/^0\d{9}$/.test(digits)) return `${digits.slice(0, 4)} ${digits.slice(4, 7)} ${digits.slice(7)}`;
+  return phone.trim();
+};
 
 // MARK: - Recent searches (this device only)
 
@@ -157,6 +177,7 @@ type Step = 'form' | 'profile' | 'message';
 export function AddFriendDialog({ onClose }: { onClose: () => void }) {
   const search = useContacts((s) => s.search);
   const notice = useContacts((s) => s.notice);
+  const suggestionCount = useContacts((s) => s.suggestions.length);
   const [step, setStep] = useState<Step>('form');
   const [country, setCountry] = useState<Country>(countries[0]);
   const [phone, setPhone] = useState('');
@@ -227,14 +248,14 @@ export function AddFriendDialog({ onClose }: { onClose: () => void }) {
   const user = shown;
 
   return (
-    <Sheet onClose={onClose} width={400}>
+    <Sheet onClose={onClose} width={420} height={600}>
       {step === 'form' || !user ? (
         <>
           <DialogHeader title="Thêm bạn" onClose={onClose} />
-          <div className="ct-dialog-body ct-addfriend">
-            <div className="ct-phone-row">
+          <div className="ct-dialog-body af-form">
+            <div className={`af-phone ${search.status === 'error' ? 'is-error' : ''}`}>
               <button
-                className="ct-country"
+                className="af-country"
                 onClick={(e) =>
                   openMenuBelow(
                     e.currentTarget,
@@ -249,16 +270,18 @@ export function AddFriendDialog({ onClose }: { onClose: () => void }) {
                   )
                 }
                 aria-label={`Mã quốc gia ${country.name} ${country.code}`}
+                title={country.name}
               >
-                <span>
+                <span className="nums">
                   {country.iso === 'VN' ? '🇻🇳 ' : ''}
                   {country.code}
                 </span>
                 <ChevronDown size={14} />
               </button>
+              <span className="af-phone-divider" aria-hidden />
               <input
                 ref={input}
-                className="ct-phone-input"
+                className="af-phone-input nums"
                 value={phone}
                 placeholder="Số điện thoại"
                 inputMode="tel"
@@ -272,23 +295,48 @@ export function AddFriendDialog({ onClose }: { onClose: () => void }) {
                 }}
                 aria-label="Số điện thoại"
               />
+              {phone && !searching && (
+                <button
+                  className="af-phone-clear"
+                  onClick={() => {
+                    setPhone('');
+                    resetFriendSearch();
+                    input.current?.focus();
+                  }}
+                  title="Xoá"
+                  aria-label="Xoá số điện thoại"
+                >
+                  <XCircle size={16} fill="currentColor" stroke="var(--ct-layer)" />
+                </button>
+              )}
             </div>
-            {search.status === 'error' ? (
-              <div className="ct-phone-error" role="alert">
-                {search.error ?? 'Không tìm thấy người dùng.'}
+            {searching ? (
+              <div className="af-status" role="status">
+                <Spinner size={14} />
+                <span>
+                  Đang tìm <b className="nums">{prettyPhone(lastQuery?.phone ?? phone)}</b>…
+                </span>
+              </div>
+            ) : search.status === 'error' ? (
+              <div className="af-notfound" role="alert">
+                <span className="af-notfound-icon">
+                  <UserX size={20} />
+                </span>
+                <span className="af-notfound-text">
+                  <b>Không tìm thấy</b>
+                  <span>{search.error ?? 'Số điện thoại chưa đăng ký tài khoản hoặc không cho phép tìm kiếm.'}</span>
+                </span>
               </div>
             ) : (
-              <div className="ct-phone-hint">Nhập số điện thoại Việt Nam, hoặc số quốc tế bắt đầu bằng +</div>
+              <div className="af-hint">Nhập số điện thoại Việt Nam, hoặc số quốc tế bắt đầu bằng +</div>
             )}
             {recent.length > 0 && (
-              <div className="ct-recent">
-                <div className="ct-recent-title">
-                  <Clock size={13} /> Kết quả gần nhất
-                </div>
+              <section className="af-section">
+                <SectionTitle icon={Clock} title="Kết quả gần nhất" />
                 {recent.map((r) => (
-                  <div key={r.id} className="ct-recent-row">
+                  <div key={r.id} className="af-row">
                     <button
-                      className="ct-recent-main"
+                      className="af-row-main"
                       disabled={searching}
                       onClick={() => {
                         setPhone(r.phone);
@@ -297,14 +345,14 @@ export function AddFriendDialog({ onClose }: { onClose: () => void }) {
                         find(r.phone, c.iso);
                       }}
                     >
-                      <Avatar url={r.avatar} name={r.name} size={36} />
-                      <span className="ct-recent-text">
-                        <span className="truncate">{r.name || 'Người dùng Zalo'}</span>
-                        <span className="ct-recent-phone nums">{r.phone}</span>
+                      <Avatar url={r.avatar} name={r.name} size={40} />
+                      <span className="af-row-text">
+                        <span className="af-row-name truncate">{r.name || 'Người dùng Zalo'}</span>
+                        <span className="af-row-sub nums">{prettyPhone(r.phone)}</span>
                       </span>
                     </button>
                     <button
-                      className="ct-recent-remove"
+                      className="af-row-remove"
                       title="Xoá khỏi danh sách"
                       aria-label={`Xoá ${r.name} khỏi kết quả gần nhất`}
                       onClick={() =>
@@ -319,9 +367,17 @@ export function AddFriendDialog({ onClose }: { onClose: () => void }) {
                     </button>
                   </div>
                 ))}
-              </div>
+              </section>
             )}
             <Suggestions />
+            {recent.length === 0 && suggestionCount === 0 && (
+              <div className="af-empty">
+                <span className="af-empty-icon">
+                  <Smartphone size={26} />
+                </span>
+                <span>Tìm bạn bè bằng số điện thoại đã đăng ký Zalo.</span>
+              </div>
+            )}
           </div>
           <div className="ct-dialog-footer">
             <button className="ct-btn ct-btn-secondary" onClick={onClose}>
@@ -335,8 +391,8 @@ export function AddFriendDialog({ onClose }: { onClose: () => void }) {
       ) : step === 'profile' ? (
         <>
           <DialogHeader title="Thông tin tài khoản" onBack={backToForm} onClose={onClose} />
-          <div className="ct-dialog-body">
-            <ProfileCover avatar={user.avatar} name={user.name} secondaryName={user.zaloName} status={user.bio || null} />
+          <div className="ct-dialog-body af-profile">
+            <ProfileHero avatar={user.avatar} name={user.name} secondaryName={user.zaloName} relationship={relationshipOf(user)} />
             <FriendState
               user={user}
               busy={acting || searching}
@@ -344,6 +400,12 @@ export function AddFriendDialog({ onClose }: { onClose: () => void }) {
               onMessage={() => message(user)}
               onAccept={() => act(() => acceptFriendRequest(user.id))}
               onCancel={() => act(() => cancelFriendRequest(user.id))}
+            />
+            <ProfileDetails
+              rows={[
+                { label: 'Điện thoại', value: lastQuery ? `${country.iso === 'VN' ? '' : country.code + ' '}${prettyPhone(lastQuery.phone)}` : null },
+                { label: 'Giới thiệu', value: user.bio || null },
+              ]}
             />
           </div>
         </>
@@ -354,7 +416,10 @@ export function AddFriendDialog({ onClose }: { onClose: () => void }) {
   );
 }
 
-/** The buttons of the found person: Kết bạn / Nhắn tin, or their state (friend, requested, requesting, me). */
+const relationshipOf = (user: FoundUser): Relationship =>
+  user.isSelf ? 'self' : user.isFriend ? 'friend' : user.requesting ? 'requesting' : user.requested ? 'requested' : 'none';
+
+/** The buttons of the found person: Kết bạn / Nhắn tin, Đồng ý, Thu hồi (the state itself is the hero's pill). */
 function FriendState({
   user,
   busy,
@@ -370,53 +435,46 @@ function FriendState({
   onAccept: () => void;
   onCancel: () => void;
 }) {
-  if (user.isSelf) return <div className="ct-state-note">Đây là tài khoản của bạn.</div>;
-  const messageButton = (
-    <button className="ct-btn ct-btn-tonal ct-btn-grow" onClick={onMessage}>
+  if (user.isSelf) return null;
+  const messageButton = (primary: boolean) => (
+    <button className={`ct-btn ${primary ? 'ct-btn-primary' : 'ct-btn-tonal'} ct-btn-grow`} onClick={onMessage}>
       <MessageCircle size={15} /> Nhắn tin
     </button>
   );
-  if (user.isFriend)
-    return (
+  let main: ReactNode;
+  if (user.isFriend) main = messageButton(true);
+  else if (user.requesting)
+    main = (
       <>
-        <div className="ct-state-note is-ok">
-          <UserCheck size={14} /> Đã là bạn bè
-        </div>
-        <div className="ct-profile-buttons">{messageButton}</div>
+        <button className="ct-btn ct-btn-primary ct-btn-grow" disabled={busy} onClick={onAccept}>
+          {busy ? <Spinner size={14} className="on-accent" /> : (
+            <>
+              <UserCheck size={15} /> Đồng ý
+            </>
+          )}
+        </button>
+        {messageButton(false)}
       </>
     );
-  if (user.requesting)
-    return (
+  else if (user.requested)
+    main = (
       <>
-        <div className="ct-state-note">Người này đã gửi lời mời kết bạn cho bạn.</div>
-        <div className="ct-profile-buttons">
-          <button className="ct-btn ct-btn-primary ct-btn-grow" disabled={busy} onClick={onAccept}>
-            {busy ? <Spinner size={14} className="on-accent" /> : 'Đồng ý'}
-          </button>
-          {messageButton}
-        </div>
+        <button className="ct-btn ct-btn-secondary ct-btn-grow" disabled={busy} onClick={onCancel}>
+          {busy ? <Spinner size={14} /> : 'Thu hồi lời mời'}
+        </button>
+        {messageButton(false)}
       </>
     );
-  if (user.requested)
-    return (
+  else
+    main = (
       <>
-        <div className="ct-state-note">Bạn đã gửi lời mời kết bạn. Đang chờ người này chấp nhận.</div>
-        <div className="ct-profile-buttons">
-          <button className="ct-btn ct-btn-secondary ct-btn-grow" disabled={busy} onClick={onCancel}>
-            {busy ? <Spinner size={14} /> : 'Thu hồi lời mời'}
-          </button>
-          {messageButton}
-        </div>
+        <button className="ct-btn ct-btn-primary ct-btn-grow" disabled={busy} onClick={onAdd}>
+          <UserPlus size={15} /> Kết bạn
+        </button>
+        {messageButton(false)}
       </>
     );
-  return (
-    <div className="ct-profile-buttons">
-      <button className="ct-btn ct-btn-secondary ct-btn-grow" disabled={busy} onClick={onAdd}>
-        <UserPlus size={15} /> Kết bạn
-      </button>
-      {messageButton}
-    </div>
-  );
+  return <div className="af-actions">{main}</div>;
 }
 
 /** "Kết bạn": the greeting (official default, editable up to `maxMessage`), then the official request. */
@@ -446,31 +504,39 @@ function MessageStep({ user, onBack, onClose, onSent }: { user: FoundUser; onBac
 
   return (
     <>
-      <DialogHeader title="Kết bạn" onBack={sending ? undefined : onBack} onClose={onClose} />
-      <div className="ct-dialog-body ct-message-step">
-        <div className="ct-message-who">
-          <Avatar url={user.avatar} name={user.name} size={48} />
-          <div className="ct-message-who-text">
-            <span className="ct-card-title truncate">{user.name}</span>
-            {user.zaloName && user.zaloName !== user.name && <span className="ct-card-extra truncate">{user.zaloName}</span>}
+      <DialogHeader title="Gửi lời mời kết bạn" onBack={sending ? undefined : onBack} onClose={onClose} />
+      <div className="ct-dialog-body af-message">
+        <div className="af-message-who">
+          <Avatar url={user.avatar} name={user.name} size={44} />
+          <div className="af-row-text">
+            <span className="af-row-name truncate">{user.name}</span>
+            <span className="af-row-sub truncate">{user.zaloName && user.zaloName !== user.name ? user.zaloName : 'Lời nhắn sẽ đi kèm lời mời'}</span>
           </div>
         </div>
-        <div className="ct-textarea-wrap">
+        <label className="af-message-label" htmlFor="af-greeting">
+          Lời nhắn
+        </label>
+        <div className="af-textarea">
           <textarea
+            id="af-greeting"
             ref={area}
-            className="ct-textarea"
             value={text}
-            rows={5}
+            rows={6}
             disabled={sending}
             onChange={(e) => setText(e.target.value.slice(0, user.maxMessage))}
-            aria-label="Lời nhắn"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.nativeEvent.isComposing) {
+                e.preventDefault();
+                void send();
+              }
+            }}
           />
-          <div className="ct-counter nums">
+          <div className={`af-counter nums ${text.length >= user.maxMessage ? 'is-full' : ''}`}>
             {text.length}/{user.maxMessage}
           </div>
         </div>
         {problem && (
-          <div className="ct-phone-error" role="alert">
+          <div className="af-error" role="alert">
             {problem}
           </div>
         )}
@@ -479,8 +545,8 @@ function MessageStep({ user, onBack, onClose, onSent }: { user: FoundUser; onBac
         <button className="ct-btn ct-btn-secondary" disabled={sending} onClick={onBack}>
           Hủy
         </button>
-        <button className="ct-btn ct-btn-primary ct-btn-min" disabled={sending || !text.trim()} onClick={() => void send()}>
-          {sending ? <Spinner size={14} className="on-accent" /> : 'Gửi'}
+        <button className="ct-btn ct-btn-primary ct-btn-min" disabled={sending || !text.trim()} onClick={() => void send()} title="⌘↩">
+          {sending ? <Spinner size={14} className="on-accent" /> : 'Gửi lời mời'}
         </button>
       </div>
     </>
