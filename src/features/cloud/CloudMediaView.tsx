@@ -1,7 +1,7 @@
 // A zCloud browse screen (Swift CloudMediaView.swift): "Tin nhắn media", one conversation's items or "Cloud của tôi";
 // filter by type, sort, grid / list, preview, "Lưu về máy…", multi-select and delete.
 
-import { ArrowUpDown, Check, CheckCircle2, ChevronLeft, Circle, CloudAlert, Eye, Folder, Images, Inbox, LayoutGrid, List, Play, Save, Trash2 } from 'lucide-react';
+import { ArrowUpDown, Check, CheckCircle2, ChevronLeft, CloudAlert, Eye, Folder, Images, Inbox, LayoutGrid, List, Play, Save, Trash2, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import {
   breakdownBytes,
@@ -20,6 +20,7 @@ import { Alert } from '../../ui/Overlays';
 import { ContentUnavailable } from '../../ui/ContentUnavailable';
 import { openContextMenu, openMenuBelow, type MenuItem } from '../../ui/Menu';
 import { Spinner } from '../../ui/Spinner';
+import { useEscape } from '../../ui/escape';
 import { CloudThumbView } from './CloudThumb';
 import { HeaderIcon, Tabs } from './Segmented';
 import {
@@ -136,6 +137,45 @@ const useCloudList = (scope: CloudScope, kind: CloudItemKind | null, sort: Cloud
   }, [isSelecting, refreshInPlace]);
 
   return { ...state, selection, setSelection, reload, refreshInPlace, loadMore, remove };
+};
+
+// MARK: - Day groups (Later / Krea: "Today", "Last 7 days", then months)
+
+const dayMs = 86_400_000;
+const dayStart = (ms: number) => {
+  const d = new Date(ms);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+};
+
+const groupLabel = (ms: number | null, now: number): string => {
+  if (!ms) return 'Không rõ thời gian';
+  const today = dayStart(now);
+  const day = dayStart(ms);
+  if (day >= today) return 'Hôm nay';
+  if (day === today - dayMs) return 'Hôm qua';
+  if (today - day < 7 * dayMs) return '7 ngày qua';
+  const d = new Date(ms);
+  return d.getFullYear() === new Date(now).getFullYear() ? `Tháng ${d.getMonth() + 1}` : `Tháng ${d.getMonth() + 1}, ${d.getFullYear()}`;
+};
+
+interface ItemGroup {
+  label: string | null;
+  items: CloudItem[];
+}
+
+/** Consecutive runs by date label when the list is sorted by time; one unlabeled group when sorted by size. */
+const groupItems = (items: CloudItem[], bySize: boolean): ItemGroup[] => {
+  if (bySize) return [{ label: null, items }];
+  const now = Date.now();
+  const groups: ItemGroup[] = [];
+  for (const item of items) {
+    const label = groupLabel(item.date, now);
+    const last = groups[groups.length - 1];
+    if (last && last.label === label) last.items.push(item);
+    else groups.push({ label, items: [item] });
+  }
+  return groups;
 };
 
 // MARK: - Screen
@@ -263,6 +303,23 @@ export function CloudMediaView({ scope, onBack }: { scope: CloudScope; onBack?: 
   }, [model.loadMore, asGrid, model.didLoad, model.items.length]);
 
   const chosen = model.items.filter((i) => model.selection.has(i.id));
+  const groups = useMemo(() => groupItems(model.items, sortBySize(sort)), [model.items, sort]);
+  const allChosen = model.items.length > 0 && chosen.length === model.items.length;
+  const exitSelection = () => {
+    model.setSelection(new Set());
+    setSelecting(false);
+  };
+  useEscape(isSelecting && deleteTargets.length === 0, exitSelection);
+  const selectGroup = (items: CloudItem[]) =>
+    model.setSelection((sel) => {
+      const next = new Set(sel);
+      const all = items.every((i) => next.has(i.id));
+      for (const i of items) {
+        if (all) next.delete(i.id);
+        else next.add(i.id);
+      }
+      return next;
+    });
   const deleteBytes = deleteTargets.reduce((n, i) => n + i.size, 0);
 
   let content;
@@ -295,23 +352,44 @@ export function CloudMediaView({ scope, onBack }: { scope: CloudScope; onBack?: 
   } else if (asGrid) {
     content = (
       <div className="cloud-scroll">
-        <div className="cloud-grid">
-          {model.items.map((item) => (
-            <button
-              key={item.id}
-              className={`cloud-cell ${model.selection.has(item.id) ? 'is-selected' : ''}`}
-              onClick={() => tap(item)}
-              onContextMenu={(e) => menu(e, item)}
-              aria-label={`${itemName(item)}, ${formatSize(item.size)}`}
-            >
-              <GridTile item={item} selecting={isSelecting} selected={model.selection.has(item.id)} />
-              <span className="cloud-cell-name truncate">{itemName(item)}</span>
-              <span className="cloud-cell-meta truncate">
-                {formatSize(item.size)} • {formatDate(item.date)}
-              </span>
-            </button>
-          ))}
-        </div>
+        {groups.map((group, gi) => (
+          <section key={`${group.label ?? 'all'}-${gi}`} className="cloud-group">
+            {group.label && (
+              <div className="cloud-group-head">
+                <span className="cloud-group-title">{group.label}</span>
+                <span className="cloud-group-meta nums">
+                  {group.items.length} mục • {formatSize(group.items.reduce((n, i) => n + i.size, 0))}
+                </span>
+                {isSelecting && (
+                  <button className="cz-link" onClick={() => selectGroup(group.items)}>
+                    {group.items.every((i) => model.selection.has(i.id)) ? 'Bỏ chọn' : 'Chọn tất cả'}
+                  </button>
+                )}
+              </div>
+            )}
+            <div className="cloud-grid">
+              {group.items.map((item) => (
+                <button
+                  key={item.id}
+                  className={`cloud-cell ${model.selection.has(item.id) ? 'is-selected' : ''} ${isSelecting ? 'is-selecting' : ''}`}
+                  onClick={() => tap(item)}
+                  onContextMenu={(e) => menu(e, item)}
+                  aria-label={`${itemName(item)}, ${formatSize(item.size)}`}
+                  title={`${itemName(item)} • ${formatSize(item.size)} • ${formatDate(item.date)}`}
+                >
+                  <GridTile
+                    item={item}
+                    selected={model.selection.has(item.id)}
+                    onCheck={() => {
+                      setSelecting(true);
+                      toggle(item);
+                    }}
+                  />
+                </button>
+              ))}
+            </div>
+          </section>
+        ))}
         <div ref={sentinel} />
         {model.isLoading && model.didLoad && (
           <div className="cloud-footer-spinner">
@@ -323,6 +401,13 @@ export function CloudMediaView({ scope, onBack }: { scope: CloudScope; onBack?: 
   } else {
     content = (
       <div className="cloud-scroll">
+        <div className="cloud-list-head" role="row">
+          {isSelecting && <span className="cloud-list-head-check" />}
+          <span className="cloud-list-head-name">Tên</span>
+          <span className="cloud-row-conv">Trò chuyện</span>
+          <span className="cloud-row-size">Kích thước</span>
+          <span className="cloud-row-date">Ngày gửi</span>
+        </div>
         <div className="cloud-list">
           {model.items.map((item) => (
             <ListRow
@@ -347,6 +432,23 @@ export function CloudMediaView({ scope, onBack }: { scope: CloudScope; onBack?: 
 
   return (
     <div className="column cloud-root cloud-detail">
+      {isSelecting ? (
+        <div className="cloud-header is-selecting" data-tauri-drag-region>
+          <button className="cz-icon-btn" onClick={exitSelection} title="Thoát chế độ chọn (Esc)" aria-label="Thoát chế độ chọn">
+            <X size={18} />
+          </button>
+          <div className="cloud-header-titles" data-tauri-drag-region>
+            <div className="cloud-header-title truncate">{chosen.length ? `Đã chọn ${chosen.length} mục` : 'Chọn các mục'}</div>
+            <div className="cloud-header-sub truncate">{chosen.length ? formatSize(chosen.reduce((n, i) => n + i.size, 0)) : 'Nhấn vào ảnh, video hoặc tệp để chọn'}</div>
+          </div>
+          <button className="cz-btn" onClick={() => model.setSelection(allChosen ? new Set() : new Set(model.items.map((i) => i.id)))}>
+            {allChosen ? 'Bỏ chọn tất cả' : 'Chọn tất cả'}
+          </button>
+          <button className="cz-btn cz-btn-danger" disabled={!chosen.length || deleting} onClick={() => setDeleteTargets(chosen)}>
+            <Trash2 size={14} /> Xoá…
+          </button>
+        </div>
+      ) : (
       <div className="cloud-header" data-tauri-drag-region>
         {onBack ? (
           <button className="cz-icon-btn" onClick={onBack} title="Quay lại" aria-label="Quay lại">
@@ -383,36 +485,17 @@ export function CloudMediaView({ scope, onBack }: { scope: CloudScope; onBack?: 
             <ArrowUpDown size={15} />
           </button>
         </div>
-        <button
-          className={`cz-btn ${isSelecting ? 'cz-btn-primary' : ''}`}
-          disabled={!model.items.length}
-          onClick={() => {
-            if (isSelecting) model.setSelection(new Set());
-            setSelecting(!isSelecting);
-          }}
-        >
-          {isSelecting ? 'Xong' : 'Chọn'}
+        <button className="cz-btn" disabled={!model.items.length} onClick={() => setSelecting(true)}>
+          Chọn
         </button>
       </div>
+      )}
       <div className="cloud-filter">
         <Tabs options={kindOptions} value={kind} onChange={setKind} label="Loại nội dung" />
       </div>
       <div className="cloud-body">{content}</div>
-      {isSelecting && (
-        <div className="cloud-selection-bar slide-up">
-          <span className="cloud-selection-text">
-            {chosen.length ? `Đã chọn ${chosen.length} • ${formatSize(chosen.reduce((n, i) => n + i.size, 0))}` : 'Chọn các mục để xoá'}
-          </span>
-          <button className="cz-btn" onClick={() => model.setSelection(new Set(model.items.map((i) => i.id)))}>
-            Chọn tất cả
-          </button>
-          <button className="cz-btn cz-btn-danger" disabled={!chosen.length || deleting} onClick={() => setDeleteTargets(chosen)}>
-            Xoá…
-          </button>
-        </div>
-      )}
       {notice && (
-        <div className="cz-toast slide-up" style={{ bottom: isSelecting ? 76 : 24 }} role="status">
+        <div className="cz-toast slide-up" style={{ bottom: 24 }} role="status">
           {notice}
         </div>
       )}
@@ -433,49 +516,59 @@ export function CloudMediaView({ scope, onBack }: { scope: CloudScope; onBack?: 
 // MARK: - Tiles & rows
 
 function SelectMark({ selected }: { selected: boolean }) {
-  return selected ? (
-    <span className="cloud-check is-on">
-      <Check size={12} strokeWidth={3} />
-    </span>
-  ) : (
-    <span className="cloud-check">
-      <Circle size={18} />
-    </span>
-  );
+  return <span className={`cloud-check ${selected ? 'is-on' : ''}`}>{selected && <Check size={12} strokeWidth={3} />}</span>;
 }
 
-function GridTile({ item, selecting, selected }: { item: CloudItem; selecting: boolean; selected: boolean }) {
+/**
+ * A square tile (Later / Krea grids): photos and videos edge to edge with a hover caption, files and voice messages as a
+ * type tile with their name. The round check (top-left) shows on hover and in selection mode; clicking it selects.
+ */
+function GridTile({ item, selected, onCheck }: { item: CloudItem; selected: boolean; onCheck: () => void }) {
   const Icon = itemIcon(item);
+  const visual = item.kind === 'photo' || item.kind === 'video';
   return (
-    <span className="cloud-tile">
-      {item.kind === 'photo' || item.kind === 'video' ? (
+    <span className={`cloud-tile ${visual ? 'is-visual' : 'is-doc'}`}>
+      {visual ? (
         <>
           <CloudThumbView item={item} />
           {item.kind === 'video' && (
             <>
               <span className="cloud-play">
-                <Play size={18} fill="currentColor" />
+                <Play size={16} fill="currentColor" />
               </span>
               {item.duration > 0 && <span className="cloud-badge nums">{formatDuration(item.duration)}</span>}
             </>
           )}
+          <span className="cloud-tile-caption-overlay nums">
+            {formatSize(item.size)} • {formatDate(item.date)}
+          </span>
         </>
-      ) : item.kind === 'voice' ? (
-        <span className="cloud-tile-icon">
-          <Icon size={30} strokeWidth={2.2} className="tint" />
-          <span className="cloud-tile-caption">{item.duration > 0 ? formatDuration(item.duration) : 'Tin nhắn thoại'}</span>
-        </span>
       ) : (
-        <span className="cloud-tile-icon">
-          <Icon size={34} strokeWidth={1.6} className="tint" />
-          {item.ext && <span className="cloud-tile-ext">{item.ext.toUpperCase()}</span>}
+        <span className="cloud-tile-doc">
+          <span className={`cloud-tile-doc-icon kind-${item.kind}`}>
+            <Icon size={22} strokeWidth={1.9} />
+          </span>
+          <span className="cloud-tile-doc-name clamp-2">
+            {item.kind === 'voice' ? (item.duration > 0 ? `Tin nhắn thoại ${formatDuration(item.duration)}` : 'Tin nhắn thoại') : itemName(item)}
+          </span>
+          <span className="cloud-tile-doc-meta nums">
+            {item.ext && item.kind === 'file' ? `${item.ext.toUpperCase()} • ` : ''}
+            {formatSize(item.size)}
+          </span>
         </span>
       )}
-      {selecting && (
-        <span className="cloud-tile-check">
-          <SelectMark selected={selected} />
-        </span>
-      )}
+      <span
+        className="cloud-tile-check"
+        role="checkbox"
+        aria-checked={selected}
+        aria-label={selected ? 'Bỏ chọn' : 'Chọn'}
+        onClick={(e) => {
+          e.stopPropagation();
+          onCheck();
+        }}
+      >
+        <SelectMark selected={selected} />
+      </span>
     </span>
   );
 }
