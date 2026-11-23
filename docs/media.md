@@ -32,6 +32,33 @@ const media = (url: string, flavour: "image" | "cors" = "image", retry = false) 
 Only Zalo hosts are served: `*.zadn.vn`, `*.zdn.vn`, `*.zalo.me`, `*.zaloapp.com`, `*.zingcdn.me`,
 `*.zalo.vn`, `*.zing.vn` and `*.z-cdn.me`. Any other host gets `403`.
 
+## Local files and app assets
+
+```
+compola-media://load?file=<encodeURIComponent(absolutePath)>&flavour=image|video
+compola-media://load?asset=<encodeURIComponent("pc-dist/…")>
+```
+
+- **`file=`** serves a local file, typically the `path` from a `resolveMedia` result: a dead CDN link,
+  or an E2EE photo or video that the official client downloaded and decrypted.
+  - The path must be absolute and, after symlinks are resolved, lie inside `…/CompolaTauri/ZaloData` (the
+    Zalo data directory) or `…/CompolaTauri/MediaCache`. Anything else gets `403`, a missing file inside
+    those folders gets `404`, and a relative path gets `400`.
+  - `flavour=image` is the default; use `flavour=video` for the inline video player. `Range` is
+    supported, and responses carry `Cache-Control: no-cache`, because a re-downloaded file can replace
+    one at the same path.
+  - Content-Type comes from the bytes. A video saved under a thumbnail name (for example `…_t.jpg`) is
+    served as `video/mp4`. On an `image`-flavour request it also adds `X-Compola-Media-Kind: video`, so
+    the UI can render a `<video>` (with `preload="metadata"`) instead of a broken `<img>`.
+- **`asset=`** serves a read-only file out of the official renderer's `app.asar`: reaction icons and
+  emoji or sticker sprites.
+  - The value must start with `pc-dist/` and must not contain `.` or `..` segments, empty segments, or
+    backslashes; otherwise the response is `403`. A missing asset gets `404`, and the response is `503`
+    until the runtime has loaded.
+  - Responses carry `Cache-Control: public, max-age=31536000, immutable`, and `Range` is supported.
+
+Each request takes exactly one of `url`, `file` and `asset`; a request with more than one gets `400`.
+
 ## Responses
 
 - **Success:** `200` with the body and its `Content-Type`. The type comes from the server; when the
@@ -70,3 +97,23 @@ await invoke("media_save", { url, destPath }); // → destPath
 in a save dialog. If the image is already in the image cache, Compola copies it from there. Otherwise it
 downloads the file through the `cors` path. Compola writes the file atomically and marks it quarantined,
 so macOS checks it like any other download.
+
+## Opening a file attachment
+
+```ts
+const { path, revealed } = await invoke("media_open_file", { url, name });
+```
+
+`url` is the attachment's Zalo CDN URL, or a `file://` URL inside Compola's own folders. `name` is the file
+name the sender gave it. Compola downloads the file through the client stack into the `cors` file cache,
+then opens it with the default app.
+
+If the file could run code, Compola reveals it in Finder instead of opening it, and returns
+`revealed: true`. Show the note "Đã mở trong Finder vì tệp có thể chạy mã" in that case. A file counts
+as runnable when any of these is true:
+
+- **Extension:** the cached file's extension or `name`'s extension is an app, package, installer,
+  script, web or file location link, or a Windows executable.
+- **Content:** the file starts with `#!` or is a Mach-O binary.
+
+A failed download rejects with the error text.

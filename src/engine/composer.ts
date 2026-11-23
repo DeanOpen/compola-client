@@ -3,7 +3,7 @@
 // file-input answer, see `callAdapterWithFiles`), the official screenshot tool (`screen_capture_start` →
 // `compola://screen-capture`), official confirms and toasts. My card and reminders are later waves.
 
-import { commands } from './backend';
+import { backend, commands } from './backend';
 import { callAdapter, callAdapterWithFiles, log, raceTimeout } from './call';
 import { sendText } from './chat';
 import { obj, str, type Json } from './models/json';
@@ -37,6 +37,20 @@ const composeWithFiles = async (method: string, args: unknown[], files: string[]
 
 /** "Ảnh hoặc Video": photos through the official photo button's path, videos and other files as files. */
 export const sendMedia = (conversationId: string) => composeWithFiles('sendMedia', [conversationId], null, 'media');
+
+/** Files dropped on the chat or pasted with ⌘V: photos go as photos, everything else as files (same split as
+ * "Ảnh hoặc Video"). */
+export const sendPaths = (conversationId: string, paths: string[]) => composeWithFiles('sendMedia', [conversationId], paths, 'media');
+
+/** What ⌘V would attach: files copied in Finder, or the clipboard image as a PNG (Rust `clipboard_paste_files`). */
+export const clipboardFiles = async (): Promise<string[]> => {
+  try {
+    return await (await backend()).invoke<string[]>('clipboard_paste_files');
+  } catch (e) {
+    log(`clipboard_paste_files → ${String(e)}`);
+    return [];
+  }
+};
 
 /** "Tệp": the official file button's path. */
 export const sendFiles = (conversationId: string) => composeWithFiles('sendFiles', [conversationId], null, 'files');

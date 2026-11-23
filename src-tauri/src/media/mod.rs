@@ -36,6 +36,7 @@ pub mod flights;
 pub mod headers;
 pub mod http;
 pub mod loader;
+pub mod open;
 pub mod pinned;
 pub mod policy;
 pub mod protocol;
@@ -210,6 +211,46 @@ pub async fn media_save(app: tauri::AppHandle, url: String, dest_path: String) -
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())?;
     Ok(dest_path)
+}
+
+/// What `media_open_file` did.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenOutcome {
+    pub path: String,
+    /// True: the file could run code, so it was revealed in Finder instead of opened (the UI says so — Swift:
+    /// "Đã mở trong Finder vì tệp có thể chạy mã").
+    pub revealed: bool,
+}
+
+/// A file attachment's URL as the file to open: Zalo CDN URLs download through the client stack into the file
+/// cache (the `cors` flavour); `file://` URLs must be inside our own roots.
+async fn openable_file(app: &tauri::AppHandle, url: &str) -> Result<PathBuf, MediaError> {
+    let parsed = url::Url::parse(url).map_err(|_| MediaError::BadUrl)?;
+    if parsed.scheme() == "file" {
+        return is_allowed_local_file(&parsed).ok_or(MediaError::Forbidden);
+    }
+    let url = normalized(&parsed).ok_or(MediaError::BadUrl)?;
+    if !url.host_str().is_some_and(is_allowed_host) {
+        return Err(MediaError::Forbidden);
+    }
+    MediaLoader::shared(app).local_file(&url).await
+}
+
+/// Swift `FileCard.open`: download, then open with the default app — or, when the file could run code (by its
+/// extension, the sender's file name, or its first bytes), reveal it in Finder instead.
+#[tauri::command]
+pub async fn media_open_file(app: tauri::AppHandle, url: String, name: Option<String>) -> Result<OpenOutcome, String> {
+    let file = openable_file(&app, &url).await.map_err(|e| e.to_string())?;
+    let name = name.unwrap_or_default();
+    let check = file.clone();
+    let revealed = tokio::task::spawn_blocking(move || open::may_execute(&check, &name)).await.map_err(|e| e.to_string())?;
+    if revealed {
+        tauri_plugin_opener::reveal_item_in_dir(&file).map_err(|e| e.to_string())?;
+    } else {
+        tauri_plugin_opener::open_path(&file, None::<&str>).map_err(|e| e.to_string())?;
+    }
+    Ok(OpenOutcome { path: file.to_string_lossy().into_owned(), revealed })
 }
 
 enum Source {

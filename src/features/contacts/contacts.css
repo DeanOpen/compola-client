@@ -1,0 +1,1194 @@
+/* Danh bạ in Zalo PC's style (docs/zalo-pc-style.md §6–7): sub-nav, contacts pages, request cards, the "Thêm bạn" and profile
+   dialogs and the "Tạo nhóm" sheet. Local tokens map to the shared Zalo tokens when the shell defines them. */
+
+:root {
+  --ct-primary: var(--primary, #0068ff);
+  --ct-primary-pressed: var(--primary-pressed, #005ae0);
+  --ct-selected: var(--selected, #e5f1ff);
+  --ct-hover: #f1f2f4;
+  --ct-subtle: var(--subtle, #ebecf0);
+  --ct-surface: #ebecf0;
+  --ct-layer: #fff;
+  --ct-text: #081b3a;
+  --ct-text-secondary: #5a6981;
+  --ct-text-info: #005ae0;
+  --ct-border: var(--border, rgba(0, 0, 0, 0.15));
+  --ct-border-subtle: rgba(0, 0, 0, 0.1);
+  --ct-input: #fff;
+  --ct-input-filled: #f1f2f4;
+  --ct-success: #37b361;
+  --ct-danger: #c31818;
+  --ct-badge: #e53935;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ct-primary: var(--primary, #0068ff);
+    --ct-selected: var(--selected, #1f344d);
+    --ct-hover: rgba(255, 255, 255, 0.05);
+    --ct-subtle: var(--subtle, #1d2025);
+    --ct-surface: #16191d;
+    --ct-layer: #22262b;
+    --ct-text: #dfe2e7;
+    --ct-text-secondary: #9facbc;
+    --ct-text-info: #66a6ff;
+    --ct-border: var(--border, rgba(0, 0, 0, 0.3));
+    --ct-border-subtle: rgba(255, 255, 255, 0.15);
+    --ct-input: #16191d;
+    --ct-input-filled: #16191d;
+  }
+}
+
+.ct-spacer {
+  flex: 1;
+  align-self: stretch;
+}
+
+/* Buttons (Zalo PC: 6px radius, 32–40px) */
+.ct-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 16px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: background 0.12s ease;
+}
+
+.ct-btn:disabled {
+  opacity: 0.5;
+}
+
+.ct-btn-primary {
+  background: var(--ct-primary);
+  color: #fff;
+}
+
+.ct-btn-primary:hover:not(:disabled) {
+  background: var(--ct-primary-pressed);
+}
+
+.ct-btn-secondary {
+  background: var(--ct-input-filled);
+  color: var(--ct-text);
+}
+
+.ct-btn-secondary:hover:not(:disabled) {
+  background: var(--ct-subtle);
+}
+
+.ct-btn-tonal {
+  background: var(--ct-selected);
+  color: var(--ct-text-info);
+}
+
+.ct-btn-tonal:hover:not(:disabled) {
+  filter: brightness(0.96);
+}
+
+.ct-btn-grow {
+  flex: 1;
+}
+
+.ct-btn-min {
+  min-width: 96px;
+}
+
+.ct-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  color: var(--ct-text);
+}
+
+.ct-icon-button:hover:not(:disabled) {
+  background: var(--ct-hover);
+}
+
+.spin.on-accent {
+  color: #fff;
+}
+
+/* List column: the Danh bạ sub-nav */
+.ct-column {
+  background: var(--ct-layer);
+  color: var(--ct-text);
+}
+
+.ct-column-top {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 64px;
+  padding: 0 12px 0 16px;
+}
+
+.is-sidebar-hidden .ct-column-top {
+  padding-left: 84px;
+}
+
+.ct-fake-search {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 8px;
+  background: var(--ct-subtle);
+  color: var(--ct-text-secondary);
+  font-size: 14px;
+  text-align: left;
+}
+
+.ct-nav {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-top: 4px;
+}
+
+.ct-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: calc(100% - 16px);
+  height: 56px;
+  margin: 4px 8px;
+  padding: 0 16px;
+  border-radius: 6px;
+  color: var(--ct-text);
+  font-size: 14px;
+  text-align: left;
+}
+
+.ct-nav-item:hover {
+  background: var(--ct-hover);
+}
+
+.ct-nav-item.is-selected {
+  background: var(--ct-selected);
+  font-weight: 500;
+}
+
+.ct-nav-label {
+  flex: 1;
+  min-width: 0;
+}
+
+.ct-nav-badge {
+  flex: none;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  background: var(--ct-badge);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 20px;
+  text-align: center;
+}
+
+/* Main area: a contacts page */
+.ct-main {
+  background: var(--ct-surface);
+  color: var(--ct-text);
+}
+
+.ct-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.ct-page-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  height: 64px;
+  padding: 0 19px;
+  background: var(--ct-layer);
+  border-bottom: 1px solid var(--ct-border);
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.ct-page-header-title {
+  min-width: 0;
+}
+
+.ct-header-spinner {
+  display: inline-flex;
+  width: 32px;
+  justify-content: center;
+}
+
+.ct-page-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 16px 16px;
+}
+
+.ct-list-title {
+  display: flex;
+  align-items: center;
+  height: 64px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.ct-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 260px;
+  border-radius: 6px;
+  background: var(--ct-layer);
+  overflow: hidden;
+}
+
+.ct-filter {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px 8px;
+  padding: 16px;
+}
+
+.ct-filter-selects {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.ct-filter-selects.is-single {
+  grid-template-columns: 1fr;
+}
+
+@container (max-width: 520px) {
+  .ct-filter {
+    grid-template-columns: 1fr;
+  }
+}
+
+.ct-main {
+  container-type: inline-size;
+}
+
+.ct-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px solid var(--ct-input-filled);
+  background: var(--ct-input);
+}
+
+.ct-search:hover {
+  background: var(--ct-hover);
+}
+
+.ct-search:focus-within {
+  border-color: #3384ff;
+  background: var(--ct-input);
+}
+
+.ct-search-icon {
+  flex: none;
+  color: var(--ct-text-secondary);
+}
+
+.ct-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ct-text);
+  font-size: 14px;
+}
+
+.ct-search input::placeholder {
+  color: var(--ct-text-secondary);
+}
+
+.ct-search-clear {
+  display: inline-flex;
+  color: var(--ct-text-secondary);
+}
+
+.ct-select {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 5px;
+  border: 1px solid var(--ct-input-filled);
+  background: var(--ct-input);
+  color: var(--ct-text);
+  font-size: 14px;
+  text-align: left;
+}
+
+.ct-select:hover {
+  background: var(--ct-hover);
+}
+
+.ct-select.is-active {
+  border-color: #3384ff;
+  color: var(--ct-text-info);
+}
+
+.ct-select .truncate {
+  flex: 1;
+  min-width: 0;
+}
+
+.ct-select-chevron {
+  flex: none;
+  color: var(--ct-text-secondary);
+}
+
+.ct-list {
+  padding-bottom: 8px;
+}
+
+.ct-letter {
+  padding: 12px 16px 4px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ct-text);
+}
+
+.ct-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 72px;
+  padding: 11px 16px;
+  cursor: pointer;
+  outline: none;
+}
+
+.ct-row::after {
+  content: '';
+  position: absolute;
+  left: 76px;
+  right: 16px;
+  bottom: 0;
+  border-bottom: 1px solid var(--ct-border-subtle);
+}
+
+.ct-row:hover,
+.ct-row:focus-visible {
+  background: var(--ct-hover);
+}
+
+.ct-row-avatar {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+}
+
+.ct-presence {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--ct-success);
+  box-shadow: 0 0 0 2px var(--ct-layer);
+}
+
+.ct-presence.is-large {
+  right: 3px;
+  bottom: 3px;
+  width: 16px;
+  height: 16px;
+  box-shadow: 0 0 0 3px var(--ct-layer);
+}
+
+.ct-row-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ct-row-name {
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.ct-row-sub {
+  font-size: 13px;
+  color: var(--ct-text-secondary);
+}
+
+.ct-row-label {
+  display: inline-flex;
+  flex: none;
+}
+
+.ct-row-more {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  color: var(--ct-text-secondary);
+  opacity: 0;
+}
+
+.ct-row:hover .ct-row-more,
+.ct-row:focus-within .ct-row-more {
+  opacity: 1;
+}
+
+.ct-row-more:hover {
+  background: var(--ct-subtle);
+  color: var(--ct-text);
+}
+
+.ct-loading {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 200px;
+  font-size: 13px;
+  color: var(--ct-text-secondary);
+}
+
+.ct-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 48px 24px 56px;
+  text-align: center;
+}
+
+.ct-empty-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 96px;
+  height: 96px;
+  margin-bottom: 12px;
+  border-radius: 50%;
+  background: var(--ct-selected);
+  color: var(--ct-primary);
+}
+
+.ct-empty-title {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.ct-empty-desc {
+  max-width: 340px;
+  font-size: 14px;
+  color: var(--ct-text-secondary);
+}
+
+.ct-empty .ct-btn {
+  margin-top: 12px;
+}
+
+/* Invitation cards */
+.ct-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 10px;
+}
+
+.ct-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  border-radius: 6px;
+  background: var(--ct-layer);
+}
+
+.ct-card.is-busy {
+  opacity: 0.7;
+}
+
+.ct-card-user {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding-right: 28px;
+}
+
+.ct-card-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.ct-card-title {
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.ct-card-extra {
+  min-height: 19px;
+  font-size: 13px;
+  color: var(--ct-text-secondary);
+}
+
+.ct-card-corner {
+  position: absolute;
+  top: 12px;
+  right: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  color: var(--ct-text-secondary);
+}
+
+.ct-card-corner:hover {
+  background: var(--ct-hover);
+  color: var(--ct-text);
+}
+
+.ct-card-message {
+  height: 48px;
+  margin-bottom: 16px;
+  padding: 4px 8px;
+  border: 1px solid var(--ct-border-subtle);
+  border-radius: 4px;
+  background: var(--ct-subtle);
+  font-size: 14px;
+  line-height: 1.4;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.ct-card-message.is-empty {
+  color: var(--ct-text-secondary);
+  font-style: italic;
+}
+
+.ct-card-cta {
+  display: flex;
+  gap: 8px;
+}
+
+.ct-card-cta .ct-btn {
+  flex: 1;
+  height: 40px;
+}
+
+/* Dialogs (Thêm bạn, Thông tin tài khoản) */
+.ct-dialog-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 48px;
+  padding: 0 8px 0 16px;
+  border-bottom: 1px solid var(--ct-border-subtle);
+}
+
+.ct-dialog-header .ct-icon-button:first-child {
+  margin-left: -8px;
+}
+
+.ct-dialog-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.ct-dialog-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  color: var(--ct-text);
+}
+
+.ct-dialog-footer {
+  flex: none;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--ct-border-subtle);
+}
+
+.ct-addfriend {
+  padding: 16px;
+  min-height: 300px;
+}
+
+.ct-phone-row {
+  display: flex;
+  align-items: stretch;
+  height: 40px;
+  border-bottom: 1px solid var(--ct-border);
+}
+
+.ct-phone-row:focus-within {
+  border-bottom-color: var(--ct-primary);
+}
+
+.ct-country {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  padding: 0 10px 0 2px;
+  font-size: 14px;
+  color: var(--ct-text);
+}
+
+.ct-country:hover {
+  color: var(--ct-primary);
+}
+
+.ct-phone-input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ct-text);
+  font-size: 15px;
+}
+
+.ct-phone-input::placeholder {
+  color: var(--ct-text-secondary);
+}
+
+.ct-phone-hint {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--ct-text-secondary);
+}
+
+.ct-phone-error {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--ct-danger);
+}
+
+.ct-recent {
+  margin-top: 20px;
+}
+
+.ct-recent-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+  font-size: 13px;
+  color: var(--ct-text-secondary);
+}
+
+.ct-recent-row {
+  display: flex;
+  align-items: center;
+  border-radius: 6px;
+}
+
+.ct-recent-row:hover {
+  background: var(--ct-hover);
+}
+
+.ct-recent-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  text-align: left;
+}
+
+.ct-recent-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  font-size: 14px;
+}
+
+.ct-recent-phone {
+  font-size: 12px;
+  color: var(--ct-text-secondary);
+}
+
+.ct-recent-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-right: 6px;
+  border-radius: 6px;
+  color: var(--ct-text-secondary);
+  opacity: 0;
+}
+
+.ct-recent-row:hover .ct-recent-remove {
+  opacity: 1;
+}
+
+.ct-recent-remove:hover {
+  background: var(--ct-subtle);
+}
+
+/* Profile card */
+.ct-profile-cover {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding-bottom: 12px;
+  text-align: center;
+}
+
+.ct-profile-band {
+  align-self: stretch;
+  height: 110px;
+  background:
+    radial-gradient(120% 140% at 0% 0%, rgba(255, 255, 255, 0.35), transparent 55%),
+    linear-gradient(135deg, #5aa2ff 0%, #0068ff 55%, #0050c8 100%);
+}
+
+.ct-profile-avatar {
+  position: relative;
+  display: inline-flex;
+  margin-top: -42px;
+  margin-bottom: 8px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 3px var(--ct-layer);
+}
+
+.ct-profile-name {
+  padding: 0 16px;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.ct-profile-secondary {
+  font-size: 13px;
+  color: var(--ct-text-secondary);
+}
+
+.ct-profile-status {
+  margin-top: 2px;
+  padding: 0 24px;
+  font-size: 13px;
+  color: var(--ct-text-secondary);
+  white-space: pre-wrap;
+}
+
+.ct-profile-status.is-online {
+  color: var(--ct-success);
+}
+
+.ct-profile-buttons {
+  display: flex;
+  gap: 8px;
+  padding: 4px 16px 16px;
+}
+
+.ct-profile-buttons .ct-btn {
+  height: 36px;
+}
+
+.ct-profile-actions {
+  display: flex;
+  justify-content: center;
+  gap: 24px;
+  padding: 0 16px 16px;
+}
+
+.ct-profile-actions:empty {
+  display: none;
+}
+
+.ct-action {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 56px;
+  font-size: 12px;
+  color: var(--ct-text-secondary);
+}
+
+.ct-action.is-disabled span {
+  opacity: 0.5;
+}
+
+.ct-action-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--ct-input-filled);
+  color: var(--ct-text);
+}
+
+.ct-action-button:hover:not(:disabled) {
+  background: var(--ct-subtle);
+}
+
+.ct-action-button:disabled {
+  opacity: 0.45;
+}
+
+.ct-profile-info {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px 18px;
+  border-top: 6px solid var(--ct-surface);
+}
+
+.ct-profile-info-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.ct-profile-line {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.ct-profile-line-key {
+  color: var(--ct-text-secondary);
+}
+
+.ct-state-note {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 24px 12px;
+  font-size: 13px;
+  color: var(--ct-text-secondary);
+  text-align: center;
+}
+
+.ct-state-note.is-ok {
+  color: var(--ct-success);
+}
+
+/* "Kết bạn" message step */
+.ct-message-step {
+  padding: 16px;
+}
+
+.ct-message-who {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.ct-message-who-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.ct-textarea-wrap {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--ct-border);
+  border-radius: 6px;
+  padding: 8px 10px 6px;
+}
+
+.ct-textarea-wrap:focus-within {
+  border-color: #3384ff;
+}
+
+.ct-textarea {
+  width: 100%;
+  resize: none;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ct-text);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.ct-counter {
+  align-self: flex-end;
+  font-size: 12px;
+  color: var(--ct-text-secondary);
+}
+
+/* "Tạo nhóm" sheet */
+.compose {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  color: var(--ct-text);
+}
+
+.compose.is-creating .compose-body {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.compose-title {
+  flex: none;
+  display: flex;
+  align-items: center;
+  height: 48px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--ct-border-subtle);
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.compose-identity {
+  flex: none;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px 16px 12px;
+}
+
+.compose-avatar {
+  flex: none;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  overflow: hidden;
+}
+
+.compose-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.compose-avatar-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  border: 1px solid var(--ct-border);
+  color: var(--ct-text-secondary);
+}
+
+.compose-avatar:hover .compose-avatar-empty {
+  color: var(--ct-primary);
+  border-color: var(--ct-primary);
+}
+
+.compose-name {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 4px;
+}
+
+.compose-field {
+  height: 36px;
+  padding: 0 2px;
+  border: 0;
+  border-bottom: 1px solid var(--ct-border);
+  outline: 0;
+  background: transparent;
+  color: var(--ct-text);
+  font-size: 15px;
+}
+
+.compose-field:focus {
+  border-bottom-color: var(--ct-primary);
+}
+
+.compose-field.is-invalid {
+  border-bottom-color: var(--ct-danger);
+}
+
+.compose-name-hint {
+  font-size: 12px;
+  color: var(--ct-text-secondary);
+}
+
+.compose-name-hint.is-invalid {
+  color: var(--ct-danger);
+}
+
+.compose-search {
+  flex: none;
+  margin: 0 16px 10px;
+}
+
+.compose-chips {
+  flex: none;
+  display: flex;
+  gap: 6px;
+  padding: 0 16px 10px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.compose-chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 160px;
+  padding: 3px 7px 3px 3px;
+  border-radius: 999px;
+  background: var(--ct-selected);
+  color: var(--ct-text-info);
+  font-size: 13px;
+}
+
+.compose-chip button {
+  display: inline-flex;
+  color: var(--ct-text-secondary);
+}
+
+.compose-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--ct-border-subtle);
+}
+
+.compose-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 8px;
+}
+
+.compose-heading {
+  padding: 10px 8px 4px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.compose-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: 6px;
+  text-align: left;
+  font-size: 14px;
+}
+
+.compose-row:hover {
+  background: var(--ct-hover);
+}
+
+.compose-row.is-blocked {
+  opacity: 0.55;
+}
+
+.compose-check {
+  flex: none;
+  color: var(--ct-text-secondary);
+}
+
+.compose-check.is-checked {
+  color: var(--ct-primary);
+}
+
+.compose-row-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.compose-row-sub {
+  font-size: 12px;
+  color: var(--ct-text-secondary);
+}
+
+.compose-footer {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--ct-border-subtle);
+}
+
+.compose-footer-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.compose-notice {
+  font-size: 13px;
+  color: var(--ct-danger);
+}
+
+.compose-count {
+  font-size: 13px;
+  color: var(--ct-text-secondary);
+}
+
+/* Zalo PC dialogs: flat white panel, 8px radius. */
+.sheet:has(> .ct-dialog-header),
+.sheet:has(> .compose) {
+  border-radius: 8px;
+  background: var(--ct-layer);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.24);
+}

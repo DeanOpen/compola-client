@@ -1,3 +1,4 @@
+import type { MessageTransferState } from './transfer';
 // The one store the UI binds to (Swift: the observable `ZaloEngine`). Feature logic lives in the sibling modules
 // (`chat.ts`, `conversations.ts`, `messageActions.ts`, `composer.ts`, …) which update this store; views read it with
 // selectors. Later waves add their slices here (contacts, polls, cloud, calls, transfer, …).
@@ -105,8 +106,12 @@ export interface EngineState {
   /** Who is typing per conversation (display name), cleared after a few seconds. */
   typing: Record<string, string>;
   failedDrafts: FailedDrafts;
-  /** Whether a manual phone → PC sync can start now (transfer, later wave). */
+  /** Whether a manual phone → PC sync can start now (official `canSync` guards). */
   canStartTransfer: boolean;
+  /** Official reason the sync can't start (e.g. `WORKER_NOT_READY`), null when it can. */
+  transferStartBlockedReason: string | null;
+  /** Phone → PC transfer, null when none is in progress / offered (ZaloEngine+Transfer.swift). */
+  transfer: MessageTransferState | null;
 
   // Message actions (ZaloEngine+MessageActions.swift)
   pins: Record<string, PinnedList>;
@@ -152,6 +157,8 @@ const accountState = (): Omit<EngineState, 'phase' | 'badge'> => ({
   typing: {},
   failedDrafts: { drafts: {}, silent: new Set(), revision: 0 },
   canStartTransfer: false,
+  transferStartBlockedReason: null,
+  transfer: null,
   pins: {},
   forwardRequest: null,
   messageConfirm: null,
@@ -173,7 +180,17 @@ export const getEngine = useEngine.getState;
 export const setEngine = useEngine.setState;
 
 /** Logout / logged out: drop everything of the previous account. */
-export const resetAccount = () => setEngine(accountState());
+export const resetAccount = () => {
+  setEngine(accountState());
+  for (const hook of accountResetHooks) hook();
+};
+
+const accountResetHooks: (() => void)[] = [];
+
+/** Feature slices kept outside this store register how to drop the previous account's data. */
+export const onAccountReset = (hook: () => void) => {
+  accountResetHooks.push(hook);
+};
 
 // MARK: - Derived helpers (pure; take the state so they work in selectors)
 

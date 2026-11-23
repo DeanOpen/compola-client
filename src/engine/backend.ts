@@ -73,7 +73,22 @@ export const commands = {
   /** Widens (or with a negative delta narrows) the main window by `delta` logical px; the minimum width is 960. */
   widenWindow: async (delta: number) => (await backend()).invoke('ui_widen_window', { delta }),
   /** Downloads an attachment through the client's network stack and opens it (files that could run code are revealed). */
-  mediaOpenFile: async (url: string, name: string) => (await backend()).invoke('media_open_file', { url, name }),
+  mediaOpenFile: async (url: string, name: string) => (await backend()).invoke<{ path: string; revealed: boolean }>('media_open_file', { url, name }),
   /** Saves a media URL to an absolute path (its folder must exist) → the path. */
   mediaSave: async (url: string, destPath: string) => (await backend()).invoke<string>('media_save', { url, destPath }),
+};
+
+/** Files dragged over / dropped on the main window (Tauri's native drag-drop; the page's own HTML5 drop never fires).
+ * Returns an unsubscribe function. A no-op in the mock. */
+export const onFileDrop = async (
+  handler: (event: { kind: 'over' } | { kind: 'leave' } | { kind: 'drop'; paths: string[] }) => void,
+): Promise<() => void> => {
+  if (usesMock) return () => {};
+  const { getCurrentWebview } = await import('@tauri-apps/api/webview');
+  return getCurrentWebview().onDragDropEvent((e) => {
+    const p = e.payload;
+    if (p.type === 'enter' || p.type === 'over') handler({ kind: 'over' });
+    else if (p.type === 'leave') handler({ kind: 'leave' });
+    else if (p.type === 'drop') handler({ kind: 'drop', paths: p.paths });
+  });
 };

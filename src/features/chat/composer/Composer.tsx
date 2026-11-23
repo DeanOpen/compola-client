@@ -26,6 +26,7 @@ import { reportComposer, sendFiles, sendMedia, startScreenCapture } from '../../
 import type { ComposerDraft, MentionCandidate } from '../../../engine/models/chat';
 import { Avatar } from '../../../ui/Avatar';
 import { openMenuBelow } from '../../../ui/Menu';
+import { openCreatePoll } from '../../poll/pollSheets';
 import { insertMention, mentionQueryAt, rebaseMentions, tokenAt, type MentionQuery } from './mentions';
 
 const lineHeight = 19;
@@ -41,6 +42,7 @@ export function Composer({
   focusTick,
   onSend,
   onSendLike,
+  onPasteFiles,
 }: {
   name: string;
   conversationId: string;
@@ -51,6 +53,8 @@ export function Composer({
   focusTick: number;
   onSend: () => void;
   onSendLike: () => void;
+  /** ⌘V with files or an image on the clipboard. */
+  onPasteFiles?: () => void;
 }) {
   const field = useRef<HTMLTextAreaElement>(null);
   const mirror = useRef<HTMLDivElement>(null);
@@ -212,7 +216,7 @@ export function Composer({
           label="Tiện ích khác"
           onClick={(el) =>
             openMenuBelow(el, [
-              ...(isGroup ? [{ label: 'Tạo bình chọn', icon: BarChart3, disabled: true, onSelect: () => {} }] : []),
+              ...(isGroup ? [{ label: 'Tạo bình chọn', icon: BarChart3, onSelect: () => openCreatePoll(conversationId) }] : []),
               { label: 'Emoji', icon: Smile, shortcut: '⌃⌘Space', disabled: true, onSelect: () => {} },
             ])
           }
@@ -251,7 +255,14 @@ export function Composer({
             onSelect={(e) => refreshQuery(draft.text, e.currentTarget.selectionStart)}
             onScroll={(e) => mirror.current && (mirror.current.scrollTop = e.currentTarget.scrollTop)}
             onPaste={(e) => {
-              // Plain text only, like the Swift field.
+              // Files / an image on the clipboard: ⌘V attaches them (asked first, like Zalo PC's paste preview).
+              const types = Array.from(e.clipboardData.types);
+              if (onPasteFiles && (e.clipboardData.files.length > 0 || types.includes('Files') || types.some((t) => t.startsWith('image/')))) {
+                e.preventDefault();
+                onPasteFiles();
+                return;
+              }
+              // Otherwise plain text only, like the Swift field.
               const text = e.clipboardData.getData('text/plain');
               if (!text) return;
               e.preventDefault();

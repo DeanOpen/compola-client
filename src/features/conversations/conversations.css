@@ -378,3 +378,57 @@
   align-items: center;
   gap: 5px;
 }
+
+/* Zalo group mosaic: 2×2 member avatars (3 tiles: two on top, one centred below) */
+.group-mosaic {
+  position: relative;
+  display: inline-block;
+  flex: none;
+}
+
+.group-mosaic-tile {
+  position: absolute;
+  display: inline-flex;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1.5px var(--content);
+}
+
+.group-mosaic-tile:nth-child(1) {
+  left: 0;
+  top: 0;
+}
+
+.group-mosaic-tile:nth-child(2) {
+  right: 0;
+  top: 0;
+}
+
+.group-mosaic-tile:nth-child(3) {
+  left: 0;
+  bottom: 0;
+}
+
+.group-mosaic-tile:nth-child(4) {
+  right: 0;
+  bottom: 0;
+}
+
+.group-mosaic.is-2 .group-mosaic-tile:nth-child(1) {
+  top: 25%;
+}
+
+.group-mosaic.is-2 .group-mosaic-tile:nth-child(2) {
+  top: 25%;
+}
+
+.group-mosaic.is-3 .group-mosaic-tile:nth-child(3) {
+  left: 24%;
+}
+
+.group-mosaic-count {
+  align-items: center;
+  justify-content: center;
+  background: var(--subtle);
+  color: var(--text-secondary);
+  font-weight: 600;
+}

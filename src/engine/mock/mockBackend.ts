@@ -18,6 +18,11 @@ import {
   type MockConversation,
 } from './mockData';
 
+import { mockAdapters, mockCommands, runMockBootHooks, setMockContext } from './registry';
+
+// Feature mocks of the later waves register themselves (mock/registry.ts).
+import.meta.glob('./features/*.ts', { eager: true });
+
 type Handler = (payload: unknown) => void;
 
 export const createMockBackend = (): Backend => {
@@ -27,6 +32,7 @@ export const createMockBackend = (): Backend => {
   const post = (state: Json) => emit('compola://state', { page: 'main', ...state });
 
   const params = new URLSearchParams(location.search);
+  setMockContext({ post, emit, params });
   const scenario = params.get('phase') ?? 'ready';
 
   let phase: Phase = { kind: 'starting' };
@@ -143,6 +149,7 @@ export const createMockBackend = (): Backend => {
     emit('compola://state', { page: 'main', user: ME });
     publishConversations([...convs.values()], true);
     publishExtras();
+    runMockBootHooks();
   };
 
   // A stranger keeps writing every so often; Lan types first.
@@ -423,6 +430,8 @@ export const createMockBackend = (): Backend => {
   return {
     isMock: true,
     async invoke<T>(command: string, args: Record<string, unknown> = {}): Promise<T> {
+      const extra = mockCommands[command];
+      if (extra) return (await extra(args)) as T;
       switch (command) {
         case 'engine_phase':
           return phase as T;
@@ -455,8 +464,7 @@ export const createMockBackend = (): Backend => {
           );
           return undefined as T;
         case 'engine_call': {
-          const target = adapters[String(args.target)];
-          const fn = target?.[String(args.method)];
+          const fn = mockAdapters[String(args.target)]?.[String(args.method)] ?? adapters[String(args.target)]?.[String(args.method)];
           if (!fn) throw new Error(`no ${String(args.target)}.${String(args.method)}`);
           return (await fn(...((args.args as unknown[]) ?? []))) as T;
         }

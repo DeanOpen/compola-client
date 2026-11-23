@@ -7,9 +7,11 @@ import { obj, str } from './models/json';
 import { showToast } from './toast';
 import { handleConversationExtras, mergeConversations, resetConversations } from './conversations';
 import { dispatchState, registerStateHandler } from './dispatch';
+import { resetGroupMosaics } from './groupMosaic';
 import { handlePins, resetMessageActions, rewatchPins } from './messageActions';
 import type { Phase } from './models/phase';
 import { getEngine, resetAccount, setEngine } from './store';
+import './features';
 
 registerStateHandler('conversationExtras', handleConversationExtras);
 registerStateHandler('compose', handleCompose);
@@ -27,6 +29,7 @@ const setPhase = (phase: Phase) => {
 };
 
 const resetAccountState = () => {
+  resetGroupMosaics();
   resetConversations();
   resetMessageActions();
   resetAccount();

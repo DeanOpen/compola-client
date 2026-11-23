@@ -1,9 +1,10 @@
 // The Zalo PC info panel (docs/zalo-pc-style.md §5; logic from Swift `ChatInspector` + InspectorBlocks.swift):
 // "Thông tin hội thoại" / "Thông tin nhóm", the avatar and name, round actions, then collapsible sections — members,
-// group board, photos / videos, files, links (from the loaded messages), security settings, and the red actions.
+// group board, photos / videos, files, links (features/sharedMedia: the official media store), security settings, and the
+// red actions.
 // Actions that need the conversation-actions port are shown disabled until it lands.
 
-import { BarChart3, BellOff, ChevronDown, ChevronRight, EyeOff, Info, Link as LinkIcon, Pencil, Pin, Settings, Tag, Timer, Trash2, UserPlus, UsersRound, LogOut, type LucideIcon } from 'lucide-react';
+import { BarChart3, BellOff, ChevronDown, ChevronRight, EyeOff, Info, Pencil, Pin, Settings, Tag, Timer, Trash2, UserPlus, UsersRound, LogOut, type LucideIcon } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { mentionCandidates } from '../../engine/chat';
@@ -11,15 +12,13 @@ import { setConversationLabel } from '../../engine/conversations';
 import type { ChatMessage, MentionCandidate } from '../../engine/models/chat';
 import { cssColor, type ConversationSummary } from '../../engine/models/conversations';
 import { setEngine, useEngine } from '../../engine/store';
-import { openExternal } from '../../engine/system';
 import { Avatar } from '../../ui/Avatar';
+import { ConversationAvatar } from '../conversations/ConversationRow';
 import { ContentUnavailable } from '../../ui/ContentUnavailable';
 import { openMenuBelow } from '../../ui/Menu';
 import { Spinner } from '../../ui/Spinner';
 import { useConversationSummary } from '../chat/ChatDetail';
-import { FileCard } from '../chat/cards/Cards';
-import { PhotoView, VideoThumb } from '../chat/cards/Media';
-import { host } from '../chat/format';
+import { SharedMediaBrowser, SharedMediaSections, useBrowsingSharedMedia } from '../sharedMedia/SharedMedia';
 import './inspector.css';
 
 const memberLimit = 8;
@@ -27,6 +26,7 @@ const listLimit = 5;
 
 export function ChatInspectorColumn({ conversationId }: { conversationId: string | null }) {
   const conversation = useConversationSummary(conversationId);
+  const browsing = useBrowsingSharedMedia(conversation?.id ?? null);
   return (
     <div className="column">
       <div className="toolbar inspector-toolbar" data-tauri-drag-region>
@@ -34,7 +34,13 @@ export function ChatInspectorColumn({ conversationId }: { conversationId: string
           {conversation?.isGroup ? 'Thông tin nhóm' : 'Thông tin hội thoại'}
         </span>
       </div>
-      {conversation ? <ChatInspector key={conversation.id} conversation={conversation} /> : <ContentUnavailable icon={Info} title="Không có cuộc trò chuyện" />}
+      {conversation && browsing ? (
+        <SharedMediaBrowser conversationId={conversation.id} kind={browsing} />
+      ) : conversation ? (
+        <ChatInspector key={conversation.id} conversation={conversation} />
+      ) : (
+        <ContentUnavailable icon={Info} title="Không có cuộc trò chuyện" />
+      )}
     </div>
   );
 }
@@ -65,7 +71,7 @@ function ChatInspector({ conversation }: { conversation: ConversationSummary }) 
   return (
     <div className="inspector">
       <div className="inspector-block inspector-header">
-        <Avatar url={conversation.avatar} name={conversation.name} size={56} />
+        <ConversationAvatar conversation={conversation} size={56} isSelf={false} />
         <div className="inspector-name">
           <span className="clamp-2">{conversation.name}</span>
           <button className="icon-button" style={{ width: 24, height: 24 }} disabled title="Đổi tên gợi nhớ — chưa hỗ trợ" aria-label="Đổi tên">
@@ -109,60 +115,7 @@ function ChatInspector({ conversation }: { conversation: ConversationSummary }) 
         </>
       )}
 
-      <Section title="Ảnh/Video">
-        {shared.media.length === 0 ? (
-          <List>
-            <EmptyLine text="Chưa có ảnh hoặc video" />
-          </List>
-        ) : (
-          <div className="inspector-grid">
-            {shared.media.slice(0, 9).map((m) =>
-              m.kind.type === 'photo' ? (
-                <PhotoView key={m.id} message={m} url={m.kind.url} width={m.kind.width} height={m.kind.height} tile={84} />
-              ) : m.kind.type === 'video' ? (
-                <VideoThumb key={m.id} message={m} thumbnail={m.kind.thumbnail} duration={m.kind.duration} url={m.kind.url} tile={84} />
-              ) : null,
-            )}
-          </div>
-        )}
-      </Section>
-
-      <Section title="File">
-        <List>
-          {shared.files.length === 0 ? (
-            <EmptyLine text="Chưa có tệp" />
-          ) : (
-            shared.files.slice(0, listLimit).map((m) =>
-              m.kind.type === 'file' ? (
-                <div key={m.id} className="inspector-file">
-                  <FileCard name={m.kind.name} size={m.kind.size} url={m.kind.url} />
-                </div>
-              ) : null,
-            )
-          )}
-        </List>
-      </Section>
-
-      <Section title="Link">
-        <List>
-          {shared.links.length === 0 ? (
-            <EmptyLine text="Chưa có liên kết" />
-          ) : (
-            shared.links.slice(0, listLimit).map((m) =>
-              m.kind.type === 'link' ? (
-                <Row
-                  key={m.id}
-                  icon={<LinkIcon size={14} />}
-                  title={m.kind.title || m.kind.url || 'Liên kết'}
-                  subtitle={m.kind.source || host(m.kind.url)}
-                  lines={2}
-                  onClick={m.kind.url ? () => void openExternal((m.kind as { url: string }).url) : undefined}
-                />
-              ) : null,
-            )
-          )}
-        </List>
-      </Section>
+      <SharedMediaSections conversationId={id} />
 
       <Section title="Thiết lập bảo mật">
         <List>

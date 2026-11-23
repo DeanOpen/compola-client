@@ -4,6 +4,7 @@
 // ConvListController computed for the active filter; search looks through every conversation.
 
 import { Archive, ArrowLeft, ChevronDown, EyeOff, LockOpen, MoreHorizontal, ShieldHalf, Tag, UserPlus, UserRoundSearch, UsersRound } from 'lucide-react';
+import { openAddFriend, openCreateGroup } from '../contacts/hosts';
 import { useCallback, useEffect, useMemo, useRef, type MouseEvent as ReactMouseEvent } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { setConversationLabel } from '../../engine/conversations';
@@ -116,10 +117,10 @@ export function ConversationListColumn() {
     <div className="column conv-column">
       <div className="conv-top" data-tauri-drag-region>
         <SearchField />
-        <button className="conv-top-button" disabled title="Thêm bạn" aria-label="Thêm bạn">
+        <button className="conv-top-button" onClick={() => openAddFriend()} title="Thêm bạn" aria-label="Thêm bạn">
           <UserPlus size={18} />
         </button>
-        <button className="conv-top-button" disabled title="Tạo nhóm trò chuyện" aria-label="Tạo nhóm">
+        <button className="conv-top-button" onClick={() => openCreateGroup()} title="Tạo nhóm trò chuyện (⇧⌘N)" aria-label="Tạo nhóm">
           <UsersRound size={18} />
         </button>
       </div>

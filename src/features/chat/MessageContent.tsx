@@ -8,7 +8,8 @@ import { setEngine, useEngine } from '../../engine/store';
 import { openExternal } from '../../engine/system';
 import { symbolIcon } from '../../ui/symbols';
 import { clock, statusText, textRuns, time } from './format';
-import { ContactCardView, FileCard, LinkCard, LocationCard, OAMessageCard, PollCard, StickerSetCard, ZInstantCard } from './cards/Cards';
+import { ContactCardView, FileCard, LinkCard, LocationCard, OAMessageCard, StickerSetCard, ZInstantCard } from './cards/Cards';
+import { LivePollCard } from '../poll/PollCard';
 import { GifView, PhotoView, StickerView, VideoThumb, VoiceView } from './cards/Media';
 
 interface ContentProps {
@@ -75,7 +76,7 @@ export function BubbleContent({ message, firstInGroup, lastInGroup }: ContentPro
       return (
         <div className="media-stack">
           {showText && bubble(<MessageText message={message} />, { tail: false })}
-          <LinkCard title={k.title} url={k.url} thumbnail={k.thumbnail} description={k.description} source={k.source} />
+          <LinkCard title={k.title} url={k.url} thumbnail={k.thumbnail} description={k.description} source={k.source} conversationId={message.conversationId} />
         </div>
       );
     }
@@ -111,7 +112,7 @@ export function BubbleContent({ message, firstInGroup, lastInGroup }: ContentPro
     case 'oaMessage':
       return k.parts.length === 0 ? bubble(<MessageText message={message} />) : <OAMessageCard parts={k.parts} />;
     case 'poll':
-      return <PollCard poll={k.poll} />;
+      return <LivePollCard poll={k.poll} message={message} />;
     case 'stickerSet':
       return <StickerSetCard title={k.title} thumbnail={k.thumbnail} />;
     case 'zinstant':

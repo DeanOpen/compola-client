@@ -5,7 +5,10 @@
 
 import { Cloud, HardDrive, LogOut, MessageCircle, RefreshCw, Settings, SquareUser, UserRound, type LucideIcon } from 'lucide-react';
 import { useMemo, type MouseEvent } from 'react';
+import { useContacts } from '../engine/contacts';
 import { logOut } from '../engine/lifecycle';
+import { openSettings } from '../features/settings/hosts';
+import { openTransfer } from '../features/transfer/hosts';
 import { useEngine } from '../engine/store';
 import { unreadCounts } from '../features/conversations/support';
 import { Avatar } from '../ui/Avatar';
@@ -24,6 +27,7 @@ export function Rail() {
   const actions = useEngine((s) => s.conversationActions);
   const counts = useMemo(() => unreadCounts(useEngine.getState()), [conversations, extras, actions]);
   const name = profile?.displayName || 'Tài khoản của tôi';
+  const contacts = useContacts();
 
   const onSelfChat = !!selfId && selection === selfId && isConversationList(destination);
   const messagesActive = isConversationList(destination) && !onSelfChat;
@@ -32,8 +36,8 @@ export function Rail() {
     const items: MenuItem[] = [
       { kind: 'label', label: name },
       { label: 'Hồ sơ của bạn', icon: UserRound, disabled: true, onSelect: () => {} },
-      { label: 'Đồng bộ tin nhắn từ điện thoại…', icon: RefreshCw, disabled: !canStartTransfer, onSelect: () => {} },
-      { label: 'Cài đặt', icon: Settings, disabled: true, onSelect: () => {} },
+      { label: 'Đồng bộ tin nhắn từ điện thoại…', icon: RefreshCw, disabled: !canStartTransfer, onSelect: openTransfer },
+      { label: 'Cài đặt', icon: Settings, shortcut: '⌘,', onSelect: openSettings },
       { kind: 'separator' },
       { label: 'Đăng xuất', icon: LogOut, destructive: true, onSelect: () => void logOut() },
     ];
@@ -57,7 +61,7 @@ export function Rail() {
             if (!isConversationList(destination) || destination === 'myCloud') shell.setDestination('inbox');
           }}
         />
-        <RailItem icon={SquareUser} label="Danh bạ" selected={isContacts(destination)} onClick={() => shell.setDestination('friends')} />
+        <RailItem icon={SquareUser} label="Danh bạ" badge={contacts.pendingRequestCount} selected={isContacts(destination)} onClick={() => shell.setDestination('friends')} />
       </div>
       <div className="rail-spacer" data-tauri-drag-region />
       <div className="rail-group">
@@ -74,7 +78,7 @@ export function Rail() {
           />
         )}
         <RailItem icon={HardDrive} label="zCloud" selected={destination === 'zcloud'} onClick={() => shell.setDestination('zcloud')} />
-        <RailItem icon={Settings} label="Cài đặt" selected={false} onClick={(el) => openMenuBelow(el, [{ label: 'Cài đặt — sắp có', disabled: true, onSelect: () => {} }])} />
+        <RailItem icon={Settings} label="Cài đặt (⌘,)" selected={false} onClick={() => openSettings()} />
       </div>
     </nav>
   );

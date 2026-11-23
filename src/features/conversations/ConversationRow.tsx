@@ -5,6 +5,7 @@ import { BellOff, Cloud, Pin, Users } from 'lucide-react';
 import { memo } from 'react';
 import { cssColor, displayName, selfConversationTitle, type ConversationLabel, type ConversationSummary, type StrangerBox } from '../../engine/models/conversations';
 import { Avatar } from '../../ui/Avatar';
+import { useGroupMosaic } from '../../engine/groupMosaic';
 import { listTime, tileName } from './support';
 
 /** Conversation avatar: remote photo, tinted cloud for "Cloud của tôi", a small people badge on groups. */
@@ -16,12 +17,40 @@ export function ConversationAvatar({ conversation, size, isSelf }: { conversatio
         <span className="conv-avatar-cloud" style={{ width: size, height: size }}>
           <Cloud size={size * 0.45} fill="currentColor" strokeWidth={1.5} />
         </span>
+      ) : conversation.isGroup && !conversation.avatar ? (
+        <GroupMosaic conversation={conversation} size={size} />
       ) : (
         <Avatar url={conversation.avatar} name={displayName(conversation)} size={size} />
       )}
-      {conversation.isGroup && !isSelf && (
+      {conversation.isGroup && !isSelf && conversation.avatar && (
         <span className="conv-avatar-group" style={{ width: badge, height: badge }}>
           <Users size={badge * 0.5} strokeWidth={2.6} />
+        </span>
+      )}
+    </span>
+  );
+}
+
+/**
+ * Zalo's group avatar when the group has no photo of its own: up to four member avatars in a 2×2 mosaic; with more than
+ * four members the last tile is the member count. Initials while the members are not known.
+ */
+export function GroupMosaic({ conversation, size }: { conversation: ConversationSummary; size: number }) {
+  const members = useGroupMosaic(conversation.id, true);
+  if (members.length < 2) return <Avatar url={null} name={displayName(conversation)} size={size} />;
+  const tile = Math.round(size * 0.52);
+  const shown = conversation.members > 4 ? members.slice(0, 3) : members.slice(0, 4);
+  const rest = conversation.members > 4 ? conversation.members - 3 : 0;
+  return (
+    <span className={`group-mosaic is-${Math.min(4, shown.length + (rest ? 1 : 0))}`} style={{ width: size, height: size }} aria-hidden>
+      {shown.map((m, i) => (
+        <span key={i} className="group-mosaic-tile">
+          <Avatar url={m.avatar} name={m.name} size={tile} />
+        </span>
+      ))}
+      {rest > 0 && (
+        <span className="group-mosaic-tile group-mosaic-count" style={{ width: tile, height: tile, fontSize: tile * 0.4 }}>
+          {rest > 99 ? '99+' : rest}
         </span>
       )}
     </span>

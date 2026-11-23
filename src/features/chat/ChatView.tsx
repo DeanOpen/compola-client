@@ -1,8 +1,11 @@
 // Native chat pane for one conversation (Swift `ChatView`): header in the toolbar, pinned bar, message list, composer.
 
-import { BellOff, MessageSquareDashed, PanelRight, Phone, Search, UserPlus, Video, type LucideIcon } from 'lucide-react';
+import { BellOff, MessageSquareDashed, PanelRight, Search, Upload, UserPlus, type LucideIcon } from 'lucide-react';
+import { CallButtons } from '../calls/CallButtons';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { onFileDrop } from '../../engine/backend';
 import { markRead, sendText, stashFailedDraft, takeFailedDraft } from '../../engine/chat';
+import { clipboardFiles, reportComposer, sendPaths } from '../../engine/composer';
 import { pinnedMessage } from '../../engine/messageActions';
 import { appendDraft, isStandalone, type ChatMessage, type ComposerDraft } from '../../engine/models/chat';
 import { type ConversationSummary } from '../../engine/models/conversations';
@@ -10,7 +13,7 @@ import { pinnedLabel, type PinnedItem } from '../../engine/models/outcomes';
 import { getEngine, useEngine } from '../../engine/store';
 import { showToast } from '../../engine/toast';
 import { shell, useShell } from '../../shell/shellStore';
-import { Avatar } from '../../ui/Avatar';
+import { ConversationAvatar } from '../conversations/ConversationRow';
 import { ContentUnavailable } from '../../ui/ContentUnavailable';
 import { Alert } from '../../ui/Overlays';
 import { Spinner } from '../../ui/Spinner';
@@ -24,6 +27,25 @@ import './chat.css';
 const emptyDraft: ComposerDraft = { text: '', mentions: [], replyTo: null };
 
 export function ChatView({ conversation }: { conversation: ConversationSummary }) {
+  const [pendingPaste, setPendingPaste] = useState<string[] | null>(null);
+  const [dropping, setDropping] = useState(false);
+  // Files dropped anywhere on the window go to the open conversation (photos as photos, the rest as files).
+  useEffect(() => {
+    let off: (() => void) | undefined;
+    let alive = true;
+    void onFileDrop((e) => {
+      if (e.kind === 'over') setDropping(true);
+      else if (e.kind === 'leave') setDropping(false);
+      else {
+        setDropping(false);
+        if (e.paths.length) void sendPaths(conversation.id, e.paths).then((o) => reportComposer(o, conversation.id));
+      }
+    }).then((u) => (alive ? (off = u) : u()));
+    return () => {
+      alive = false;
+      off?.();
+    };
+  }, [conversation.id]);
   const id = conversation.id;
   const loaded = useEngine((s) => s.messages[id]);
   const typingName = useEngine((s) => s.typing[id]);
@@ -179,8 +201,27 @@ export function ChatView({ conversation }: { conversation: ConversationSummary }
         focusTick={focusTick}
         onSend={send}
         onSendLike={sendLike}
+          onPasteFiles={() => void clipboardFiles().then((paths) => paths.length && setPendingPaste(paths))}
         />
       </div>
+      {dropping && (
+        <div className="chat-drop-overlay fade-in">
+          <div className="chat-drop-card">
+            <Upload size={28} />
+            <div>Thả để gửi tới {conversation.name}</div>
+          </div>
+        </div>
+      )}
+      {pendingPaste && (
+        <Alert
+          title={`Gửi ${pendingPaste.length > 1 ? `${pendingPaste.length} tệp` : 'tệp này'} tới ${conversation.name}?`}
+          message={pendingPaste.map((p) => p.split('/').pop()).join('\n')}
+          buttons={[
+            { label: 'Hủy', role: 'cancel', onClick: () => setPendingPaste(null) },
+            { label: 'Gửi', onClick: () => { const paths = pendingPaste; setPendingPaste(null); void sendPaths(id, paths).then((o) => reportComposer(o, id)); } },
+          ]}
+        />
+      )}
       <MessageActionPresenter conversationId={id} />
       {notice && (
         <Alert
@@ -200,7 +241,7 @@ function ChatHeader({ conversation, subtitle, typing, muted }: { conversation: C
   return (
     <div className="toolbar chat-toolbar" data-tauri-drag-region>
       <div className="chat-header" data-tauri-drag-region>
-        <Avatar url={conversation.avatar} name={conversation.name} size={48} />
+        <ConversationAvatar conversation={conversation} size={48} isSelf={false} />
         <div className="chat-header-text" data-tauri-drag-region>
           <div className="chat-header-name">
             <span className="truncate">{conversation.name}</span>
@@ -212,8 +253,7 @@ function ChatHeader({ conversation, subtitle, typing, muted }: { conversation: C
       <div className="toolbar-group">
         <HeaderButton icon={UserPlus} label={conversation.isGroup ? 'Thêm thành viên' : 'Tạo nhóm với người này'} disabled />
         <HeaderButton icon={Search} label="Tìm kiếm tin nhắn" disabled />
-        <HeaderButton icon={Phone} label="Gọi thoại" disabled />
-        <HeaderButton icon={Video} label="Gọi video" disabled />
+        <CallButtons conversation={conversation} />
         <HeaderButton icon={PanelRight} label="Thông tin hội thoại (⌥⌘I)" on={showInspector} onClick={() => shell.toggleInspector()} />
       </div>
     </div>

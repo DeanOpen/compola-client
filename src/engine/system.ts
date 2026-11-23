@@ -20,7 +20,11 @@ export const openAttachment = async (url: string | null, name: string) => {
   if (!usesMock) {
     try {
       const { commands } = await import('./backend');
-      await commands.mediaOpenFile(url, name);
+      const outcome = await commands.mediaOpenFile(url, name);
+      if (outcome?.revealed) {
+        const { showToast } = await import('./toast');
+        showToast('Đã mở trong Finder vì tệp có thể chạy mã');
+      }
       return;
     } catch {
       /* fall back to the browser */
