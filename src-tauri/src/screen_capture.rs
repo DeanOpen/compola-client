@@ -186,7 +186,12 @@ impl ScreenCapture {
     fn outcome(&self, o: Outcome) {
         let account = self.state.lock().account.clone();
         let payload = serde_json::to_value(&o).unwrap_or(Value::Null);
-        emit_ui(&self.app, "compola://screen-capture", crate::account::tag_payload("compola://screen-capture", &account, payload));
+        // Through the account layer: tagged with `account`, always delivered (a switch may have happened meanwhile).
+        if let Some(accounts) = self.app.try_state::<Arc<crate::account::Accounts>>() {
+            accounts.emit(&account, "compola://screen-capture", payload);
+        } else {
+            emit_ui(&self.app, "compola://screen-capture", crate::account::tag_payload("compola://screen-capture", &account, payload));
+        }
     }
 
     fn start(self: &Arc<Self>, conversation_id: String, with_compola: bool) {

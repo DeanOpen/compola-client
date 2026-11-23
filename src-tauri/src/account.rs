@@ -204,7 +204,21 @@ impl Accounts {
 const BOOT_STAGGER: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// Events that reach the UI window whatever account they concern.
-const ALWAYS_TO_UI: &[&str] = &["compola://badge", "compola://accounts", "compola://notification-click", "compola://notification-reply", "compola://call-event"];
+/// `screen-capture`: a capture started in one account may finish after a switch to another; the UI routes it by
+/// `account`.
+const ALWAYS_TO_UI: &[&str] = &[
+    "compola://badge",
+    "compola://accounts",
+    "compola://notification-click",
+    "compola://notification-reply",
+    "compola://call-event",
+    "compola://screen-capture",
+];
+
+/// Whether an account's event reaches the UI window.
+pub fn delivers_to_ui(event: &str, account: &str, active: &str, scope_all: bool) -> bool {
+    ALWAYS_TO_UI.contains(&event) || scope_all || account == active
+}
 
 /// `ui_set_event_scope("all")`: the UI gets every account's events, not only the active one's.
 static EVENT_SCOPE_ALL: AtomicBool = AtomicBool::new(false);
@@ -304,8 +318,7 @@ impl Accounts {
             Some(false) => crate::remote::forward_event(&app, event, &payload),
             None => {}
         }
-        let to_ui = ALWAYS_TO_UI.contains(&event) || EVENT_SCOPE_ALL.load(Ordering::Relaxed) || account == self.active_id();
-        if to_ui {
+        if delivers_to_ui(event, account, &self.active_id(), EVENT_SCOPE_ALL.load(Ordering::Relaxed)) {
             use tauri::Emitter;
             let _ = app.emit_to("main", event, tag_payload(event, account, payload));
         }
@@ -1133,6 +1146,18 @@ mod tests {
         assert_eq!(server_forwarding("a1b2c3d4e"), Some(true));
         set_server_multi_account(false);
         assert_eq!(server_forwarding("a1b2c3d4e"), None);
+    }
+
+    #[test]
+    fn ui_delivery_scope() {
+        // The active account's events, every account's with scope "all", and the always-delivered kinds.
+        assert!(delivers_to_ui("compola://state", "default", "default", false));
+        assert!(!delivers_to_ui("compola://state", "a1b2c3d4e", "default", false));
+        assert!(delivers_to_ui("compola://state", "a1b2c3d4e", "default", true));
+        // A capture started in another account still reaches the UI after a switch.
+        assert!(delivers_to_ui("compola://screen-capture", "a1b2c3d4e", "default", false));
+        assert!(delivers_to_ui("compola://badge", "a1b2c3d4e", "default", false));
+        assert!(!delivers_to_ui("compola://page", "a1b2c3d4e", "default", false));
     }
 
     #[test]
