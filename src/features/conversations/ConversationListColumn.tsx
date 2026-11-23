@@ -2,6 +2,7 @@
 // filter of the inbox) on top, pinned tiles, then the rows. The list is exactly what the official ConvListController
 // computed for the active filter; search looks through every conversation.
 
+import { openCreateGroup } from '../contacts/hosts';
 import { Archive, LockOpen, ShieldHalf, Tag, UsersRound, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, type MouseEvent as ReactMouseEvent } from 'react';
 import { useShallow } from 'zustand/react/shallow';
@@ -126,7 +127,7 @@ export function ConversationListColumn() {
         <div className="conv-header-row">
           <SearchField />
           {offersLabelFilter && <LabelFilterButton active={activeLabel} disabled={isSearching} />}
-          <button className="circle-glass" style={{ width: 30, height: 30 }} disabled title="Tạo nhóm trò chuyện (⇧⌘N)" aria-label="Tạo nhóm">
+          <button className="circle-glass" style={{ width: 30, height: 30 }} onClick={() => openCreateGroup()} title="Tạo nhóm trò chuyện (⇧⌘N)" aria-label="Tạo nhóm">
             <UsersRound size={14} />
           </button>
         </div>

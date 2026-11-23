@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { useMemo, type ReactNode } from 'react';
 import { useShallow } from 'zustand/react/shallow';
+import { useContacts, visibleFriends } from '../engine/contacts';
 import { logOut } from '../engine/lifecycle';
 import { openSettings } from '../features/settings/hosts';
 import { openTransfer } from '../features/transfer/hosts';
@@ -47,6 +48,8 @@ export function Sidebar() {
   const extras = useEngine((s) => s.extras);
   const actions = useEngine((s) => s.conversationActions);
   const counts = useMemo(() => unreadCounts(useEngine.getState()), [conversations, extras, actions]);
+  const contacts = useContacts();
+  const friendCount = useMemo(() => visibleFriends(contacts, useEngine.getState()).length, [contacts, actions]);
 
   /** "Cloud của tôi" is the inbox with the self conversation open: that is what the sidebar highlights then. */
   const highlighted: Destination =
@@ -103,9 +106,9 @@ export function Sidebar() {
         </div>
         <div className="sidebar-section">
           <div className="sidebar-heading">Danh bạ</div>
-          {row('friends', 'Bạn bè', User)}
+          {row('friends', 'Bạn bè', User, friendCount)}
           {row('groups', 'Nhóm và cộng đồng', Users)}
-          {row('requests', 'Lời mời kết bạn', UserPlus)}
+          {row('requests', 'Lời mời kết bạn', UserPlus, contacts.pendingRequestCount)}
         </div>
       </div>
       <AccountFooter />
