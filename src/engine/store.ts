@@ -72,6 +72,11 @@ export interface ConversationActionsState {
   pinnedIds: ReadonlySet<string> | null;
   archivedIds: ReadonlySet<string>;
   unreadMarkIds: ReadonlySet<string>;
+  /** Per-conversation menu facts (engine/conversationActions.ts `ActionFlag` bits), non-zero entries only. */
+  flags: Readonly<Record<string, number>>;
+  /** Groups I left / was removed from / that were disbanded: only "Xóa hội thoại" is offered. */
+  left: Readonly<Record<string, 'kick' | 'disband'>>;
+  markUnreadEnabled: boolean;
 }
 
 export interface FailedDrafts {
@@ -132,13 +137,17 @@ export interface EngineState {
 
 export const initialConversationActions: ConversationActionsState = {
   loaded: false,
-  hiddenKnown: true,
+  // Until the page says which chats are hidden, any conversation could be one: nothing is listed or opened.
+  hiddenKnown: false,
   hiddenEnabled: false,
   hasHiddenPIN: false,
   hiddenIds: new Set(),
   pinnedIds: null,
   archivedIds: new Set(),
   unreadMarkIds: new Set(),
+  flags: {},
+  left: {},
+  markUnreadEnabled: false,
 };
 
 /** Everything of a signed-in account; reset on logout so nothing carries over to the next account. */

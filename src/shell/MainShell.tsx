@@ -17,10 +17,21 @@ import { ContactsContentColumn, ContactsDetailColumn } from '../features/contact
 import { CloudContentColumn, CloudDetailColumn } from '../features/cloud/CloudColumns';
 import { ContentUnavailable } from '../ui/ContentUnavailable';
 import { ComposerPrompts } from '../features/chat/ComposerPrompts';
+import { ConversationPrompts } from '../features/conversationActions/ConversationPrompts';
+import {
+  dropUnlock,
+  isConversationLocked,
+  relockAfterInactivity,
+  relockHidden,
+  setConversationPrompt,
+  unlockFromPINSearch,
+  useConversationUI,
+} from '../engine/conversationActions';
 import { ToastView } from '../ui/Toast';
 import { useShellShortcuts } from './keyboard';
 import { Rail } from './Rail';
 import { commands } from '../engine/backend';
+import { isInCall, useCalls } from '../engine/calls';
 import { isContacts, isConversationList, labelIdOf, officialFilter, shell, useShell, type Destination } from './shellStore';
 import './shell.css';
 
@@ -36,11 +47,7 @@ export function MainShell() {
   useShellShortcuts();
   useInspectorRoom(inspectorShown);
 
-  // The selection opens the conversation in the official client.
-  useEffect(() => {
-    if (selection) openConversation(selection);
-    else closeConversation();
-  }, [selection]);
+  useHiddenChatLock(selection);
 
   // Mailboxes and labels are lists computed by the official ConvListController: tell it which filter to use.
   useEffect(() => {
@@ -86,10 +93,67 @@ export function MainShell() {
       <QuickSwitcher />
       <MediaViewerHost />
       <ComposerPrompts />
+      <ConversationPrompts onUnlocked={(id) => useShell.getState().selection === id && openConversation(id)} />
       <FeatureHosts />
     </div>
   );
 }
+
+/**
+ * Opens the selection in the official client — unless it is a hidden chat still locked (Swift `MainShellView.openSelection`):
+ * then it stays closed and the PIN is asked (official OPEN_CONV screen). Also: a deleted / hidden conversation leaves the
+ * detail pane, and the PIN bypass ends after a minute away from the app.
+ */
+const useHiddenChatLock = (selection: string | null) => {
+  const hiddenKnown = useEngine((s) => s.conversationActions.hiddenKnown);
+  const hiddenIds = useEngine((s) => s.conversationActions.hiddenIds);
+  const unlockedId = useConversationUI((s) => s.unlockedId);
+  const removal = useConversationUI((s) => s.removal);
+  const inCall = useCalls((s) => isInCall(s));
+
+  useEffect(() => {
+    // The bypass belongs to the one conversation opened with the PIN.
+    if (useConversationUI.getState().unlockedId !== selection) dropUnlock();
+    if (!selection) return closeConversation();
+    // Until the hidden-chat state is known any conversation could be hidden: nothing is opened.
+    if (!getEngine().conversationActions.hiddenKnown) return closeConversation();
+    if (isConversationLocked(selection)) {
+      if (unlockFromPINSearch(selection)) return openConversation(selection);
+      closeConversation();
+      setConversationPrompt({ kind: 'unlock', id: selection });
+      return;
+    }
+    openConversation(selection);
+  }, [selection, hiddenKnown]);
+
+  // Hidden-chat state changed (also from another device): a locked conversation must not stay open — never under a call.
+  useEffect(() => {
+    if (selection && hiddenKnown && isConversationLocked(selection) && !inCall && getEngine().openConversationId === selection) closeConversation();
+  }, [hiddenIds, unlockedId, inCall]);
+
+  useEffect(() => {
+    if (removal && selection && removal.ids.has(selection)) shell.select(null);
+  }, [removal]);
+
+  // The PIN bypass ends after a real absence (60 s inactive, checked on return); a short focus loss keeps it.
+  useEffect(() => {
+    let leftAt: number | null = null;
+    const onBlur = () => (leftAt = Date.now());
+    const onFocus = () => {
+      if (leftAt !== null && Date.now() - leftAt >= relockAfterInactivity) {
+        relockHidden();
+        useShell.setState({ unlockedHiddenIds: null });
+      }
+      leftAt = null;
+    };
+    window.addEventListener('blur', onBlur);
+    window.addEventListener('focus', onFocus);
+    return () => {
+      window.removeEventListener('blur', onBlur);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, []);
+};
 
 /** Rail + list + the chat's minimum + the info panel: below this the window is widened while the panel shows. */
 const roomWithInspector = 64 + 344 + 520 + 344;

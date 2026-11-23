@@ -95,10 +95,11 @@ export const createMockBackend = (): Backend => {
   const strangers = () => [...convs.values()].filter((c) => c.stranger).map((c) => c.id);
   const sortedIds = () =>
     [...convs.values()]
-      .sort((a, b) => (previews.get(b.id)?.ts ?? 0) - (previews.get(a.id)?.ts ?? 0))
+      .sort((a, b) => Number(b.pinned) - Number(a.pinned) || (previews.get(b.id)?.ts ?? 0) - (previews.get(a.id)?.ts ?? 0))
       .map((c) => c.id);
 
-  const publishExtras = () => {
+  let noticeSeq = 0;
+  const publishExtras = (action?: { seq: number; ok: boolean; text: string }) => {
     const strangerSet = new Set(strangers());
     let ids = sortedIds().filter((id) => !strangerSet.has(id));
     if (filter.type === 1) ids = ids.filter((id) => (convs.get(id)?.unread ?? 0) > 0);
@@ -112,6 +113,7 @@ export const createMockBackend = (): Backend => {
         archivedEnabled: false,
         filter,
         listIds: ids,
+        ...(action ? { action } : {}),
         strangerIds: [...strangerSet],
         strangerFolderIds: folder,
         strangerBox: {
@@ -149,6 +151,7 @@ export const createMockBackend = (): Backend => {
     emit('compola://state', { page: 'main', user: ME });
     publishConversations([...convs.values()], true);
     publishExtras();
+    publishConvActions();
     runMockBootHooks();
   };
 
@@ -333,6 +336,31 @@ export const createMockBackend = (): Backend => {
       filter = { type, labelIds };
       publishExtras();
     },
+    createLabel: (name: string, color: string, convIds: string[] = []) => {
+      const id = 'l-' + Date.now();
+      labels.push({ id, name, color });
+      for (const c of convIds) labelMap.set(c, id);
+      noticeSeq += 1;
+      publishExtras({ seq: noticeSeq, ok: true, text: '' });
+    },
+    updateLabel: (id: string, name: string, color: string) => {
+      const l = labels.find((x) => x.id === id);
+      if (l) Object.assign(l, { name, color });
+      noticeSeq += 1;
+      publishExtras({ seq: noticeSeq, ok: true, text: '' });
+    },
+    deleteLabel: (id: string) => {
+      const i = labels.findIndex((x) => x.id === id);
+      if (i >= 0) labels.splice(i, 1);
+      for (const [k, v] of [...labelMap]) if (v === id) labelMap.delete(k);
+      noticeSeq += 1;
+      publishExtras({ seq: noticeSeq, ok: true, text: '' });
+    },
+    reorderLabels: (ids: string[]) => {
+      labels.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id));
+      noticeSeq += 1;
+      publishExtras({ seq: noticeSeq, ok: true, text: '' });
+    },
     setConvLabel: (convId: string, labelId: string | null) => {
       if (labelId) labelMap.set(convId, labelId);
       else labelMap.delete(convId);
@@ -344,7 +372,141 @@ export const createMockBackend = (): Backend => {
     answer: () => ({ status: 'done' }),
   };
 
+  // ---- conversation actions (pin / Khác / read / hide with PIN / delete), the adapter's flag bits ----
+  const archived = new Set<string>();
+  const hidden = new Set<string>();
+  const unreadMarks = new Set<string>();
+  let hiddenPin: string | null = null;
+  const pinLimit = 5;
+  const publishConvActions = () => {
+    const flags: Record<string, number> = {};
+    for (const c of convs.values()) {
+      let b = 0;
+      if (c.pinned) b |= 1;
+      if (archived.has(c.id)) b |= 2;
+      if (hidden.has(c.id)) b |= 4 | 8;
+      if (c.stranger) b |= 8;
+      if (c.id === SELF_CONV) b |= 16 | 32 | 64;
+      if (unreadMarks.has(c.id)) b |= 512;
+      if (b) flags[c.id] = b;
+    }
+    post({ convActions: { flags, left: {}, hidden: { enabled: true, hasPin: hiddenPin !== null, ids: [...hidden] }, markUnread: true } });
+  };
+  const refreshRow = (c: MockConversation) => {
+    publishConversations([c]);
+    publishExtras();
+    publishConvActions();
+  };
+  const ok = (text: string, extra: Json = {}) => ({ ok: true, text, ...extra });
+  const convActions: Record<string, (...a: any[]) => unknown> = {
+    republish: () => publishConvActions(),
+    pin: (id: string) => {
+      const c = convs.get(id);
+      if (!c) return { ok: false, text: 'Đã có lỗi xảy ra, vui lòng thử lại' };
+      if ([...convs.values()].filter((x) => x.pinned).length >= pinLimit) return { ok: false, text: '', full: true };
+      c.pinned = true;
+      refreshRow(c);
+      return ok('Ghim hội thoại thành công');
+    },
+    unpin: (id: string) => {
+      const c = convs.get(id);
+      if (c) {
+        c.pinned = false;
+        refreshRow(c);
+      }
+      return ok('Bỏ ghim hội thoại thành công');
+    },
+    pinBoard: () => {
+      const items = [...convs.values()].filter((x) => x.pinned).map((x) => x.id);
+      return { tab: 0, limit: pinLimit, total: items.length, need: Math.max(1, items.length - pinLimit + 1), items };
+    },
+    pinReplacing: (unpinIds: string[], id: string) => {
+      for (const u of unpinIds) {
+        const c = convs.get(u);
+        if (c) c.pinned = false;
+      }
+      const c = convs.get(id);
+      if (c) c.pinned = true;
+      publishConversations([...convs.values()]);
+      publishExtras();
+      publishConvActions();
+      return ok('Ghim hội thoại thành công');
+    },
+    archive: (id: string) => {
+      archived.add(id);
+      const c = convs.get(id);
+      if (c) c.pinned = false;
+      if (c) refreshRow(c);
+      return ok('Đã chuyển sang mục Khác', { neutral: true });
+    },
+    unarchive: (id: string) => {
+      archived.delete(id);
+      publishConvActions();
+      return ok('Đã chuyển sang Tin nhắn', { neutral: true });
+    },
+    deleteConversation: (id: string) => {
+      convs.delete(id);
+      post({ conversations: [], removed: [id], reset: false });
+      publishExtras();
+      publishConvActions();
+      return ok('');
+    },
+    markRead: (id: string) => {
+      unreadMarks.delete(id);
+      const c = convs.get(id);
+      if (c) {
+        c.unread = 0;
+        refreshRow(c);
+      }
+      return ok('');
+    },
+    markUnread: (id: string) => {
+      unreadMarks.add(id);
+      publishConvActions();
+      return ok('');
+    },
+    checkPin: (pin: string) => ({ ok: hiddenPin !== null && pin === hiddenPin, text: '' }),
+    hide: (id: string, pin: string) => {
+      if (pin !== hiddenPin) return { ok: false, text: 'Mã PIN không đúng. Vui lòng thử lại.', badPin: true };
+      hidden.add(id);
+      publishConvActions();
+      return ok(`Trò chuyện "${convs.get(id)?.name ?? ''}" đã được ẩn thành công`);
+    },
+    hideWithNewPin: (id: string, pin: string) => {
+      if (hiddenPin !== null) return { ok: false, text: '', pinExists: true };
+      hiddenPin = pin;
+      hidden.add(id);
+      publishConvActions();
+      return ok(`Trò chuyện "${convs.get(id)?.name ?? ''}" đã được ẩn thành công`);
+    },
+    unhide: (id: string, pin: string | null) => {
+      if (pin !== null && pin !== hiddenPin) return { ok: false, text: 'Mã PIN không đúng. Vui lòng thử lại.', badPin: true };
+      hidden.delete(id);
+      publishConvActions();
+      return ok('Bỏ ẩn trò chuyện thành công');
+    },
+    setPin: (pin: string, changed: boolean) => {
+      if (!changed && hiddenPin !== null) return { ok: false, text: '', pinExists: true };
+      hiddenPin = pin;
+      publishConvActions();
+      return ok(changed ? 'Đổi mã PIN thành công' : '');
+    },
+    resetPin: () => {
+      for (const id of hidden) {
+        convs.delete(id);
+        post({ conversations: [], removed: [id], reset: false });
+      }
+      hidden.clear();
+      hiddenPin = null;
+      publishExtras();
+      publishConvActions();
+      return ok('Đã xóa thành công mã PIN và các trò chuyện ẩn');
+    },
+    hiddenSearch: (query: string) => (hiddenPin !== null && query === hiddenPin ? { ids: [...hidden] } : null),
+  };
+
   const adapters: Record<string, Record<string, (...a: any[]) => unknown>> = {
+    __zaloConvActions: convActions,
     __zaloChat: chat,
     __zaloMsgActions: msgActions,
     __zaloConversations: conversationsAdapter,
