@@ -3,6 +3,7 @@
 // rows on the right. Notification and sticker rows read / write the official client's own settings.
 
 import { setConversationPrompt } from '../../engine/conversationActions';
+import { setStickerSuggest } from '../../engine/stickers';
 import {
   Bell,
   Check,
@@ -353,9 +354,8 @@ function StickerSettings() {
     if (busy) return;
     setBusy(true);
     setFailed(false);
-    const r = await raceTimeout(15, callAdapter('__zaloSticker', 'setSuggestSetting', on).catch(() => null));
-    const ok = obj(r?.value)?.ok === true;
-    const now = ok ? await read() : null;
+    // Through the shared state (engine/stickers.ts), so open composers follow the change at once.
+    const now = (await setStickerSuggest(on))?.enabled ?? null;
     if (now !== null) setEnabled(now);
     setBusy(false);
     if (now !== on) setFailed(true);

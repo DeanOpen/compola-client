@@ -1752,3 +1752,8 @@
   color: var(--accent);
   font-weight: 600;
 }
+
+.composer-tool.is-active {
+  background: var(--selected);
+  color: var(--accent);
+}
