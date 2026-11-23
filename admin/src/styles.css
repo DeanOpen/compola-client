@@ -828,23 +828,22 @@ button.chip {
   margin-left: auto;
 }
 .brand-mark {
+  /* The SVG draws its tile at 100..924 of 1024: the image is scaled up so the tile itself fills the box. */
+  position: relative;
   width: 26px;
   height: 26px;
-  border-radius: 7px;
-  background: linear-gradient(135deg, #2a83ff, #0058d6);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
-  color: #fff;
-  display: grid;
-  place-items: center;
-  font-weight: 700;
-  font-size: 14px;
   flex-shrink: 0;
+}
+.brand-mark img {
+  position: absolute;
+  inset: -12.15%;
+  width: 124.3%;
+  height: 124.3%;
+  display: block;
 }
 .brand-mark-lg {
   width: 44px;
   height: 44px;
-  border-radius: 11px;
-  font-size: 22px;
 }
 .nav {
   display: flex;

@@ -29,7 +29,7 @@ import { useInterval, useLoad } from './hooks';
 import { navigate, useRoute, type Route } from './router';
 import { toastError, useStore, type Theme } from './store';
 import type { Me } from './types';
-import { Avatar, Badge, ConfirmHost, cx, Empty, ErrorBox, Kbd, MenuButtons, Popover, Segmented, Spinner, StatusDot, Toasts } from './ui';
+import { Avatar, Badge, BrandMark, ConfirmHost, cx, Empty, ErrorBox, Kbd, MenuButtons, Popover, Segmented, Spinner, StatusDot, Toasts } from './ui';
 import { SignInPage } from './pages/SignIn';
 import { DevicePage } from './pages/Device';
 import { MePage } from './pages/Me';
@@ -217,7 +217,7 @@ function SignedIn({ me, route }: { me: Me; route: Route }) {
         <>
           <aside className={cx('sidebar', menuOpen && 'is-open')}>
             <div className="sidebar-brand">
-              <span className="brand-mark">C</span>
+              <BrandMark />
               <span className="sidebar-brand-text">
                 <strong>Compola Server</strong>
                 <span className="truncate" title={s?.name}>
@@ -300,7 +300,7 @@ function TopBar({ me, crumbs, onMenu, onSearch }: { me: Me; crumbs: string[]; on
         </button>
       ) : (
         <a className="topbar-brand" href="#/">
-          <span className="brand-mark">C</span>
+          <BrandMark />
           <strong>Compola Server</strong>
         </a>
       )}

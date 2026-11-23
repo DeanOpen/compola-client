@@ -5,7 +5,7 @@ import { formatDateTime, roleLabel, scopeSummary, shortId } from '../format';
 import { useLoad } from '../hooks';
 import { navigate, type Route } from '../router';
 import type { DeviceInfo, Me } from '../types';
-import { Badge, Button, DeviceLabel, ErrorBox, Field, Person, Spinner } from '../ui';
+import { Badge, BrandMark, Button, DeviceLabel, ErrorBox, Field, Person, Spinner } from '../ui';
 
 function normalizeCode(raw: string): string {
   const c = raw.toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -94,7 +94,7 @@ function Approve({ code, me }: { code: string; me: Me }) {
     <div className="card card-body device-card">
       {/* Two-logo header: this server ⇄ the device asking (incident.io "Sign in with Slack"). */}
       <div className="link-logos" aria-hidden="true">
-        <span className="brand-mark brand-mark-lg">C</span>
+        <BrandMark large />
         <ArrowLeftRight size={18} className="tertiary" />
         <span className="link-logo-device">
           <MonitorSmartphone size={22} />
