@@ -204,7 +204,21 @@ impl Accounts {
 const BOOT_STAGGER: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// Events that reach the UI window whatever account they concern.
-const ALWAYS_TO_UI: &[&str] = &["compola://badge", "compola://accounts", "compola://notification-click", "compola://notification-reply", "compola://call-event"];
+/// `screen-capture`: a capture started in one account may finish after a switch to another; the UI routes it by
+/// `account`.
+const ALWAYS_TO_UI: &[&str] = &[
+    "compola://badge",
+    "compola://accounts",
+    "compola://notification-click",
+    "compola://notification-reply",
+    "compola://call-event",
+    "compola://screen-capture",
+];
+
+/// Whether an account's event reaches the UI window.
+pub fn delivers_to_ui(event: &str, account: &str, active: &str, scope_all: bool) -> bool {
+    ALWAYS_TO_UI.contains(&event) || scope_all || account == active
+}
 
 /// `ui_set_event_scope("all")`: the UI gets every account's events, not only the active one's.
 static EVENT_SCOPE_ALL: AtomicBool = AtomicBool::new(false);
@@ -304,8 +318,7 @@ impl Accounts {
             Some(false) => crate::remote::forward_event(&app, event, &payload),
             None => {}
         }
-        let to_ui = ALWAYS_TO_UI.contains(&event) || EVENT_SCOPE_ALL.load(Ordering::Relaxed) || account == self.active_id();
-        if to_ui {
+        if delivers_to_ui(event, account, &self.active_id(), EVENT_SCOPE_ALL.load(Ordering::Relaxed)) {
             use tauri::Emitter;
             let _ = app.emit_to("main", event, tag_payload(event, account, payload));
         }
@@ -570,6 +583,23 @@ impl Accounts {
 /// The managed [`Accounts`].
 pub fn accounts(app: &AppHandle) -> Arc<Accounts> {
     app.state::<Arc<Accounts>>().inner().clone()
+}
+
+/// A webview's WebContent process died (macOS): the UI window reloads; a hidden renderer is restarted by its own
+/// account's engine only (docs/multi-account.md §11).
+pub fn renderer_terminated(app: &AppHandle, label: &str) {
+    if label == "main" {
+        log::warn!("UI window process terminated — reloading");
+        if let Some(w) = app.get_webview_window("main") {
+            let _ = w.reload();
+        }
+        return;
+    }
+    let Some(host) = app.try_state::<crate::host::Hosts>().and_then(|h| h.get(label)) else { return };
+    match engine_of_host(app, &host) {
+        Some(engine) => engine.renderer_terminated(&host),
+        None => log::warn!("[{label}] renderer terminated, no engine"),
+    }
 }
 
 /// The switcher list (`accounts_list`): Compola Server's `hello.accounts` and `GET /api/admin/accounts`.
@@ -1116,6 +1146,28 @@ mod tests {
         assert_eq!(server_forwarding("a1b2c3d4e"), Some(true));
         set_server_multi_account(false);
         assert_eq!(server_forwarding("a1b2c3d4e"), None);
+    }
+
+    #[test]
+    fn ui_delivery_scope() {
+        // The active account's events, every account's with scope "all", and the always-delivered kinds.
+        assert!(delivers_to_ui("compola://state", "default", "default", false));
+        assert!(!delivers_to_ui("compola://state", "a1b2c3d4e", "default", false));
+        assert!(delivers_to_ui("compola://state", "a1b2c3d4e", "default", true));
+        // A capture started in another account still reaches the UI after a switch.
+        assert!(delivers_to_ui("compola://screen-capture", "a1b2c3d4e", "default", false));
+        assert!(delivers_to_ui("compola://badge", "a1b2c3d4e", "default", false));
+        assert!(!delivers_to_ui("compola://page", "a1b2c3d4e", "default", false));
+    }
+
+    #[test]
+    fn crash_restarts_back_off() {
+        use crate::engine::crash_restart_delay as d;
+        assert_eq!(d(1).as_secs(), 1);
+        assert_eq!(d(2).as_secs(), 2);
+        assert_eq!(d(4).as_secs(), 8);
+        assert_eq!(d(7).as_secs(), 60);
+        assert_eq!(d(50).as_secs(), 60);
     }
 
     #[test]

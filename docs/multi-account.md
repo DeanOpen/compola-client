@@ -313,3 +313,60 @@ mirror and policy are in.
 5. **Compola Server and automation**: the account dimension, coordinated with the Compola Server session.
 
 The `default` account keeps working, and `cargo test` stays green, after every milestone.
+
+## 11. Operations
+
+### Capacity
+
+- **Cap**: `maxAccounts` in `accounts.json`, default **5**. `account_add` refuses at the cap. To raise it, edit the
+  file while Compola is not running. The value is not validated beyond `> 0`, so size it against memory (below).
+- **Memory per account**: two hidden WKWebViews, the main renderer and the shared worker. Each runs in its own
+  WebContent process.
+  - Expect roughly **250–400 MB** per signed-in account once its message database is warm. It grows with large
+    groups, many open chats and media previews.
+  - Compola's own process adds little per account: the cookie jar, the mirror, the media loader state and the search
+    index connection.
+  - Measure in Activity Monitor: each account adds two "Compola Web Content" processes.
+- **Disabled accounts** (`account_set_enabled(false)`) cost no renderer memory: their hosts are stopped. They keep
+  their data and session, and receive nothing (no messages, no notifications) until enabled again.
+- **CPU and network**: every enabled account keeps its renderer's WebSocket and its shared-worker sync running.
+  Background throttling is off for all of them on purpose (§3).
+- **Disk per account**: `ZaloData/` (IndexedDB / SQLite message store), `MediaCache/` and `search.db`, all under
+  the account's data root.
+  - The media cache is trimmed per account.
+  - Removing an account deletes its whole `Accounts/<id>/` folder, about 2 s after its renderers stop.
+- **Startup**: the first enabled account locates or installs the runtime, then the others boot 2 s apart. N accounts
+  are all running about 2·N s after the first one.
+
+### Failure isolation
+
+- **A renderer crash stays inside its account.** WebKit runs every webview in its own WebContent process. When one
+  dies (WebKit crash, memory-pressure kill, manual kill), macOS reports it through
+  `webViewWebContentProcessDidTerminate`. Compola hooks that with Tauri's `on_web_content_process_terminate`:
+  - A hidden renderer is reloaded **by its own account's engine only**: `Engine::renderer_terminated`. The main page
+    loads again on `index.html` (signed in) or `login.html`; a dead shared worker is recreated. Other accounts keep
+    running untouched.
+  - Repeated crashes back off: 1 s, 2 s, 4 s … at most 60 s between restarts, counted over the last 10 minutes.
+  - The account's log (`compola://log`) shows `renderer process terminated (<label>) — reloading`.
+  - The UI window reloading after its own process crash rebuilds from `engine_replay`.
+- **Things every account shares**, and what happens when one of them fails:
+  - **Fingerprint helper**: one process. If it dies, requests fall back to reqwest until it restarts, for every
+    account.
+  - **ZaloCall**: one process, owned by one account (§4). When it exits, the owner's renderer gets
+    `callState: free`; other accounts are not affected.
+  - **The Compola process itself**: release builds use `panic = "abort"`, so a Rust panic anywhere ends every
+    account. Panics in a spawned task only end that task; panics on the main thread or in a hook end the app.
+    Handlers return errors rather than panic, and the registry and paths code is covered by tests.
+- **Signed out by Zalo**: another PC took the session, or the account was logged out on the phone. This affects only
+  that account: its phase goes to `login` with a notice. The others stay signed in.
+- **Corrupt `accounts.json`**: kept as `accounts.json.bad`; the registry is rebuilt from `default` and the valid
+  `Accounts/<id>/` folders (§1). Sessions survive, because cookies and data live in the account folders. Labels,
+  order and the cap revert to defaults.
+
+### Diagnostics
+
+- `accounts_list` shows every account's `phase` and `badge`. `engine_info({account})` shows its runtime version,
+  storage backend and recent renderer log.
+- `engine_show_renderer({account})` shows that account's hidden renderer in development builds. Its webview labels
+  are `zalo-host[-<id>]` / `zalo-worker[-<id>]`.
+- `scripts/check-origin-isolation.swift` re-checks the WebKit storage isolation (§2) on a new macOS version.
