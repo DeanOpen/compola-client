@@ -335,9 +335,10 @@ impl Notifier {
                 }
                 None => None,
             };
-            // Compola Server shares the default account only until its account dimension lands (§7).
-            if account == crate::account::DEFAULT_ID {
-                crate::remote::forward_notification(&this.app, &request.title, &request.body, &request.tag, request.silent, image.as_deref());
+            // Compola Server: the default account only (old payload) until its account dimension lands (§7).
+            if let Some(tagged) = crate::account::server_forwarding(&account) {
+                let account = tagged.then_some(account.as_str());
+                crate::remote::forward_notification(&this.app, account, &request.title, &request.body, &request.tag, request.silent, image.as_deref());
             }
             let request = NotificationRequest { title: account_title(&this.app, &account, &request.title), ..request };
             this.deliver(request, deliver_id, image);

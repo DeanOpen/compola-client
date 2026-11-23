@@ -246,6 +246,29 @@ wire protocol.
     `accounts.json`.
   - `remote_invoke` fills `args.account` with the joined app's active account when the UI omits it.
 
+### Hooks in the core (what Compola Server calls)
+
+These are implemented in `src-tauri/src/account.rs`. Forwarding is switched off until the server's per-account
+mirror and policy are in.
+
+- **Forwarding switch**: `crate::account::set_server_multi_account(true)`. Flip it once (at server start) when the
+  policy has the account dimension.
+  - **Off (default)**: `remote::forward_event` gets the `default` account's events only, with the old untagged
+    payloads, exactly as before multi-account. `remote::forward_notification(app, None, …)` gets `default`'s
+    notifications only. `remote/server.rs`'s automation calls use `default`.
+  - **On**: every account's `compola://state|phase|page|badge` reaches `forward_event` tagged (`tag_payload`:
+    objects gain `account`; `page` → `{account, page}`, `badge` → `{account, count}`). `forward_notification` gets
+    `Some(account)`, so its payload carries `account`. The automation calls take `args.account` (missing → active).
+  - `crate::account::server_forwarding(account) -> Option<bool>` says which applies.
+- **List**: `crate::account::list(app) -> Option<AccountList>`, for `hello.accounts`, `{t: "access"}` and
+  `GET /api/admin/accounts`. Shape: `{active, maxAccounts, accounts: [{id, uid, name, label, avatar, order, enabled,
+  active, phase, badge}]}`. The server filters it by the user's access.
+- **Admin**: `admin_add(app) -> id` (QR page; not made active on the host), `admin_phase(app, id)` (the detail's
+  `phase` with `login.qr`), `admin_refresh_qr`, `admin_logout`, `admin_remove` (`default`: sign-out only),
+  `admin_set_enabled`, `admin_rename`, `admin_reorder`. Errors are Vietnamese text for the API's `{error}`.
+- **Engines for invokes**: `crate::account::engine(app, Some(id))` (the engine of `args.account`).
+  `crate::account::accounts(app).registry().resolve(Some(id))` validates an id.
+
 ## 8. Automation (MCP tools, add-ons, schedules)
 
 - Every Zalo tool takes an optional `account` (missing → active).

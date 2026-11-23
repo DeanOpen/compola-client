@@ -620,14 +620,19 @@ pub fn record_local_call(app: &AppHandle, cmd: &str, target: &str, method: &str,
 }
 
 /// `$znoti.createNotification` hook: joined users who may see the conversation get it too.
-pub fn forward_notification(app: &AppHandle, title: &str, body: &str, tag: &str, silent: bool, image: Option<&[u8]>) {
+/// `account`: `Some` adds `"account"` to the payload (multi-account forwarding on, docs/multi-account.md §7).
+pub fn forward_notification(app: &AppHandle, account: Option<&str>, title: &str, body: &str, tag: &str, silent: bool, image: Option<&[u8]>) {
     let Some(remote) = app.try_state::<Arc<Remote>>() else { return };
     if !remote.hub.has_clients() {
         return;
     }
     use base64::Engine as _;
     let image = image.filter(|d| d.len() <= MAX_NOTIFICATION_IMAGE).map(|d| base64::engine::general_purpose::STANDARD.encode(d));
-    remote.hub.publish(NOTIFICATION_EVENT, json!({ "title": title, "body": body, "tag": tag, "silent": silent, "image": image }));
+    let mut payload = json!({ "title": title, "body": body, "tag": tag, "silent": silent, "image": image });
+    if let Some(a) = account {
+        payload["account"] = json!(a);
+    }
+    remote.hub.publish(NOTIFICATION_EVENT, payload);
 }
 
 // ---- commands: host ----

@@ -209,6 +209,31 @@ const ALWAYS_TO_UI: &[&str] = &["compola://badge", "compola://accounts", "compol
 /// `ui_set_event_scope("all")`: the UI gets every account's events, not only the active one's.
 static EVENT_SCOPE_ALL: AtomicBool = AtomicBool::new(false);
 
+/// Compola Server receives every account, tagged with `account` (docs/multi-account.md §7). Off until its per-account
+/// mirror and policy are in: then it sees only `default`, with the payloads it has always had.
+static SERVER_MULTI_ACCOUNT: AtomicBool = AtomicBool::new(false);
+
+/// Compola Server flips this once its policy has the account dimension (§7).
+pub fn set_server_multi_account(on: bool) {
+    SERVER_MULTI_ACCOUNT.store(on, Ordering::SeqCst);
+}
+
+pub fn server_multi_account() -> bool {
+    SERVER_MULTI_ACCOUNT.load(Ordering::SeqCst)
+}
+
+/// Whether an event / notification of `account` goes to Compola Server, and in which shape: `Some(true)` tagged
+/// with `account`, `Some(false)` the old untagged payload (`default` only, flag off), `None` not at all.
+pub fn server_forwarding(account: &str) -> Option<bool> {
+    if server_multi_account() {
+        Some(true)
+    } else if account == DEFAULT_ID {
+        Some(false)
+    } else {
+        None
+    }
+}
+
 /// One row of the switcher.
 #[derive(Clone, Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -274,8 +299,10 @@ impl Accounts {
     /// payloads it knows (until its account dimension lands, docs/multi-account.md §7).
     pub fn emit(&self, account: &str, event: &str, payload: Value) {
         let Some(app) = self.app() else { return };
-        if account == DEFAULT_ID {
-            crate::remote::forward_event(&app, event, &payload);
+        match server_forwarding(account) {
+            Some(true) => crate::remote::forward_event(&app, event, &tag_payload(event, account, payload.clone())),
+            Some(false) => crate::remote::forward_event(&app, event, &payload),
+            None => {}
         }
         let to_ui = ALWAYS_TO_UI.contains(&event) || EVENT_SCOPE_ALL.load(Ordering::Relaxed) || account == self.active_id();
         if to_ui {
@@ -543,6 +570,56 @@ impl Accounts {
 /// The managed [`Accounts`].
 pub fn accounts(app: &AppHandle) -> Arc<Accounts> {
     app.state::<Arc<Accounts>>().inner().clone()
+}
+
+/// The switcher list (`accounts_list`): Compola Server's `hello.accounts` and `GET /api/admin/accounts`.
+pub fn list(app: &AppHandle) -> Option<AccountList> {
+    Some(app.try_state::<Arc<Accounts>>()?.list())
+}
+
+// ---- admin hooks (Compola Server `/api/admin/accounts`, §7) ----
+
+/// `POST /api/admin/accounts`: a new account on its QR page (not made active on the host) → its id.
+pub fn admin_add(app: &AppHandle) -> Result<String, String> {
+    accounts(app).add(false)
+}
+
+/// `DELETE /api/admin/accounts/<id>` (`default`: sign-out only).
+pub fn admin_remove(app: &AppHandle, id: &str) -> Result<(), String> {
+    accounts(app).remove(id)
+}
+
+/// `POST /api/admin/accounts/<id>/logout`: signs the account out of Zalo; it stays registered, on its QR page.
+pub fn admin_logout(app: &AppHandle, id: &str) -> Result<(), String> {
+    engine(app, Some(id))?.log_out();
+    Ok(())
+}
+
+/// `POST /api/admin/accounts/<id>/qr`: a fresh QR.
+pub fn admin_refresh_qr(app: &AppHandle, id: &str) -> Result<(), String> {
+    engine(app, Some(id))?.refresh_qr();
+    Ok(())
+}
+
+/// `GET /api/admin/accounts/<id>`'s `phase` (with `login.qr` while signing in), tagged with `account`.
+pub fn admin_phase(app: &AppHandle, id: &str) -> Result<Value, String> {
+    let engine = engine(app, Some(id))?;
+    Ok(tag_payload("compola://phase", id, serde_json::to_value(engine.phase()).unwrap_or(Value::Null)))
+}
+
+/// `PATCH /api/admin/accounts/<id>` `{enabled}`.
+pub fn admin_set_enabled(app: &AppHandle, id: &str, enabled: bool) -> Result<(), String> {
+    accounts(app).set_enabled(id, enabled)
+}
+
+/// `PATCH /api/admin/accounts/<id>` `{name}` (a local label; empty clears it).
+pub fn admin_rename(app: &AppHandle, id: &str, name: Option<String>) -> Result<(), String> {
+    accounts(app).rename(id, name)
+}
+
+/// `PATCH /api/admin/accounts` `{order: [ids]}`.
+pub fn admin_reorder(app: &AppHandle, ids: &[String]) -> Result<(), String> {
+    accounts(app).reorder(ids)
 }
 
 /// An account's engine (`None` = the active account).
@@ -1028,6 +1105,17 @@ mod tests {
         assert_eq!(tag_payload("compola://log", "default", json!("l")), json!({ "account": "default", "line": "l" }));
         assert_eq!(tag_payload("compola://page", "default", json!("main")), json!({ "account": "default", "page": "main" }));
         assert_eq!(tag_payload("compola://other", "default", json!(1)), json!({ "account": "default", "value": 1 }));
+    }
+
+    #[test]
+    fn server_forwarding_is_default_only_until_enabled() {
+        assert_eq!(server_forwarding(DEFAULT_ID), Some(false));
+        assert_eq!(server_forwarding("a1b2c3d4e"), None);
+        set_server_multi_account(true);
+        assert_eq!(server_forwarding(DEFAULT_ID), Some(true));
+        assert_eq!(server_forwarding("a1b2c3d4e"), Some(true));
+        set_server_multi_account(false);
+        assert_eq!(server_forwarding("a1b2c3d4e"), None);
     }
 
     #[test]

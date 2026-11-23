@@ -688,16 +688,19 @@ async fn automation(remote: &Remote, cmd: &str, args: &Value) -> Result<Value, S
     let a = remote.app.try_state::<Arc<crate::automation::Automation>>().map(|s| s.inner().clone()).ok_or("automation not running")?;
     let text = |k: &str| args.get(k).and_then(Value::as_str).map(str::to_owned).filter(|s| !s.is_empty());
     let num = |k: &str, d: u64| args.get(k).and_then(Value::as_u64).unwrap_or(d) as usize;
+    // The default account only until multi-account forwarding is on (docs/multi-account.md §7); then `args.account`.
+    let account_arg = text("account");
+    let account = if crate::account::server_multi_account() { account_arg.as_deref() } else { Some(crate::account::DEFAULT_ID) };
     match cmd {
         "automation_search" => {
-            a.search_messages(Some(crate::account::DEFAULT_ID), &text("query").unwrap_or_default(), text("conversationId"), num("limit", 30).clamp(1, 200), num("context", 0).min(10)).await
+            a.search_messages(account, &text("query").unwrap_or_default(), text("conversationId"), num("limit", 30).clamp(1, 200), num("context", 0).min(10)).await
         }
-        "automation_search_status" => Ok(a.search_status_json(Some(crate::account::DEFAULT_ID))),
+        "automation_search_status" => Ok(a.search_status_json(account)),
         "automation_conversations" => a
-            .find_conversations(Some(crate::account::DEFAULT_ID), text("query").as_deref(), num("limit", 50), false)
+            .find_conversations(account, text("query").as_deref(), num("limit", 50), false)
             .and_then(|v| serde_json::to_value(v).map_err(|e| e.to_string())),
         "automation_messages" => a
-            .recent_messages(Some(crate::account::DEFAULT_ID), text("conversationId").as_deref(), num("limit", 50))
+            .recent_messages(account, text("conversationId").as_deref(), num("limit", 50))
             .and_then(|v| serde_json::to_value(v).map_err(|e| e.to_string())),
         _ => Err("unknown".into()),
     }
