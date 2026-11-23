@@ -3,7 +3,8 @@
 // Compola", a single "Với mã QR" tab, the QR in a bordered 240px box with its caption, then the numbered steps. The QR,
 // scan detection and confirmation come from the official client running underneath.
 // A second tab, "Compola Server", joins another Compola app's account instead (src/features/remote/JoinServer.tsx).
-// A joined app whose host is at the QR shows the host's QR here (only that tab), with "Rời máy chủ".
+// A joined app whose host is at the QR shows the host's QR here (only that tab), with "Rời máy chủ"; only to admins:
+// other users cannot sign the host in, so they see that the server is waiting for an admin.
 // Wave 4 (docs/design-refs/wave4/login-setup): Telegram's compact QR card with numbered steps whose key words are bold,
 // an expired overlay inside the QR box, WhatsApp's trust line at the foot of the card.
 
@@ -12,8 +13,9 @@ import { useState } from 'react';
 import logo from '../../assets/compola-logo.svg';
 import { commands } from '../../engine/backend';
 import type { LoginState } from '../../engine/models/phase';
-import { remote, useRemote } from '../../engine/remote';
+import { remote, useHostSettingsLocked, useRemote } from '../../engine/remote';
 import { JoinServer } from '../remote/JoinServer';
+import { LeaveServerAlert } from '../remote/RemoteGate';
 import { Avatar } from '../../ui/Avatar';
 import { Spinner } from '../../ui/Spinner';
 import { BrandBackground } from './BrandBackground';
@@ -25,6 +27,8 @@ export function LoginView({ state, notice }: { state: LoginState; notice: string
   const serverName = useRemote((s) => s.connection?.serverName || 'Compola Server');
   const [tab, setTab] = useState<'qr' | 'server'>('qr');
   const onServer = tab === 'server' && !joined;
+  // Joined without the admin role: the host sends no QR and refuses `engine_refresh_qr`.
+  const waitingForAdmin = useHostSettingsLocked();
   return (
     <BrandBackground>
       <div className="login-page fade-in">
@@ -34,13 +38,19 @@ export function LoginView({ state, notice }: { state: LoginState; notice: string
             <span className="login-wordmark">{appName}</span>
           </span>
           <div className="login-lead">
-            {onServer ? 'Đăng nhập Compola Server để dùng tài khoản Zalo chung' : joined ? `Đăng nhập tài khoản Zalo cho ${serverName}` : `Đăng nhập tài khoản Zalo để kết nối với ${appName}`}
+            {onServer
+              ? 'Đăng nhập Compola Server để dùng tài khoản Zalo chung'
+              : waitingForAdmin
+                ? `Đang dùng Compola Server ${serverName}`
+                : joined
+                  ? `Đăng nhập tài khoản Zalo cho ${serverName}`
+                  : `Đăng nhập tài khoản Zalo để kết nối với ${appName}`}
           </div>
         </div>
         <div className="login-card">
           <div className="login-tabs" role="tablist">
             <button className={`login-tab ${!onServer ? 'is-active' : ''}`} role="tab" aria-selected={!onServer} onClick={() => setTab('qr')}>
-              Với mã QR
+              {waitingForAdmin ? 'Compola Server' : 'Với mã QR'}
             </button>
             {!joined && (
               <button className={`login-tab ${onServer ? 'is-active' : ''}`} role="tab" aria-selected={onServer} onClick={() => setTab('server')}>
@@ -50,6 +60,8 @@ export function LoginView({ state, notice }: { state: LoginState; notice: string
           </div>
           {onServer ? (
             <JoinServer onUseQr={() => setTab('qr')} />
+          ) : waitingForAdmin ? (
+            <HostSignedOut serverName={serverName} />
           ) : (
             <QrBody state={state} notice={notice} refresh={refresh} />
           )}
@@ -62,7 +74,7 @@ export function LoginView({ state, notice }: { state: LoginState; notice: string
             </span>
           </div>
         </div>
-        {joined ? (
+        {waitingForAdmin ? null : joined ? (
           <div className="login-footnote join-footnote">
             <span>Máy này đang dùng tài khoản Zalo của {serverName}.</span>
             <button className="btn-link" onClick={() => void remote.leave()}>
@@ -76,6 +88,32 @@ export function LoginView({ state, notice }: { state: LoginState; notice: string
         )}
       </div>
     </BrandBackground>
+  );
+}
+
+/** Joined, not an admin, and the host's Zalo account is signed out: only an admin can scan the host's QR. */
+function HostSignedOut({ serverName }: { serverName: string }) {
+  const [confirmLeave, setConfirmLeave] = useState(false);
+  return (
+    <div className="login-body">
+      <div className="login-qr-box is-panel">
+        <div className="login-confirm fade-in">
+          <span className="login-fail-icon">
+            <Server size={24} />
+          </span>
+          <div className="login-confirm-name">Máy chủ {serverName} chưa đăng nhập Zalo</div>
+          <div className="login-caption is-muted">Quản trị viên cần quét mã QR trên máy chủ hoặc trong ứng dụng của họ.</div>
+          <div className="login-waiting">
+            <Spinner size={12} />
+            <span>Tự động tiếp tục khi máy chủ đăng nhập xong</span>
+          </div>
+        </div>
+      </div>
+      <button className="btn-link" onClick={() => setConfirmLeave(true)}>
+        Rời máy chủ
+      </button>
+      {confirmLeave && <LeaveServerAlert serverName={serverName} onClose={() => setConfirmLeave(false)} />}
+    </div>
   );
 }
 
