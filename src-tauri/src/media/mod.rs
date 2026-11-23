@@ -14,7 +14,8 @@
 //!   avatars, photos, stickers. Whole body in memory, 25 s deadline, cached in `MediaCache/media` (400 MB, LRU).
 //! * `flavour=cors` — a `fetch()`-style load (`sec-fetch-mode: cors`, `Accept: */*`): video, voice, files.
 //!   Streamed to `MediaCache/files/<hash>.<ext>` (2 GB, LRU; 30 s stall timeout, no total deadline), then
-//!   served from disk. Use this for `<video>`/`<audio>`.
+//!   served from disk — `Range` requests are answered from the `.part` file while the download still runs
+//!   (`active.rs`). Use this for `<video>`/`<audio>`.
 //! * `retry=1` — drop the short (20 s) failure backoff for this URL (an explicit "retry" click).
 //!
 //! Responses carry the upstream `Content-Type`, `Accept-Ranges: bytes`, and honour `Range` (206 / 416).
@@ -27,6 +28,7 @@
 //! resolver is bypassed with DNS-over-HTTPS + a client pinned to the resolved addresses (SNI and certificate
 //! checks stay on the original hostname).
 
+pub mod active;
 pub mod cache;
 pub mod diagnostics;
 pub mod doh;

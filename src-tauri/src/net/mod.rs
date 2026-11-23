@@ -531,6 +531,35 @@ pub async fn perform_via_helper(
     }
 }
 
+/// Streaming fingerprint-helper request (media / file downloads), with the client cookie jar. `Ok(None)`: the
+/// helper is not running — use the fallback transport. Cookies of the response head are stored.
+pub async fn stream_via_helper(
+    app: &AppHandle,
+    url: &url::Url,
+    mut request: fingerprint::Request,
+    wait: Duration,
+) -> Result<Option<fingerprint::StreamStart>, fingerprint::Error> {
+    let Some(helper) = fingerprint::FingerprintProxy::shared().ready(wait).await else { return Ok(None) };
+    let jar = app.try_state::<Arc<CookieJar>>().map(|j| j.inner().clone());
+    if let Some(cookie) = jar.as_ref().and_then(|j| j.header_for(url)) {
+        request.headers.push(("cookie".into(), cookie));
+    }
+    match helper.stream(&request).await {
+        Ok(start) => {
+            if let Some(jar) = &jar {
+                let headers = match &start {
+                    fingerprint::StreamStart::Head(head, _) => &head.headers,
+                    fingerprint::StreamStart::Complete(r) => &r.headers,
+                };
+                jar.store_from_headers(url, headers);
+            }
+            Ok(Some(start))
+        }
+        Err(fingerprint::Error::Unavailable) => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
 /// Transport-error text that means the request timed out (reqwest: "operation timed out"; the helper's Go stack:
 /// "context deadline exceeded" / "Client.Timeout exceeded").
 pub fn is_timeout_message(message: &str) -> bool {
