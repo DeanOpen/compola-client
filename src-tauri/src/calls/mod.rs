@@ -597,16 +597,69 @@ impl CallBridge {
 // Wiring
 // ---------------------------------------------------------------------------------------------------------------------
 
-/// The bridge, created on first use.
+/// Which account the single helper serves (docs/multi-account.md §4).
 #[derive(Default)]
-struct Slot(Mutex<Option<Arc<CallBridge>>>);
+struct OwnerState {
+    /// The account the helper is set up for: its events go to that account's main host only.
+    owner: Option<String>,
+    /// Every account's last `call-init` payload (sent again when the helper switches to it).
+    inits: HashMap<String, String>,
+    /// A call is in progress (helper `callState` not `free`): the owner cannot change.
+    in_call: bool,
+}
 
-fn production(app: &AppHandle) -> Arc<CallBridge> {
+/// What `call-send-to-native` from a non-owner does.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Route {
+    /// Owner (or no owner yet): deliver.
+    Deliver,
+    /// The helper switches to this account first (restart with its init), then delivers.
+    Switch,
+    /// Ignored: a startup init / optional message of an account the helper does not serve.
+    Ignore,
+    /// Refused: another account is in a call.
+    Busy,
+}
+
+/// The routing rule of §4, pure.
+pub fn route(owner: Option<&str>, in_call: bool, account: &str, json: &str, optional: bool) -> Route {
+    match owner {
+        None => Route::Deliver,
+        Some(o) if o == account => Route::Deliver,
+        Some(_) => {
+            let message: Value = serde_json::from_str(json).unwrap_or(Value::Null);
+            let startup = message.get("type").and_then(Value::as_str) == Some("update")
+                && matches!(message.get("command").and_then(Value::as_str), Some("init" | "updateLocal"));
+            if startup || optional {
+                Route::Ignore
+            } else if in_call {
+                Route::Busy
+            } else {
+                Route::Switch
+            }
+        }
+    }
+}
+
+/// The helper bridge plus its owner account.
+struct Calls {
+    bridge: Arc<CallBridge>,
+    state: Arc<Mutex<OwnerState>>,
+}
+
+/// Created on first use.
+#[derive(Default)]
+struct Slot(Mutex<Option<Arc<Calls>>>);
+
+fn production(app: &AppHandle) -> Arc<Calls> {
     let executable = helper_executable(&crate::runtime::candidate());
     let reap_target = executable.clone();
     let emit_app = app.clone();
     let event_app = app.clone();
-    CallBridge::new(Config {
+    let state: Arc<Mutex<OwnerState>> = Arc::default();
+    let emit_state = state.clone();
+    let event_state = state.clone();
+    let bridge = CallBridge::new(Config {
         executable: Some(executable),
         socket_base: std::env::temp_dir(),
         key: transport::default_key(),
@@ -618,21 +671,117 @@ fn production(app: &AppHandle) -> Arc<CallBridge> {
         reap_orphans: Box::new(move || {
             helper::reap_orphans(&reap_target);
         }),
+        // Helper events go to the owner account's renderer only.
         emit: Box::new(move |channel, args| {
-            if let Some(host) = emit_app.state::<Hosts>().get(crate::main_process::MAIN_LABEL) {
+            let owner = emit_state.lock().owner.clone().unwrap_or_else(|| crate::account::DEFAULT_ID.to_owned());
+            let label = crate::account::AccountPaths::new(&crate::platform::app_support(), &owner).label(crate::main_process::MAIN_LABEL);
+            if let Some(host) = emit_app.state::<Hosts>().get(&label) {
                 host.send(channel, args);
             }
         }),
         log: Box::new(|line| log::info!("{line}")),
-        on_event: Box::new(move |e| emit_ui(&event_app, "compola://call-event", e)),
-    })
+        on_event: Box::new(move |e| {
+            let owner = {
+                let mut st = event_state.lock();
+                match &e {
+                    CallEvent::CallState { state } => st.in_call = state != "free",
+                    CallEvent::Exited { .. } | CallEvent::HelperUnavailable { .. } => st.in_call = false,
+                    _ => {}
+                }
+                st.owner.clone()
+            };
+            let payload = serde_json::to_value(&e).unwrap_or(Value::Null);
+            emit_ui(&event_app, "compola://call-event", crate::account::tag_payload("compola://call-event", owner.as_deref().unwrap_or(""), payload));
+        }),
+    });
+    Arc::new(Calls { bridge, state })
 }
 
-fn bridge(app: &AppHandle) -> Arc<CallBridge> {
+fn calls(app: &AppHandle) -> Arc<Calls> {
     if app.try_state::<Slot>().is_none() {
         app.manage(Slot::default());
     }
     app.state::<Slot>().0.lock().get_or_insert_with(|| production(app)).clone()
+}
+
+impl Calls {
+    // Lock order: the owner state is never held while calling into the bridge (the bridge's callbacks take it while
+    // holding the bridge's own lock).
+    fn init(&self, account: &str, json: Option<String>) {
+        let apply = {
+            let mut st = self.state.lock();
+            match json {
+                Some(j) => {
+                    st.inits.insert(account.to_owned(), j);
+                }
+                None => {
+                    st.inits.remove(account);
+                }
+            }
+            st.owner.as_deref().is_none_or(|o| o == account).then(|| st.inits.get(account).cloned())
+        };
+        if let Some(init) = apply {
+            self.bridge.set_init(init);
+        }
+    }
+
+    fn send(&self, app: &AppHandle, account: &str, json: String, optional: bool) {
+        let decision = {
+            let st = self.state.lock();
+            route(st.owner.as_deref(), st.in_call, account, &json, optional)
+        };
+        match decision {
+            Route::Deliver => {
+                let init = {
+                    let mut st = self.state.lock();
+                    let first = st.owner.is_none() && !optional;
+                    if first {
+                        st.owner = Some(account.to_owned());
+                    }
+                    first.then(|| st.inits.get(account).cloned()).flatten()
+                };
+                if let Some(init) = init {
+                    self.bridge.set_init(Some(init));
+                }
+                self.bridge.send_to_native(json, optional);
+            }
+            Route::Switch => {
+                let init = {
+                    let mut st = self.state.lock();
+                    log::info!("call: helper switches to account {account}");
+                    st.owner = Some(account.to_owned());
+                    st.in_call = false;
+                    st.inits.get(account).cloned()
+                };
+                // A fresh helper for the new owner: nothing of the previous account's session goes along.
+                self.bridge.reset();
+                self.bridge.set_init(init);
+                self.bridge.send_to_native(json, optional);
+            }
+            Route::Ignore => {}
+            Route::Busy => {
+                let owner = self.state.lock().owner.clone();
+                emit_ui(app, "compola://call-event", json!({ "kind": "busy", "account": account, "owner": owner }));
+            }
+        }
+    }
+
+    /// `account` signed out: forget its init; when it owns the helper, stop it.
+    fn reset(&self, account: &str) {
+        let owned = {
+            let mut st = self.state.lock();
+            st.inits.remove(account);
+            let owned = st.owner.as_deref() == Some(account);
+            if owned {
+                st.owner = None;
+                st.in_call = false;
+            }
+            owned
+        };
+        if owned {
+            self.bridge.reset();
+        }
+    }
 }
 
 pub fn install(app: &AppHandle, reg: &mut Registry) {
@@ -649,15 +798,15 @@ pub fn install(app: &AppHandle, reg: &mut Registry) {
         });
     });
     let a = app.clone();
-    reg.handle("call-send-to-native", move |_, args| {
+    reg.handle("call-send-to-native", move |host, args| {
         if let Some((json, optional)) = CallBridge::decode(&args) {
-            bridge(&a).send_to_native(json, optional);
+            calls(&a).send(&a, host.account.id(), json, optional);
         }
         async { Ok(undef()) }
     });
     let a = app.clone();
-    reg.handle("call-init", move |_, args| {
-        bridge(&a).set_init(CallBridge::decode(&args).map(|(json, _)| json));
+    reg.handle("call-init", move |host, args| {
+        calls(&a).init(host.account.id(), CallBridge::decode(&args).map(|(json, _)| json));
         async { Ok(undef()) }
     });
 }
@@ -667,11 +816,13 @@ pub fn install(app: &AppHandle, reg: &mut Registry) {
 pub fn calls_status(app: AppHandle) -> serde_json::Value {
     let installed = is_executable(&helper_executable(&crate::runtime::candidate()));
     let current = app.try_state::<Slot>().and_then(|s| s.0.lock().clone());
-    let (running, pid, ready) = current.map(|b| (b.started(), b.helper_pid(), b.native_ready())).unwrap_or((false, None, false));
+    let owner = current.as_ref().and_then(|c| c.state.lock().owner.clone());
+    let (running, pid, ready) = current.map(|c| (c.bridge.started(), c.bridge.helper_pid(), c.bridge.native_ready())).unwrap_or((false, None, false));
     serde_json::json!({
         "helperInstalled": installed,
         "running": running,
         "pid": pid,
+        "owner": owner,
         "problem": (!installed).then_some("Không tìm thấy ZaloCall trong bộ cài Zalo. Hãy mở lại Compola để cài lại."),
         "nativeState": if ready { Some("ready") } else if running { Some("starting") } else { None },
     })
@@ -680,7 +831,10 @@ pub fn calls_status(app: AppHandle) -> serde_json::Value {
 /// "Mở cửa sổ cuộc gọi": brings the running ZaloCall helper to the front.
 #[tauri::command]
 pub fn call_show_window(app: AppHandle) -> Result<(), String> {
-    let pid = app.try_state::<Slot>().and_then(|s| s.0.lock().as_ref().and_then(|b| b.helper_pid())).ok_or("Không có cuộc gọi nào đang diễn ra.")?;
+    let pid = app
+        .try_state::<Slot>()
+        .and_then(|s| s.0.lock().as_ref().and_then(|c| c.bridge.helper_pid()))
+        .ok_or("Không có cuộc gọi nào đang diễn ra.")?;
     #[cfg(target_os = "macos")]
     {
         use objc2_app_kit::{NSApplicationActivationOptions, NSRunningApplication};
@@ -690,22 +844,39 @@ pub fn call_show_window(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Logout / account switch (to be called from `MainProcess::reset_account_state`).
-#[allow(dead_code)]
-pub fn reset(app: &AppHandle) {
-    if let Some(slot) = app.try_state::<Slot>() {
-        if let Some(b) = slot.0.lock().as_ref() {
-            b.reset();
-        }
+/// `account` signed out (`MainProcess::reset_account_state`).
+pub fn reset(app: &AppHandle, account: &str) {
+    let current = app.try_state::<Slot>().and_then(|s| s.0.lock().clone());
+    if let Some(c) = current {
+        c.reset(account);
     }
 }
 
 /// App exit: the helper does not outlive the app.
 pub fn shutdown(app: &AppHandle) {
-    if let Some(slot) = app.try_state::<Slot>() {
-        if let Some(b) = slot.0.lock().take() {
-            b.shutdown();
-        }
+    let current = app.try_state::<Slot>().and_then(|s| s.0.lock().take());
+    if let Some(c) = current {
+        c.bridge.shutdown();
+    }
+}
+
+#[cfg(test)]
+mod owner_tests {
+    use super::{Route, route};
+
+    #[test]
+    fn helper_owner_rules() {
+        let call = r#"{"type":"request","command":"makeCall","data":{}}"#;
+        let init = r#"{"type":"update","command":"init","data":{}}"#;
+        // Nobody owns the helper yet / the owner itself: delivered.
+        assert_eq!(route(None, false, "a1b2c3d4e", call, false), Route::Deliver);
+        assert_eq!(route(Some("default"), true, "default", call, false), Route::Deliver);
+        // Another account's startup init or optional message never flips the helper.
+        assert_eq!(route(Some("default"), false, "a1b2c3d4e", init, false), Route::Ignore);
+        assert_eq!(route(Some("default"), false, "a1b2c3d4e", call, true), Route::Ignore);
+        // A real request from another account: switch when idle, busy during a call.
+        assert_eq!(route(Some("default"), false, "a1b2c3d4e", call, false), Route::Switch);
+        assert_eq!(route(Some("default"), true, "a1b2c3d4e", call, false), Route::Busy);
     }
 }
 

@@ -301,7 +301,7 @@ impl MainProcess {
         self.stop_shared_worker();
         self.workers().reset_session();
         crate::downloads::reset(&self.app, self.account.id());
-        crate::calls::reset(&self.app);
+        crate::calls::reset(&self.app, self.account.id());
         if let Some(sqlite) = &self.sqlite {
             sqlite.close_all();
         }

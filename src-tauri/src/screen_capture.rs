@@ -100,6 +100,8 @@ struct State {
     buffer: String,
     /// The conversation of the running capture; `None` while idle.
     conversation: Option<String>,
+    /// The account of the latest capture (its outcome is tagged with it; kept after the capture ends).
+    account: String,
     hid_compola: bool,
 }
 
@@ -112,8 +114,18 @@ pub struct ScreenCapture {
 
 /// `startScreenshot(params, convId)`: `with_compola` false hides Compola's windows first (main's "WithoutZalo").
 #[tauri::command]
-pub fn screen_capture_start(app: AppHandle, conversation_id: String, with_compola: bool) {
-    capture(&app).start(conversation_id, with_compola);
+pub fn screen_capture_start(app: AppHandle, conversation_id: String, with_compola: bool, account: Option<String>) -> Result<(), String> {
+    let account = crate::account::accounts(&app).registry().resolve(account.as_deref())?;
+    let tool = capture(&app);
+    {
+        // A capture already running keeps its account (the new request is refused as busy).
+        let mut st = tool.state.lock();
+        if st.conversation.is_none() {
+            st.account = account;
+        }
+    }
+    tool.start(conversation_id, with_compola);
+    Ok(())
 }
 
 fn capture(app: &AppHandle) -> Arc<ScreenCapture> {
@@ -172,7 +184,9 @@ pub fn shutdown(app: &AppHandle) {
 
 impl ScreenCapture {
     fn outcome(&self, o: Outcome) {
-        emit_ui(&self.app, "compola://screen-capture", o);
+        let account = self.state.lock().account.clone();
+        let payload = serde_json::to_value(&o).unwrap_or(Value::Null);
+        emit_ui(&self.app, "compola://screen-capture", crate::account::tag_payload("compola://screen-capture", &account, payload));
     }
 
     fn start(self: &Arc<Self>, conversation_id: String, with_compola: bool) {
