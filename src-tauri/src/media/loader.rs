@@ -4,9 +4,12 @@
 //! helper → system DNS + reqwest → DoH + pinned client for Zalo CDN hosts whose system lookup fails. Failures back
 //! off for 20 s per URL; NXDOMAIN hosts fail fast for 5 min.
 //!
-//! `local_file` (cors flavour): the same transport ladder, streamed to `MediaCache/files/<hash>.<ext>` through a
-//! `.part` file (2 GB cap, 30 s stall timeout, no total deadline), quarantined, LRU-trimmed.
+//! `start_file` / `local_file` (cors flavour): the same transport ladder — the helper *streams* — written to
+//! `MediaCache/files/<hash>.<ext>` through a `.part` file (2 GB cap, 30 s stall timeout, no total deadline),
+//! quarantined, LRU-trimmed. The download runs as a detached task observable through `ActiveDownload`, so the
+//! scheme can serve ranges while it runs.
 
+use std::collections::HashMap;
 use std::future::Future;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -18,15 +21,16 @@ use parking_lot::Mutex;
 use tauri::{AppHandle, Manager};
 use tokio::sync::Semaphore;
 
+use super::active::{ActiveDownload, FinishGuard};
 use super::cache::{self, DiskCache};
 use super::doh::DoHResolver;
 use super::flights::Flights;
 use super::headers::{Flavour, apply_client_headers, helper_headers, sanitized_headers};
-use super::http::{self, header, is_redirect, response_headers};
+use super::http::{self, Body, header, is_redirect, response_headers};
 use super::pinned::PinnedClients;
 use super::policy::{DnsState, DohOutcome, HelperOutcome, doh_failure, helper_failure};
 use super::{MediaError, NetFailure, diagnostics, is_allowed_local_file, is_zalo_cdn, normalized};
-use crate::net::{self, cookies::CookieJar, fp};
+use crate::net::{self, cookies::CookieJar, fingerprint, fp};
 
 pub const IMAGE_DEADLINE: Duration = Duration::from_secs(25);
 /// Stall timeout of the image transports (Swift `timeoutIntervalForRequest`).
@@ -59,7 +63,8 @@ pub struct MediaLoader {
     system: reqwest::Client,
     state: Mutex<DnsState>,
     data_flights: Flights<Result<Arc<Media>, MediaError>>,
-    file_flights: Flights<Result<PathBuf, MediaError>>,
+    /// File downloads in progress, by final path.
+    active: Mutex<HashMap<PathBuf, Arc<ActiveDownload>>>,
     probes: Flights<bool>,
     slots: Arc<Semaphore>,
     maintenance_started: AtomicBool,
@@ -125,7 +130,7 @@ impl MediaLoader {
             system,
             state: Mutex::default(),
             data_flights: Flights::default(),
-            file_flights: Flights::default(),
+            active: Mutex::default(),
             probes: Flights::default(),
             slots: Arc::new(Semaphore::new(max_concurrent)),
             maintenance_started: AtomicBool::new(false),
@@ -425,29 +430,58 @@ impl MediaLoader {
 
     /// Downloads `url` (or reuses `MediaCache/files/<hash>.<ext>`) and returns the file.
     pub async fn local_file(self: &Arc<Self>, url: &url::Url) -> Result<PathBuf, MediaError> {
+        match self.start_file(url)? {
+            FileStart::Ready(path) => Ok(path),
+            FileStart::Active(download) => download.finished().await,
+        }
+    }
+
+    /// The cached file, or the download that produces it (started here unless one already runs). The download
+    /// runs detached from any one caller, so range readers coming and going do not restart it.
+    pub fn start_file(self: &Arc<Self>, url: &url::Url) -> Result<FileStart, MediaError> {
         if url.scheme() == "file" {
-            return is_allowed_local_file(url).ok_or(MediaError::Forbidden);
+            return is_allowed_local_file(url).map(FileStart::Ready).ok_or(MediaError::Forbidden);
         }
         let url = normalized(url).ok_or(MediaError::BadUrl)?;
-        let file = self.cache.file_path(&url);
+        let target = self.cache.file_path(&url);
         self.start_maintenance();
-        if tokio::fs::metadata(&file).await.is_ok_and(|m| m.is_file()) {
-            cache::touch(&file); // LRU use
-            return Ok(file);
+        let mut active = self.active.lock();
+        if let Some(download) = active.get(&target) {
+            // A task that died without cleaning up leaves a failed entry behind: start over then.
+            if !matches!(download.snapshot().finished, Some(Err(_))) {
+                return Ok(FileStart::Active(download.clone()));
+            }
         }
-        let (this, u, target) = (self.clone(), url.clone(), file.clone());
-        let result = self
-            .file_flights
-            .join(&format!("f:{}", file.display()), move || async move {
-                let temp = this.clone().file_to_temp(u.clone(), REDIRECTS).await?;
-                tokio::task::spawn_blocking(move || publish(&temp, &target, &u)).await.map_err(|e| MediaError::Io(e.to_string()))?
-            })
-            .await;
-        match &result {
-            Ok(path) => self.schedule_trim(Some(path.clone())),
-            Err(error) => diagnostics::report(&url, error, "file"),
+        if std::fs::metadata(&target).is_ok_and(|m| m.is_file()) {
+            cache::touch(&target); // LRU use
+            return Ok(FileStart::Ready(target));
         }
-        result
+        let download = Arc::new(ActiveDownload::default());
+        active.insert(target.clone(), download.clone());
+        drop(active);
+        let this = self.clone();
+        let task_download = download.clone();
+        tokio::spawn(async move {
+            let guard = FinishGuard(task_download.clone());
+            let result = match this.clone().file_to_temp(url.clone(), REDIRECTS, task_download.clone()).await {
+                Ok(temp) => {
+                    let (target, origin) = (target.clone(), url.clone());
+                    tokio::task::spawn_blocking(move || publish(&temp, &target, &origin))
+                        .await
+                        .unwrap_or_else(|e| Err(MediaError::Io(e.to_string())))
+                }
+                Err(e) => Err(e),
+            };
+            match &result {
+                Ok(path) => this.schedule_trim(Some(path.clone())),
+                Err(error) => diagnostics::report(&url, error, "file"),
+            }
+            // Published (or failed) before leaving the table: a new caller then finds the file.
+            task_download.finish(result);
+            this.active.lock().remove(&target);
+            drop(guard);
+        });
+        Ok(FileStart::Active(download))
     }
 
     fn start_maintenance(self: &Arc<Self>) {
@@ -462,32 +496,67 @@ impl MediaLoader {
     }
 
     /// A complete download in a fresh `.part` file (none is left behind on failure).
-    fn file_to_temp(self: Arc<Self>, url: url::Url, redirects_left: u8) -> BoxFuture<'static, Result<PathBuf, MediaError>> {
+    fn file_to_temp(
+        self: Arc<Self>,
+        url: url::Url,
+        redirects_left: u8,
+        progress: Arc<ActiveDownload>,
+    ) -> BoxFuture<'static, Result<PathBuf, MediaError>> {
         async move {
             let host = host_of(&url)?;
             self.fail_if_dead(&host)?;
-            if let Some(file) = self.file_via_helper(&url).await? {
+            if let Some(file) = self.file_via_helper(&url, &progress).await? {
                 return Ok(file);
             }
-            let (doh_loader, doh_url) = (self.clone(), url.clone());
-            let doh = move || doh_loader.clone().file_via_doh(doh_url.clone(), redirects_left);
-            let system = || self.file_via_system(&url);
+            let (doh_loader, doh_url, doh_progress) = (self.clone(), url.clone(), progress.clone());
+            let doh = move || doh_loader.clone().file_via_doh(doh_url.clone(), redirects_left, doh_progress.clone());
+            let system = || self.file_via_system(&url, &progress);
             self.with_dns_fallback(&host, true, doh, system).await
         }
         .boxed()
     }
 
-    async fn file_via_helper(&self, url: &url::Url) -> Result<Option<PathBuf>, MediaError> {
-        let Some(r) = self.helper_get(url, Flavour::Cors, None).await? else { return Ok(None) };
-        if r.body.len() as u64 > MAX_FILE_BYTES {
-            return Err(MediaError::TooLarge);
+    /// Streams through the fingerprint helper. `Ok(None)`: helper unavailable (also when its connection drops
+    /// mid-body) or name-resolution trouble — the caller uses the other stack (Swift `fetchFileViaHelper`).
+    async fn file_via_helper(&self, url: &url::Url, progress: &ActiveDownload) -> Result<Option<PathBuf>, MediaError> {
+        let Some(app) = &self.app else { return Ok(None) };
+        let mut request = fingerprint::Request::new("GET", url.as_str());
+        request.headers = vec![("User-Agent".to_owned(), self.user_agent())];
+        request.headers.extend(helper_headers(&[], url, Flavour::Cors));
+        request.max_bytes = MAX_FILE_BYTES as i64;
+        request.idle_ms = FILE_IDLE.as_millis() as u64;
+        let start = match net::stream_via_helper(app, url, request, HELPER_WAIT).await {
+            Ok(None) => return Ok(None),
+            Ok(Some(start)) => start,
+            Err(e) => {
+                let e = http::helper_stream_error(e);
+                return if http::is_helper_lost(&e) { Ok(None) } else { Err(e) };
+            }
+        };
+        let result = match start {
+            fingerprint::StreamStart::Complete(r) => {
+                if !(200..300).contains(&r.status) {
+                    return Err(MediaError::Http(r.status));
+                }
+                http::write_part(&self.cache.files_dir, &r.body, &content_type_of(&r.headers), progress).await
+            }
+            fingerprint::StreamStart::Head(head, stream) => {
+                if !(200..300).contains(&head.status) {
+                    return Err(MediaError::Http(head.status)); // dropping the stream cancels it
+                }
+                let total = header(&head.headers, "content-length").and_then(|v| v.trim().parse().ok());
+                let content_type = content_type_of(&head.headers);
+                http::stream_to_part(Body::Helper(stream), &self.cache.files_dir, MAX_FILE_BYTES, FILE_IDLE, total, &content_type, progress).await
+            }
+        };
+        match result {
+            Ok(temp) => Ok(Some(temp)),
+            Err(e) if http::is_helper_lost(&e) => Ok(None),
+            Err(e) => Err(e),
         }
-        let temp = http::write_part(&self.cache.files_dir, &r.body).await?;
-        cache::set_file_content_type(&temp, Some(&content_type_of(&r.headers)));
-        Ok(Some(temp))
     }
 
-    async fn file_via_system(&self, url: &url::Url) -> Result<PathBuf, MediaError> {
+    async fn file_via_system(&self, url: &url::Url, progress: &ActiveDownload) -> Result<PathBuf, MediaError> {
         let headers = self.wire_headers(url, Flavour::Cors);
         let response = http::send(&self.system, url, &headers, FILE_IDLE).await?;
         self.store_cookies(url, &response);
@@ -496,9 +565,7 @@ impl MediaLoader {
             return Err(MediaError::Http(status));
         }
         let content_type = content_type_of(&response_headers(&response));
-        let temp = http::stream_to_part(response, &self.cache.files_dir, MAX_FILE_BYTES, FILE_IDLE).await?;
-        cache::set_file_content_type(&temp, Some(&content_type));
-        Ok(temp)
+        http::stream_to_part(Body::Reqwest(response), &self.cache.files_dir, MAX_FILE_BYTES, FILE_IDLE, None, &content_type, progress).await
     }
 
     /// A pinned-transport failure while fetching a file: size and stalls are verdicts, anything else invalidates
@@ -514,7 +581,12 @@ impl MediaLoader {
         }
     }
 
-    fn file_via_doh(self: Arc<Self>, url: url::Url, redirects_left: u8) -> BoxFuture<'static, Result<PathBuf, MediaError>> {
+    fn file_via_doh(
+        self: Arc<Self>,
+        url: url::Url,
+        redirects_left: u8,
+        progress: Arc<ActiveDownload>,
+    ) -> BoxFuture<'static, Result<PathBuf, MediaError>> {
         async move {
             let host = doh_host(&url)?;
             let addresses = self.resolver.resolve(&host).await.map_err(MediaError::Doh)?;
@@ -525,21 +597,25 @@ impl MediaLoader {
             let status = response.status().as_u16();
             if is_redirect(status) && redirects_left > 0 {
                 if let Some(next) = location(&response, &url) {
-                    return self.clone().file_to_temp(next, redirects_left - 1).await;
+                    return self.clone().file_to_temp(next, redirects_left - 1, progress).await;
                 }
             }
             if !(200..300).contains(&status) {
                 return Err(MediaError::Http(status));
             }
             let content_type = content_type_of(&response_headers(&response));
-            let temp = http::stream_to_part(response, &self.cache.files_dir, MAX_FILE_BYTES, FILE_IDLE)
+            http::stream_to_part(Body::Reqwest(response), &self.cache.files_dir, MAX_FILE_BYTES, FILE_IDLE, None, &content_type, &progress)
                 .await
-                .map_err(|e| self.pinned_file_error(&host, e))?;
-            cache::set_file_content_type(&temp, Some(&content_type));
-            Ok(temp)
+                .map_err(|e| self.pinned_file_error(&host, e))
         }
         .boxed()
     }
+}
+
+/// What `start_file` found.
+pub enum FileStart {
+    Ready(PathBuf),
+    Active(Arc<ActiveDownload>),
 }
 
 /// Moves a finished `.part` file to its final name (quarantined first, so the file is never visible without it).
@@ -579,7 +655,7 @@ mod tests {
     async fn non_cdn_hosts_are_not_fetched_via_doh() {
         let loader = temp_loader();
         assert_eq!(loader.clone().image_via_doh(u("https://www.apple.com/"), 3).await.unwrap_err(), MediaError::BadUrl);
-        assert_eq!(loader.clone().file_via_doh(u("http://res-zalo.zadn.vn/a"), 3).await.unwrap_err(), MediaError::BadUrl);
+        assert_eq!(loader.clone().file_via_doh(u("http://res-zalo.zadn.vn/a"), 3, Arc::default()).await.unwrap_err(), MediaError::BadUrl);
     }
 
     #[tokio::test]
@@ -616,6 +692,21 @@ mod tests {
         // The image failure is remembered: the next call answers from the backoff even once the host is alive.
         loader.state.lock().dead_hosts_clear_for_tests();
         assert_eq!(loader.data(&url, false).await.unwrap_err(), MediaError::HostNotFound);
+    }
+
+    #[tokio::test]
+    async fn file_downloads_are_shared_and_leave_the_table_when_done() {
+        let loader = temp_loader();
+        loader.mark_dead("f28-zpc.zdn.vn");
+        let url = u("https://f28-zpc.zdn.vn/v/clip.mp4");
+        let (FileStart::Active(a), FileStart::Active(b)) = (loader.start_file(&url).unwrap(), loader.start_file(&url).unwrap()) else {
+            panic!("expected a running download");
+        };
+        assert!(Arc::ptr_eq(&a, &b));
+        assert_eq!(a.finished().await, Err(MediaError::HostNotFound));
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        assert!(loader.active.lock().is_empty());
+        assert_eq!(loader.local_file(&url).await, Err(MediaError::HostNotFound)); // a fresh attempt
     }
 
     /// Calls counted by the fake transports.

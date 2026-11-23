@@ -124,7 +124,7 @@ pub fn helper_failure(message: &str) -> HelperOutcome {
     if m.contains("too large") || m.contains("toolarge") {
         return HelperOutcome::Fail(MediaError::TooLarge);
     }
-    if m.contains("timeout") || m.contains("canceled") {
+    if crate::net::is_timeout_message(&m) || m.contains("canceled") {
         return HelperOutcome::Fail(MediaError::TimedOut);
     }
     const DNSISH: &[&str] = &["no such host", "lookup", "dns", "connection refused", "connection reset"];

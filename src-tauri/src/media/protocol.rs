@@ -8,7 +8,8 @@ use std::sync::Arc;
 use tauri::{UriSchemeContext, UriSchemeResponder, Wry};
 
 use super::headers::Flavour;
-use super::loader::Media;
+use super::active::ActiveDownload;
+use super::loader::{FileStart, Media};
 use super::{MediaError, MediaLoader, NetFailure, diagnostics, is_allowed_host, normalized};
 
 pub const SCHEME: &str = "compola-media";
@@ -230,18 +231,84 @@ async fn serve(loader: &Arc<MediaLoader>, request: MediaRequest, range: Option<S
                 .unwrap_or_else(|e| failure(&MediaError::Io(e.to_string()))),
             Err(e) => failure(&e),
         },
-        Flavour::Cors => match loader.local_file(&request.url).await {
-            Ok(path) => tokio::task::spawn_blocking(move || from_file(&path, range.as_deref(), head))
-                .await
-                .unwrap_or_else(|e| failure(&MediaError::Io(e.to_string()))),
+        Flavour::Cors => match loader.start_file(&request.url) {
+            Ok(FileStart::Ready(path)) => file_response(path, range, head).await,
+            Ok(FileStart::Active(download)) => serve_in_flight(download, range, head).await,
             Err(e) => failure(&e),
         },
+    }
+}
+
+async fn file_response(path: PathBuf, range: Option<String>, head: bool) -> http::Response<Vec<u8>> {
+    tokio::task::spawn_blocking(move || from_file(&path, range.as_deref(), head))
+        .await
+        .unwrap_or_else(|e| failure(&MediaError::Io(e.to_string())))
+}
+
+async fn when_finished(download: &ActiveDownload, range: Option<String>, head: bool) -> http::Response<Vec<u8>> {
+    match download.finished().await {
+        Ok(path) => file_response(path, range, head).await,
+        Err(e) => failure(&e),
+    }
+}
+
+/// `bytes=N-` (single, open-ended).
+fn is_open_ended(range: Option<&str>) -> bool {
+    range
+        .map(str::trim)
+        .and_then(|r| r.strip_prefix("bytes="))
+        .map(str::trim)
+        .is_some_and(|spec| !spec.contains(',') && !spec.starts_with('-') && spec.ends_with('-'))
+}
+
+/// Serves a `Range` request from a download that is still running, as soon as the bytes are on disk: an
+/// open-ended range gets what has arrived (up to `MAX_OPEN_RANGE`), an explicit one waits for its last byte. A
+/// request without a range, or a body of unknown length, waits for the whole file.
+async fn serve_in_flight(download: Arc<ActiveDownload>, range: Option<String>, head: bool) -> http::Response<Vec<u8>> {
+    if range.is_none() {
+        return when_finished(&download, range, head).await;
+    }
+    let first = download.wait(|s| s.part.is_some() && s.total.is_some()).await;
+    let Some(total) = first.total.filter(|_| first.finished.is_none()) else {
+        return when_finished(&download, range, head).await;
+    };
+    let (start, end) = match parse_range(range.as_deref(), total) {
+        RangeOutcome::Partial(s, e) => (s, e),
+        RangeOutcome::Unsatisfiable => return ranged("application/octet-stream", total, range.as_deref(), head, |_, _| Ok(Vec::new())),
+        RangeOutcome::Full => return when_finished(&download, range, head).await,
+    };
+    let open = is_open_ended(range.as_deref());
+    let need = if open { start + 1 } else { end + 1 };
+    let now = download.wait(|s| s.total == Some(total) && s.received >= need).await;
+    let Some(part) = now.part.clone().filter(|_| now.finished.is_none() && now.total == Some(total) && now.received >= need) else {
+        return when_finished(&download, range, head).await;
+    };
+    let end = if open { end.min(now.received - 1) } else { end };
+    let slice = format!("bytes={start}-{end}");
+    let served = tokio::task::spawn_blocking(move || {
+        let content_type = super::cache::file_content_type(&part);
+        let mut file = std::fs::File::open(&part).ok()?;
+        let mut body = vec![0u8; (end - start + 1) as usize];
+        if !head {
+            file.seek(SeekFrom::Start(start)).ok()?;
+            file.read_exact(&mut body).ok()?;
+        }
+        Some(ranged(&content_type, total, Some(&slice), head, |_, _| Ok(body)))
+    })
+    .await
+    .ok()
+    .flatten();
+    match served {
+        Some(response) => response,
+        // The part file was just renamed into place (or replaced by a new attempt): serve from the result.
+        None => when_finished(&download, range, head).await,
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     fn uri(s: &str) -> http::Uri {
         s.parse().unwrap()
@@ -328,6 +395,79 @@ mod tests {
         assert_eq!(r.body(), &bytes[990..]);
         assert_eq!(from_file(&dir.join("missing"), None, false).status(), 502);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn ranges_are_served_while_the_download_runs() {
+        use std::io::Write;
+        let dir = std::env::temp_dir().join(format!("compola-inflight-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let part = dir.join(".a.part");
+        let content: Vec<u8> = (0..100u8).collect();
+        let mut file = std::fs::File::create(&part).unwrap();
+        let download = Arc::new(ActiveDownload::default());
+        download.begin(part.clone(), Some(100), Some("video/mp4".into()));
+        super::super::cache::set_file_content_type(&part, Some("video/mp4"));
+        file.write_all(&content[..20]).unwrap();
+        download.progress(20);
+
+        // Open-ended: answered at once with what has arrived.
+        let r = serve_in_flight(download.clone(), Some("bytes=0-".into()), false).await;
+        assert_eq!(r.status().as_u16(), 206);
+        assert_eq!(r.headers()["content-range"], "bytes 0-19/100");
+        assert_eq!(r.body(), &content[..20]);
+
+        // Explicit range beyond what arrived, and a plain GET: both wait.
+        let explicit = tokio::spawn(serve_in_flight(download.clone(), Some("bytes=50-59".into()), false));
+        let open_later = tokio::spawn(serve_in_flight(download.clone(), Some("bytes=70-".into()), false));
+        let whole = tokio::spawn(serve_in_flight(download.clone(), None, false));
+        tokio::time::sleep(Duration::from_millis(30)).await;
+        assert!(!explicit.is_finished() && !open_later.is_finished() && !whole.is_finished());
+        file.write_all(&content[20..80]).unwrap();
+        download.progress(80);
+        let r = explicit.await.unwrap();
+        assert_eq!((r.status().as_u16(), r.body().as_slice()), (206, &content[50..60]));
+        let r = open_later.await.unwrap();
+        assert_eq!(r.headers()["content-range"], "bytes 70-79/100");
+        assert!(!whole.is_finished());
+
+        // Past the end: 416 without waiting.
+        assert_eq!(serve_in_flight(download.clone(), Some("bytes=100-".into()), false).await.status().as_u16(), 416);
+
+        // Completion: the part is published, waiting readers get the file.
+        file.write_all(&content[80..]).unwrap();
+        drop(file);
+        let final_path = dir.join("a.mp4");
+        std::fs::rename(&part, &final_path).unwrap();
+        download.finish(Ok(final_path));
+        let r = whole.await.unwrap();
+        assert_eq!((r.status().as_u16(), r.body().as_slice()), (200, content.as_slice()));
+        assert_eq!(r.headers()["content-type"], "video/mp4");
+        // After the rename a late range reader is served from the file.
+        let r = serve_in_flight(download.clone(), Some("bytes=90-".into()), false).await;
+        assert_eq!(r.body(), &content[90..]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn failed_downloads_and_unknown_lengths() {
+        let download = Arc::new(ActiveDownload::default());
+        download.begin(PathBuf::from("/nonexistent/.x.part"), None, None); // no Content-Length
+        let waiting = tokio::spawn(serve_in_flight(download.clone(), Some("bytes=0-".into()), false));
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        assert!(!waiting.is_finished());
+        download.finish(Err(MediaError::Http(404)));
+        assert_eq!(waiting.await.unwrap().status().as_u16(), 404);
+    }
+
+    #[test]
+    fn open_ended_ranges() {
+        assert!(is_open_ended(Some("bytes=0-")));
+        assert!(is_open_ended(Some(" bytes=100- ")));
+        assert!(!is_open_ended(Some("bytes=0-10")));
+        assert!(!is_open_ended(Some("bytes=-10")));
+        assert!(!is_open_ended(Some("bytes=0-,5-")));
+        assert!(!is_open_ended(None));
     }
 
     #[test]
