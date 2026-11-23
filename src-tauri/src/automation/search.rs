@@ -108,8 +108,14 @@ fn normalize(v: &mut [f32]) {
 }
 
 impl Index {
+    /// The default account's index (the path from before multi-account).
     pub fn path() -> PathBuf {
         crate::platform::app_support().join("search.db")
+    }
+
+    /// The index of an account: `<data root>/search.db` (`default`: the app's root, as before).
+    pub fn path_for(account: &str) -> PathBuf {
+        crate::account::AccountPaths::new(&crate::platform::app_support(), account).data_root.join("search.db")
     }
 
     pub fn open(path: &Path) -> Result<Self, String> {

@@ -690,11 +690,15 @@ async fn automation(remote: &Remote, cmd: &str, args: &Value) -> Result<Value, S
     let num = |k: &str, d: u64| args.get(k).and_then(Value::as_u64).unwrap_or(d) as usize;
     match cmd {
         "automation_search" => {
-            a.search_messages(&text("query").unwrap_or_default(), text("conversationId"), num("limit", 30).clamp(1, 200), num("context", 0).min(10)).await
+            a.search_messages(Some(crate::account::DEFAULT_ID), &text("query").unwrap_or_default(), text("conversationId"), num("limit", 30).clamp(1, 200), num("context", 0).min(10)).await
         }
-        "automation_search_status" => Ok(a.search_status_json()),
-        "automation_conversations" => serde_json::to_value(a.find_conversations(text("query").as_deref(), num("limit", 50), false)).map_err(|e| e.to_string()),
-        "automation_messages" => serde_json::to_value(a.recent_messages(text("conversationId").as_deref(), num("limit", 50))).map_err(|e| e.to_string()),
+        "automation_search_status" => Ok(a.search_status_json(Some(crate::account::DEFAULT_ID))),
+        "automation_conversations" => a
+            .find_conversations(Some(crate::account::DEFAULT_ID), text("query").as_deref(), num("limit", 50), false)
+            .and_then(|v| serde_json::to_value(v).map_err(|e| e.to_string())),
+        "automation_messages" => a
+            .recent_messages(Some(crate::account::DEFAULT_ID), text("conversationId").as_deref(), num("limit", 50))
+            .and_then(|v| serde_json::to_value(v).map_err(|e| e.to_string())),
         _ => Err("unknown".into()),
     }
 }

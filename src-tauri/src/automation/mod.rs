@@ -50,7 +50,8 @@ pub struct RunLog {
 pub struct Automation {
     app: AppHandle,
     config: Mutex<Config>,
-    mirror: Mutex<mirror::Mirror>,
+    /// Per account: what its renderer posted and its message index (docs/multi-account.md §8).
+    accounts: Mutex<HashMap<String, Arc<AccountData>>>,
     pool: mcp_client::Pool,
     server: AsyncMutex<Option<mcp_server::ServerHandle>>,
     server_error: Mutex<Option<String>>,
@@ -62,9 +63,6 @@ pub struct Automation {
     addon_tools: Mutex<HashMap<String, Vec<Value>>>,
     addon_calls: Mutex<HashMap<String, oneshot::Sender<Result<Value, String>>>>,
     wake: Notify,
-    /// The message search index (None when it could not be opened) and its ordered writer thread.
-    index: Option<Arc<search::Index>>,
-    index_tx: Option<std::sync::mpsc::Sender<IndexJob>>,
     http: reqwest::Client,
     /// Last embeddings failure, shown in Settings; cleared on success.
     embed_error: Mutex<Option<String>>,
@@ -73,6 +71,46 @@ pub struct Automation {
 enum IndexJob {
     Upsert(Vec<mirror::Message>),
     Clear,
+}
+
+/// One account's mirror and message index.
+pub(crate) struct AccountData {
+    mirror: Mutex<mirror::Mirror>,
+    /// The message search index (None when it could not be opened) and its ordered writer thread.
+    index: Option<Arc<search::Index>>,
+    index_tx: Option<std::sync::mpsc::Sender<IndexJob>>,
+}
+
+impl AccountData {
+    fn open(account: &str) -> Self {
+        let index = match search::Index::open(&search::Index::path_for(account)) {
+            Ok(ix) => Some(Arc::new(ix)),
+            Err(e) => {
+                log::warn!("search index of {account} unavailable: {e}");
+                None
+            }
+        };
+        // One writer thread keeps index updates in order and off the renderer's callback thread.
+        let index_tx = index.clone().and_then(|ix| {
+            let (tx, rx) = std::sync::mpsc::channel::<IndexJob>();
+            std::thread::Builder::new()
+                .name("compola-search-index".into())
+                .spawn(move || {
+                    while let Ok(job) = rx.recv() {
+                        let result = match job {
+                            IndexJob::Upsert(batch) => ix.upsert(&batch).map(|_| ()),
+                            IndexJob::Clear => ix.clear(),
+                        };
+                        if let Err(e) = result {
+                            log::warn!("search index: {e}");
+                        }
+                    }
+                })
+                .ok()
+                .map(|_| tx)
+        });
+        Self { mirror: Mutex::default(), index, index_tx }
+    }
 }
 
 impl Automation {
@@ -91,36 +129,10 @@ impl Automation {
         if let Err(e) = config::save(&config) {
             log::warn!("automation: cannot save config: {e}");
         }
-        let index = match search::Index::open(&search::Index::path()) {
-            Ok(ix) => Some(Arc::new(ix)),
-            Err(e) => {
-                log::warn!("search index unavailable: {e}");
-                None
-            }
-        };
-        // One writer thread keeps index updates in order and off the renderer's callback thread.
-        let index_tx = index.clone().map(|ix| {
-            let (tx, rx) = std::sync::mpsc::channel::<IndexJob>();
-            std::thread::Builder::new()
-                .name("compola-search-index".into())
-                .spawn(move || {
-                    while let Ok(job) = rx.recv() {
-                        let result = match job {
-                            IndexJob::Upsert(batch) => ix.upsert(&batch).map(|_| ()),
-                            IndexJob::Clear => ix.clear(),
-                        };
-                        if let Err(e) = result {
-                            log::warn!("search index: {e}");
-                        }
-                    }
-                })
-                .ok()
-                .map(|_| tx)
-        });
         Arc::new(Self {
             app,
             config: Mutex::new(config),
-            mirror: Mutex::default(),
+            accounts: Mutex::default(),
             pool: mcp_client::Pool::default(),
             server: AsyncMutex::new(None),
             server_error: Mutex::new(None),
@@ -130,8 +142,6 @@ impl Automation {
             addon_tools: Mutex::default(),
             addon_calls: Mutex::default(),
             wake: Notify::new(),
-            index,
-            index_tx: index_tx.flatten(),
             http: reqwest::Client::builder().timeout(Duration::from_secs(120)).build().unwrap_or_default(),
             embed_error: Mutex::new(None),
         })
@@ -145,24 +155,26 @@ impl Automation {
             loop {
                 let Some(this) = weak.upgrade() else { break };
                 let cfg = this.config.lock().search.clone();
-                let pause = match (&this.index, cfg.enabled && cfg.semantic) {
-                    (Some(ix), true) => match search::embed_pending(ix, &this.http, &cfg, 32).await {
-                        Ok(0) => {
-                            *this.embed_error.lock() = None;
-                            10
+                let indexes: Vec<Arc<search::Index>> = this.accounts.lock().values().filter_map(|d| d.index.clone()).collect();
+                let mut pause = 15;
+                if cfg.enabled && cfg.semantic && !indexes.is_empty() {
+                    pause = 10;
+                    for ix in &indexes {
+                        match search::embed_pending(ix, &this.http, &cfg, 32).await {
+                            Ok(0) => *this.embed_error.lock() = None,
+                            Ok(_) => {
+                                *this.embed_error.lock() = None;
+                                pause = 1;
+                            }
+                            Err(e) => {
+                                log::info!("search embeddings: {e}");
+                                *this.embed_error.lock() = Some(e);
+                                pause = 60;
+                                break;
+                            }
                         }
-                        Ok(_) => {
-                            *this.embed_error.lock() = None;
-                            1
-                        }
-                        Err(e) => {
-                            log::info!("search embeddings: {e}");
-                            *this.embed_error.lock() = Some(e);
-                            60
-                        }
-                    },
-                    _ => 15,
-                };
+                    }
+                }
                 drop(this);
                 tokio::time::sleep(Duration::from_secs(pause)).await;
             }
@@ -238,38 +250,62 @@ impl Automation {
 
     // ---- engine hooks ----
 
-    /// Every `zstate` the main page posts (engine.rs `HostObserver::state`).
-    pub fn observe_state(&self, state: &Value) {
+    /// The id an optional `account` argument names (missing: the active account).
+    fn resolve(&self, account: Option<&str>) -> Result<String, String> {
+        crate::account::accounts(&self.app).registry().resolve(account)
+    }
+
+    /// An account's mirror and index (opened on first use).
+    pub(crate) fn data(&self, account: Option<&str>) -> Result<Arc<AccountData>, String> {
+        let id = self.resolve(account)?;
+        let mut all = self.accounts.lock();
+        Ok(all.entry(id.clone()).or_insert_with(|| Arc::new(AccountData::open(&id))).clone())
+    }
+
+    /// Every `zstate` the main page of `account` posts (engine.rs `HostObserver::state`).
+    pub fn observe_state(&self, account: &str, state: &Value) {
+        let Ok(data) = self.data(Some(account)) else { return };
         let (new, indexable) = {
-            let mut m = self.mirror.lock();
+            let mut m = data.mirror.lock();
             let new = m.apply(state);
             (new, m.take_indexable())
         };
         if !indexable.is_empty() && self.config.lock().search.enabled {
-            if let Some(tx) = &self.index_tx {
+            if let Some(tx) = &data.index_tx {
                 let _ = tx.send(IndexJob::Upsert(indexable));
             }
         }
         for message in new {
-            emit_ui(&self.app, EVENT, json!({ "kind": "message", "message": message }));
+            emit_ui(&self.app, EVENT, json!({ "kind": "message", "account": account, "message": message }));
         }
     }
 
-    /// The main page reloaded or the account signed out: what was mirrored belongs to the old page.
-    pub fn reset_mirror(&self) {
-        self.mirror.lock().clear();
+    /// The main page of `account` reloaded or it signed out: what was mirrored belongs to the old page.
+    pub fn reset_mirror(&self, account: &str) {
+        if let Ok(d) = self.data(Some(account)) {
+            d.mirror.lock().clear();
+        }
     }
 
-    /// The account signed out: its messages must not stay searchable for the next account.
-    pub fn clear_search(&self) {
-        if let Some(tx) = &self.index_tx {
+    /// `account` signed out: its messages must not stay searchable for the next session.
+    pub fn clear_search(&self, account: &str) {
+        if let Some(tx) = self.data(Some(account)).ok().and_then(|d| d.index_tx.clone()) {
             let _ = tx.send(IndexJob::Clear);
         }
     }
 
+    /// Clears every account's index (search turned off).
+    fn clear_all_search(&self) {
+        for d in self.accounts.lock().values() {
+            if let Some(tx) = &d.index_tx {
+                let _ = tx.send(IndexJob::Clear);
+            }
+        }
+    }
+
     /// Hybrid search (keyword + semantic when configured and embeddings exist). Returns hits and the mode used.
-    pub async fn search_messages(&self, query: &str, conversation: Option<String>, limit: usize, context: usize) -> Result<Value, String> {
-        let index = self.index.clone().ok_or("chỉ mục tìm kiếm không mở được")?;
+    pub async fn search_messages(&self, account: Option<&str>, query: &str, conversation: Option<String>, limit: usize, context: usize) -> Result<Value, String> {
+        let index = self.data(account)?.index.clone().ok_or("chỉ mục tìm kiếm không mở được")?;
         if query.trim().is_empty() {
             return Err("nhập nội dung cần tìm".into());
         }
@@ -294,19 +330,19 @@ impl Automation {
         Ok(json!({ "mode": mode, "hits": hits, "semanticError": semantic_error }))
     }
 
-    fn engine(&self) -> Option<Arc<Engine>> {
-        crate::account::engine(&self.app, Some(crate::account::DEFAULT_ID)).ok()
+    fn engine(&self, account: Option<&str>) -> Option<Arc<Engine>> {
+        crate::account::engine(&self.app, account).ok()
     }
 
-    fn ready(&self) -> Result<Arc<Engine>, String> {
-        let engine = self.engine().ok_or("engine chưa khởi động")?;
+    fn ready(&self, account: Option<&str>) -> Result<Arc<Engine>, String> {
+        let engine = self.engine(account).ok_or("engine chưa khởi động")?;
         if engine.phase() != Phase::Ready {
             return Err("Compola chưa đăng nhập Zalo".into());
         }
         Ok(engine)
     }
 
-    pub async fn send_text(&self, conversation_id: &str, text: &str) -> Result<(), String> {
+    pub async fn send_text(&self, account: Option<&str>, conversation_id: &str, text: &str) -> Result<(), String> {
         let text = expand_template(text);
         if text.trim().is_empty() {
             return Err("tin nhắn trống".into());
@@ -314,7 +350,7 @@ impl Automation {
         if conversation_id.trim().is_empty() {
             return Err("thiếu conversationId".into());
         }
-        let engine = self.ready()?;
+        let engine = self.ready(account)?;
         let answer = engine.call_adapter("__zaloChat", "sendText", vec![json!(conversation_id), json!(text.trim()), Value::Null, json!([])]).await?;
         match answer.as_str() {
             Some("sent") => Ok(()),
@@ -397,7 +433,11 @@ impl Automation {
         // `run_due` marked a scheduled job in flight before spawning this.
         let scheduled = trigger == "schedule";
         let result: Result<String, String> = match &job.action {
-            Action::SendText { conversation_id, text, .. } => self.send_text(conversation_id, text).await.map(|_| "Đã gửi".to_owned()),
+            // Jobs from before multi-account have no account: they belong to `default`.
+            Action::SendText { conversation_id, text, account, .. } => self
+                .send_text(Some(account.as_deref().unwrap_or(crate::account::DEFAULT_ID)), conversation_id, text)
+                .await
+                .map(|_| "Đã gửi".to_owned()),
             Action::McpTool { server_id, tool, arguments } => match self.client_config(server_id) {
                 Some(cfg) => match self.pool.get(&cfg).await {
                     Ok(c) => c.call_tool(tool, arguments.clone()).await.and_then(|r| {
@@ -818,19 +858,19 @@ pub fn automation_addon_tool_reply(automation: AutomationState<'_>, request_id: 
 }
 
 #[tauri::command]
-pub fn automation_conversations(automation: AutomationState<'_>, query: Option<String>, limit: Option<usize>) -> Vec<mirror::Conversation> {
-    automation.find_conversations(query.as_deref(), limit.unwrap_or(50), false)
+pub fn automation_conversations(automation: AutomationState<'_>, account: Option<String>, query: Option<String>, limit: Option<usize>) -> Result<Vec<mirror::Conversation>, String> {
+    automation.find_conversations(account.as_deref(), query.as_deref(), limit.unwrap_or(50), false)
 }
 
 #[tauri::command]
-pub fn automation_messages(automation: AutomationState<'_>, conversation_id: Option<String>, limit: Option<usize>) -> Vec<mirror::Message> {
-    automation.mirror.lock().messages(conversation_id.as_deref(), limit.unwrap_or(50).min(500))
+pub fn automation_messages(automation: AutomationState<'_>, account: Option<String>, conversation_id: Option<String>, limit: Option<usize>) -> Result<Vec<mirror::Message>, String> {
+    automation.recent_messages(account.as_deref(), conversation_id.as_deref(), limit.unwrap_or(50))
 }
 
 #[tauri::command]
-pub async fn automation_send_text(automation: AutomationState<'_>, conversation_id: String, text: String) -> Result<(), String> {
+pub async fn automation_send_text(automation: AutomationState<'_>, account: Option<String>, conversation_id: String, text: String) -> Result<(), String> {
     let a = automation.inner().clone();
-    a.send_text(&conversation_id, &text).await
+    a.send_text(account.as_deref(), &conversation_id, &text).await
 }
 
 // ---- search commands ----
@@ -838,31 +878,34 @@ pub async fn automation_send_text(automation: AutomationState<'_>, conversation_
 #[tauri::command]
 pub async fn automation_search(
     automation: AutomationState<'_>,
+    account: Option<String>,
     query: String,
     conversation_id: Option<String>,
     limit: Option<usize>,
     context: Option<usize>,
 ) -> Result<Value, String> {
     let a = automation.inner().clone();
-    a.search_messages(&query, conversation_id.filter(|c| !c.is_empty()), limit.unwrap_or(30).clamp(1, 200), context.unwrap_or(0).min(10)).await
+    a.search_messages(account.as_deref(), &query, conversation_id.filter(|c| !c.is_empty()), limit.unwrap_or(30).clamp(1, 200), context.unwrap_or(0).min(10)).await
 }
 
 #[tauri::command]
-pub fn automation_search_status(automation: AutomationState<'_>) -> Value {
-    automation.search_status_json()
+pub fn automation_search_status(automation: AutomationState<'_>, account: Option<String>) -> Value {
+    automation.search_status_json(account.as_deref())
 }
 
 impl Automation {
     /// `automation_search_status` (also served to Compola Server's joined apps, `crate::remote`).
-    pub(crate) fn search_status_json(&self) -> Value {
+    pub(crate) fn search_status_json(&self, account: Option<&str>) -> Value {
         let cfg = self.config.lock().search.clone();
-        let stats = self.index.as_ref().map(|ix| ix.stats());
-        json!({ "config": cfg, "stats": stats, "embedError": self.embed_error.lock().clone(), "path": search::Index::path() })
+        let id = self.resolve(account).ok();
+        let stats = self.data(account).ok().and_then(|d| d.index.as_ref().map(|ix| ix.stats()));
+        let path = id.as_deref().map(search::Index::path_for);
+        json!({ "config": cfg, "stats": stats, "embedError": self.embed_error.lock().clone(), "path": path, "account": id })
     }
 
     /// `automation_messages` without the Tauri state (`crate::remote`).
-    pub(crate) fn recent_messages(&self, conversation_id: Option<&str>, limit: usize) -> Vec<mirror::Message> {
-        self.mirror.lock().messages(conversation_id, limit.min(500))
+    pub(crate) fn recent_messages(&self, account: Option<&str>, conversation_id: Option<&str>, limit: usize) -> Result<Vec<mirror::Message>, String> {
+        Ok(self.data(account)?.mirror.lock().messages(conversation_id, limit.min(500)))
     }
 }
 
@@ -872,15 +915,18 @@ pub fn automation_search_set_config(automation: AutomationState<'_>, config: con
     automation.update_config(|c| c.search = config.clone())?;
     *automation.embed_error.lock() = None;
     if was_enabled && !config.enabled {
-        automation.clear_search();
+        automation.clear_all_search();
     }
     automation.changed();
     Ok(())
 }
 
 #[tauri::command]
-pub fn automation_search_clear(automation: AutomationState<'_>) {
-    automation.clear_search();
+pub fn automation_search_clear(automation: AutomationState<'_>, account: Option<String>) {
+    match account {
+        Some(a) => automation.clear_search(&a),
+        None => automation.clear_all_search(),
+    }
     automation.changed();
 }
 

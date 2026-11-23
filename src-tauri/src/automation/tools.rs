@@ -66,16 +66,18 @@ fn job_view(job: &Job, next: Option<i64>) -> Value {
 }
 
 impl Automation {
-    pub fn find_conversations(&self, query: Option<&str>, limit: usize, unread_only: bool) -> Vec<mirror::Conversation> {
+    pub fn find_conversations(&self, account: Option<&str>, query: Option<&str>, limit: usize, unread_only: bool) -> Result<Vec<mirror::Conversation>, String> {
         let q = query.map(fold).filter(|q| !q.trim().is_empty());
-        self.mirror
+        Ok(self
+            .data(account)?
+            .mirror
             .lock()
             .conversations()
             .into_iter()
             .filter(|c| !unread_only || c.unread > 0)
             .filter(|c| q.as_ref().is_none_or(|q| fold(&c.name).contains(q.trim()) || c.id == q.trim()))
             .take(limit)
-            .collect()
+            .collect())
     }
 
     pub async fn mcp_tool_list(&self) -> Vec<Value> {
@@ -85,7 +87,8 @@ impl Automation {
                 "name": "status",
                 "title": "Trạng thái Compola",
                 "description": "Whether Compola is signed in to Zalo, and how many conversations it knows.",
-                "inputSchema": { "type": "object", "properties": {} },
+                "inputSchema": { "type": "object", "properties": {
+                    "account": { "type": "string", "description": "Compola account id (from status.accounts); default: the account Compola shows" },} },
                 "annotations": { "readOnlyHint": true },
             }),
             json!({
@@ -93,6 +96,7 @@ impl Automation {
                 "title": "Danh sách hội thoại",
                 "description": "Zalo conversations (pinned first, then most recent), with unread count and the latest message. Use `query` to find one by name (accent-insensitive).",
                 "inputSchema": { "type": "object", "properties": {
+                    "account": { "type": "string", "description": "Compola account id (from status.accounts); default: the account Compola shows" },
                     "query": { "type": "string", "description": "Part of the conversation or contact name" },
                     "unreadOnly": { "type": "boolean" },
                     "limit": { "type": "integer", "minimum": 1, "maximum": 200, "default": 30 },
@@ -104,6 +108,7 @@ impl Automation {
                 "title": "Tin nhắn",
                 "description": "Recent messages, oldest first. With conversationId: the full loaded history if that chat was opened in Compola, otherwise the messages seen since Compola started (at least the latest one). Without it: the latest messages across all conversations since Compola started.",
                 "inputSchema": { "type": "object", "properties": {
+                    "account": { "type": "string", "description": "Compola account id (from status.accounts); default: the account Compola shows" },
                     "conversationId": { "type": "string" },
                     "limit": { "type": "integer", "minimum": 1, "maximum": 500, "default": 50 },
                 } },
@@ -114,6 +119,7 @@ impl Automation {
                 "title": "Tìm tin nhắn",
                 "description": "Searches the Zalo messages Compola has indexed (accent-insensitive keywords, plus meaning-based matches when semantic search is set up). Returns the best matches, each with the messages around it as context — use it to answer questions about past conversations (RAG). Narrow with conversationId from list_conversations.",
                 "inputSchema": { "type": "object", "properties": {
+                    "account": { "type": "string", "description": "Compola account id (from status.accounts); default: the account Compola shows" },
                     "query": { "type": "string", "description": "Words or a question, e.g. \"họp thứ 6 mấy giờ\"" },
                     "conversationId": { "type": "string" },
                     "limit": { "type": "integer", "minimum": 1, "maximum": 50, "default": 10 },
@@ -142,6 +148,7 @@ impl Automation {
                 "title": "Gửi tin nhắn",
                 "description": "Sends a text message to a Zalo conversation as the signed-in user. Get conversationId from list_conversations. Placeholders {{date}} {{time}} {{weekday}} are filled in.",
                 "inputSchema": { "type": "object", "properties": {
+                    "account": { "type": "string", "description": "Compola account id (from status.accounts); default: the account Compola shows" },
                     "conversationId": { "type": "string" },
                     "text": { "type": "string" },
                 }, "required": ["conversationId", "text"] },
@@ -154,6 +161,7 @@ impl Automation {
                 "title": "Tạo lịch gửi tin",
                 "description": "Schedules a message: recurring with `cron` (5 fields, local time, e.g. \"0 8 * * mon-fri\") or once with `at` (ISO 8601). Needs message sending to be allowed in Compola.",
                 "inputSchema": { "type": "object", "properties": {
+                    "account": { "type": "string", "description": "Compola account id (from status.accounts); default: the account Compola shows" },
                     "conversationId": { "type": "string" },
                     "text": { "type": "string" },
                     "cron": { "type": "string" },
@@ -224,29 +232,37 @@ impl Automation {
         let fail = |e: String| ToolError::Failed(e);
         match name {
             "status" => {
-                let phase = self.engine().map(|e| e.phase());
+                let account = Some(arg_str(&args, "account")).filter(|a| !a.is_empty());
+                let phase = self.engine(account.as_deref()).map(|e| e.phase());
                 let signed_in = matches!(phase, Some(crate::engine::Phase::Ready));
-                let count = self.mirror.lock().conversations().len();
-                Ok(json!({ "signedIn": signed_in, "phase": phase, "conversations": count, "allowSend": cfg.allow_send, "allowSchedules": cfg.allow_schedules }))
+                let count = self.data(account.as_deref()).map_err(fail)?.mirror.lock().conversations().len();
+                let accounts = crate::account::accounts(&self.app).list();
+                Ok(json!({ "signedIn": signed_in, "phase": phase, "conversations": count, "allowSend": cfg.allow_send, "allowSchedules": cfg.allow_schedules, "accounts": accounts }))
             }
             "list_conversations" => {
-                let list = self.find_conversations(
-                    Some(arg_str(&args, "query").as_str()).filter(|q| !q.is_empty()),
-                    arg_usize(&args, "limit", 30, 200),
-                    args.get("unreadOnly").and_then(Value::as_bool).unwrap_or(false),
-                );
+                let account = Some(arg_str(&args, "account")).filter(|a| !a.is_empty());
+                let list = self
+                    .find_conversations(
+                        account.as_deref(),
+                        Some(arg_str(&args, "query").as_str()).filter(|q| !q.is_empty()),
+                        arg_usize(&args, "limit", 30, 200),
+                        args.get("unreadOnly").and_then(Value::as_bool).unwrap_or(false),
+                    )
+                    .map_err(fail)?;
                 Ok(json!({ "conversations": list }))
             }
             "get_messages" => {
                 let id = arg_str(&args, "conversationId");
                 let limit = arg_usize(&args, "limit", 50, 500);
-                let msgs = self.mirror.lock().messages(Some(id.as_str()).filter(|s| !s.is_empty()), limit);
+                let account = Some(arg_str(&args, "account")).filter(|a| !a.is_empty());
+                let msgs = self.recent_messages(account.as_deref(), Some(id.as_str()).filter(|s| !s.is_empty()), limit).map_err(fail)?;
                 Ok(json!({ "messages": msgs }))
             }
             "search_messages" => {
                 let conversation = Some(arg_str(&args, "conversationId")).filter(|c| !c.is_empty());
                 let context = args.get("context").and_then(Value::as_u64).unwrap_or(3).min(10) as usize;
-                self.search_messages(&arg_str(&args, "query"), conversation, arg_usize(&args, "limit", 10, 50), context).await.map_err(fail)
+                let account = Some(arg_str(&args, "account")).filter(|a| !a.is_empty());
+                self.search_messages(account.as_deref(), &arg_str(&args, "query"), conversation, arg_usize(&args, "limit", 10, 50), context).await.map_err(fail)
             }
             "list_schedules" => {
                 let due = self.next_due.lock().clone();
@@ -260,7 +276,8 @@ impl Automation {
             "send_message" if cfg.allow_send => {
                 let id = arg_str(&args, "conversationId");
                 let text = args.get("text").and_then(Value::as_str).unwrap_or("").to_owned();
-                self.send_text(&id, &text).await.map_err(fail)?;
+                let account = Some(arg_str(&args, "account")).filter(|a| !a.is_empty());
+                self.send_text(account.as_deref(), &id, &text).await.map_err(fail)?;
                 Ok(json!({ "sent": true, "conversationId": id }))
             }
             "create_schedule" if cfg.allow_schedules => {
@@ -268,7 +285,9 @@ impl Automation {
                     return Err(fail("Compola chưa cho phép MCP gửi tin nhắn (Cài đặt › MCP)".into()));
                 }
                 let conversation_id = arg_str(&args, "conversationId");
-                let conversation_name = self.mirror.lock().conversation(&conversation_id).map(|c| c.name).unwrap_or_default();
+                // The job keeps the account explicitly: the active one may change before it runs.
+                let account = self.resolve(Some(arg_str(&args, "account")).filter(|a| !a.is_empty()).as_deref()).map_err(fail)?;
+                let conversation_name = self.data(Some(&account)).map_err(fail)?.mirror.lock().conversation(&conversation_id).map(|c| c.name).unwrap_or_default();
                 let schedule = match (args.get("cron").and_then(Value::as_str), args.get("at")) {
                     (Some(expr), _) => Schedule::Cron { expr: expr.trim().to_owned() },
                     (None, Some(at)) => Schedule::Once { at: parse_at(at).map_err(fail)? },
@@ -279,7 +298,12 @@ impl Automation {
                     name: arg_str(&args, "name"),
                     enabled: true,
                     schedule,
-                    action: Action::SendText { conversation_id, conversation_name, text: args.get("text").and_then(Value::as_str).unwrap_or("").to_owned() },
+                    action: Action::SendText {
+                        conversation_id,
+                        conversation_name,
+                        text: args.get("text").and_then(Value::as_str).unwrap_or("").to_owned(),
+                        account: Some(account),
+                    },
                     created_by: "mcp".into(),
                     last_run: None,
                     last_status: None,

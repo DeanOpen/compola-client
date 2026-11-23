@@ -249,9 +249,15 @@ wire protocol.
 ## 8. Automation (MCP tools, add-ons, schedules)
 
 - Every Zalo tool takes an optional `account` (missing → active).
-- The message index (`search.db`) and the automation mirror are keyed by `(account, conversation)`: conversation ids
-  are only unique within an account. `search.db` gets an `account` column (existing rows: `default`).
-  `automation_search` and `automation_messages` take `account` and can be policy-filtered per account.
+- The message index and the automation mirror exist **per account** (conversation ids are only unique within an
+  account). `default` keeps `search.db` at the root; each other account has `Accounts/<id>/search.db`. Like the media
+  cache, this isolates the accounts by construction, with no schema change.
+- `automation_search`, `automation_search_status`, `automation_conversations`, `automation_messages` and
+  `automation_send_text` take an optional `account` (missing → active). `automation_search_clear` without `account`
+  clears every account's index.
+- MCP tools: `status`, `list_conversations`, `get_messages`, `search_messages`, `send_message` and `create_schedule`
+  take an optional `account`; `status` lists the accounts.
+- Send-text jobs store their account. Jobs from before multi-account have none and run on `default`.
 - The feed `compola://automation {kind: 'message', account, message}` covers every running account.
 - Add-ons and jobs may be restricted to accounts: `accounts: ["*"] | [ids]`, default `["*"]`.
 

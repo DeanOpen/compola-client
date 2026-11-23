@@ -75,7 +75,15 @@ pub enum Schedule {
 pub enum Action {
     /// `text` may contain `{{date}}`, `{{time}}`, `{{weekday}}`.
     #[serde(rename_all = "camelCase")]
-    SendText { conversation_id: String, #[serde(default)] conversation_name: String, text: String },
+    SendText {
+        conversation_id: String,
+        #[serde(default)]
+        conversation_name: String,
+        text: String,
+        /// The account to send from (missing in jobs from before multi-account: `default`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        account: Option<String>,
+    },
     #[serde(rename_all = "camelCase")]
     McpTool { server_id: String, tool: String, #[serde(default)] arguments: Value },
     /// Delivered to the add-on's `compola.on('schedule', …)` handlers.
@@ -188,4 +196,20 @@ pub fn new_token() -> String {
 
 pub fn new_id(prefix: &str) -> String {
     format!("{prefix}_{}", &uuid::Uuid::new_v4().simple().to_string()[..12])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn send_text_jobs_from_before_multi_account_belong_to_default() {
+        let old: Action = serde_json::from_value(serde_json::json!({ "kind": "sendText", "conversationId": "g1", "text": "hi" })).expect("old job");
+        assert!(matches!(old, Action::SendText { account: None, .. }));
+        let new = Action::SendText { conversation_id: "g1".into(), conversation_name: String::new(), text: "hi".into(), account: Some("a1b2c3d4e".into()) };
+        let v = serde_json::to_value(&new).unwrap();
+        assert_eq!(v["account"], "a1b2c3d4e");
+        let none = Action::SendText { conversation_id: "g1".into(), conversation_name: String::new(), text: "hi".into(), account: None };
+        assert!(serde_json::to_value(&none).unwrap().get("account").is_none());
+    }
 }

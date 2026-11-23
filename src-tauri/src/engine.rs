@@ -295,7 +295,7 @@ impl Engine {
             }
             MainEvent::LoggedOut => {
                 if let Some(a) = self.automation() {
-                    a.clear_search();
+                    a.clear_search(self.id());
                 }
                 let notice = self.inner.lock().sign_out_notice.clone();
                 self.set_phase(Phase::Login { login: LoginState::default(), notice });
@@ -326,7 +326,7 @@ impl Engine {
         main.jar_clear();
         main.reset_account_state();
         if let Some(a) = self.automation() {
-            a.clear_search();
+            a.clear_search(self.id());
         }
         self.refresh_qr();
     }
@@ -495,12 +495,7 @@ impl Engine {
         self.inner.lock().replay.iter().cloned().collect()
     }
 
-    /// Automation (MCP tools, search index, mirror) follows the `default` account until it is keyed by account
-    /// (docs/multi-account.md §8).
     fn automation(&self) -> Option<Arc<crate::automation::Automation>> {
-        if !self.account.paths.is_default() {
-            return None;
-        }
         self.app.try_state::<Arc<crate::automation::Automation>>().map(|s| s.inner().clone())
     }
 }
@@ -546,7 +541,7 @@ impl HostObserver for Engine {
         }
         self.record_replay(&state);
         if let Some(a) = self.automation() {
-            a.observe_state(&state);
+            a.observe_state(self.id(), &state);
         }
         self.emit("compola://state", state);
     }
@@ -555,7 +550,7 @@ impl HostObserver for Engine {
         if host.kind == HostKind::Main {
             self.clear_replay();
             if let Some(a) = self.automation() {
-                a.reset_mirror();
+                a.reset_mirror(self.id());
             }
         }
         if let Some(m) = self.main_process() {
