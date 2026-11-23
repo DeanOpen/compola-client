@@ -3,7 +3,24 @@
 // page from the official media service and merged with the loaded messages. Zalo PC right-panel style: collapsible
 // "Ảnh/Video" (3-column grid), "File" and "Link" sections, each with "Xem tất cả".
 
-import { AlertTriangle, ChevronDown, ChevronLeft, File, FileArchive, FileImage, FileSpreadsheet, FileText, FileVideo, Link as LinkIcon, type LucideIcon } from 'lucide-react';
+import {
+  AlertTriangle,
+  ChevronDown,
+  ChevronLeft,
+  Copy,
+  Download,
+  ExternalLink,
+  File,
+  FileArchive,
+  FileImage,
+  FileSpreadsheet,
+  FileText,
+  FileVideo,
+  Link as LinkIcon,
+  MessageSquareText,
+  Upload,
+  type LucideIcon,
+} from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import type { ChatMessage } from '../../engine/models/chat';
@@ -15,21 +32,33 @@ import {
   feedOf,
   isPending,
   loadedSince,
-  loadMoreSharedMedia,
-  loadSharedMediaIfNeeded,
+  days,
+  filterFeedState,
+  filterKinds,
+  kindOf,
+  loadFilterIfNeeded,
+  loadMoreFilter,
+  mergedAll,
   mergedList,
-  months,
   previewList,
   refreshSharedMedia,
+  retryFilter,
   retrySharedMedia,
+  sharedMediaFilters,
   useSharedMedia,
+  type SharedMediaFilter,
   type SharedMediaKind,
 } from '../../engine/sharedMedia';
+import { onFileDrop } from '../../engine/backend';
+import { reportComposer, sendMedia } from '../../engine/composer';
+import { requestJumpToMessage } from '../../engine/messageJump';
+import { showToast } from '../../engine/toast';
+import { openContextMenu, openMenuBelow, type MenuItem } from '../../ui/Menu';
 import { useEngine } from '../../engine/store';
 import { openExternal } from '../../engine/system';
 import { Spinner } from '../../ui/Spinner';
 import { PhotoView, VideoThumb } from '../chat/cards/Media';
-import { daySeparator, host } from '../chat/format';
+import { daySeparator, host, time } from '../chat/format';
 import { formatBytes } from '../setup/RuntimeSetupView';
 import './sharedMedia.css';
 
@@ -201,35 +230,62 @@ function LinkRow({ message }: { message: ChatMessage }) {
 
 // MARK: - "Kho lưu trữ"
 
-/** The full page, in place of the inspector's overview. */
-export function SharedMediaBrowser({ conversationId, kind }: { conversationId: string; kind: SharedMediaKind }) {
+const filterTitles: Record<SharedMediaFilter, string> = { all: 'Tất cả', images: 'Ảnh/Video', files: 'File', links: 'Link' };
+const filterEmpty: Record<SharedMediaFilter, string> = { all: 'Chưa có ảnh, file hay link nào', ...emptyTexts };
+
+type Run = { kind: 'grid'; items: ChatMessage[] } | { kind: 'rows'; items: ChatMessage[] };
+
+/** A day's items in order, photos / videos side by side in a grid, files and links as rows. */
+const runsOf = (items: ChatMessage[]): Run[] => {
+  const out: Run[] = [];
+  for (const m of items) {
+    const kind = kindOf(m.kind) === 'images' ? 'grid' : 'rows';
+    const last = out[out.length - 1];
+    if (last?.kind === kind) last.items.push(m);
+    else out.push({ kind, items: [m] });
+  }
+  return out;
+};
+
+/** The full page, in place of the inspector's overview: a filter menu, a drop target, then everything by day. */
+export function SharedMediaBrowser({ conversationId, kind: filter }: { conversationId: string; kind: SharedMediaFilter }) {
   useSharedMediaRefresh(conversationId);
   const loaded = useEngine((s) => s.messages[conversationId] ?? emptyMessages);
-  const feed = useSharedMedia((s) => feedOf(s, conversationId, kind));
+  const feeds = useSharedMedia(
+    useShallow((s) => ({ images: feedOf(s, conversationId, 'images'), files: feedOf(s, conversationId, 'files'), links: feedOf(s, conversationId, 'links') })),
+  );
   const listing = useMemo(() => {
-    const items = mergedList(feed.items, loaded, kind, loadedSince(feed));
-    return { items, months: months(items) };
-  }, [feed, loaded, kind]);
+    const items = filter === 'all' ? mergedAll(feeds, loaded) : mergedList(feeds[filter].items, loaded, filter, loadedSince(feeds[filter]));
+    return { items, days: days(items) };
+  }, [feeds, loaded, filter]);
+  const state = filterFeedState(filterKinds(filter).map((k) => feeds[k]));
   const sentinel = useRef<HTMLDivElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
 
-  // A tab the overview had not (or could not) read is read now.
+  // A list the overview had not (or could not) read is read now.
   useEffect(() => {
-    void loadSharedMediaIfNeeded(conversationId, kind);
+    void loadFilterIfNeeded(conversationId, filter);
     scroller.current?.scrollTo({ top: 0 });
-  }, [conversationId, kind]);
+  }, [conversationId, filter]);
 
-  // The spinner row under the last month asks for the next page while it is on screen, again after each page lands.
-  const canLoadMore = feed.phase === 'idle' && feed.loaded && feed.more;
+  // The spinner row under the last day asks for the next page while it is on screen, again after each page lands.
+  const depth = filterKinds(filter).map((k) => `${feeds[k].items.length}:${feeds[k].cursor}`).join('|');
   useEffect(() => {
     const el = sentinel.current;
-    if (!el || !canLoadMore) return;
-    const io = new IntersectionObserver((entries) => entries.some((e) => e.isIntersecting) && void loadMoreSharedMedia(conversationId, kind), {
+    if (!el || !state.canLoadMore) return;
+    const io = new IntersectionObserver((entries) => entries.some((e) => e.isIntersecting) && void loadMoreFilter(conversationId, filter), {
       root: scroller.current,
     });
     io.observe(el);
     return () => io.disconnect();
-  }, [conversationId, kind, canLoadMore, feed.items.length, feed.cursor]);
+  }, [conversationId, filter, state.canLoadMore, depth]);
+
+  const chooseFilter = (el: Element) =>
+    openMenuBelow(
+      el,
+      sharedMediaFilters.map((f) => ({ label: filterTitles[f], checked: f === filter, onSelect: () => browseSharedMedia(conversationId, f) })),
+      'end',
+    );
 
   return (
     <div className="sm-browser" onKeyDown={(e) => e.key === 'Escape' && closeSharedMediaBrowser()}>
@@ -239,53 +295,55 @@ export function SharedMediaBrowser({ conversationId, kind }: { conversationId: s
           <span>Thông tin</span>
         </button>
         <div className="sm-browser-title">Kho lưu trữ</div>
-      </div>
-      <div className="sm-tabs" role="tablist" aria-label="Loại nội dung">
-        {(['images', 'files', 'links'] as const).map((k) => (
-          <button key={k} role="tab" aria-selected={k === kind} className={k === kind ? 'is-selected' : ''} onClick={() => browseSharedMedia(conversationId, k)}>
-            {k === 'images' ? 'Ảnh/Video' : k === 'files' ? 'Tệp' : 'Liên kết'}
-          </button>
-        ))}
+        <button className="sm-filter" onClick={(e) => chooseFilter(e.currentTarget)} aria-haspopup="menu" title="Lọc theo loại">
+          <span>{filterTitles[filter]}</span>
+          <ChevronDown size={14} />
+        </button>
       </div>
       <div className="sm-browser-scroll" ref={scroller}>
+        <DropTarget conversationId={conversationId} />
         {listing.items.length === 0 ? (
           <div className="sm-placeholder">
-            {feed.phase === 'failed' ? (
+            {state.failed ? (
               <>
                 <AlertTriangle size={22} />
                 <span>Không tải được dữ liệu</span>
-                <button className="sm-link" onClick={() => void retrySharedMedia(conversationId, kind)}>
+                <button className="sm-link" onClick={() => void retryFilter(conversationId, filter)}>
                   Thử lại
                 </button>
               </>
-            ) : isPending(feed) || feed.phase === 'loading' ? (
+            ) : state.pending || state.loading ? (
               <Spinner size={16} />
             ) : (
-              <span>{emptyTexts[kind]}</span>
+              <span>{filterEmpty[filter]}</span>
             )}
           </div>
         ) : (
-          listing.months.map((month) => (
-            <div key={month.id} className="sm-month">
-              <div className="sm-month-title">{month.title}</div>
-              {kind === 'images' ? (
-                <div className="sm-grid">
-                  {month.items.map((m) => (
-                    <MediaTile key={m.id} message={m} />
-                  ))}
-                </div>
-              ) : (
-                <div className="sm-rows">
-                  {month.items.map((m) => (kind === 'files' ? <FileRow key={m.id} message={m} /> : <LinkRow key={m.id} message={m} />))}
-                </div>
+          listing.days.map((day) => (
+            <div key={day.id} className="sm-day">
+              <div className="sm-day-title">{daySeparator(day.date)}</div>
+              {runsOf(day.items).map((run) =>
+                run.kind === 'grid' ? (
+                  <div key={run.items[0].id} className="sm-grid">
+                    {run.items.map((m) => (
+                      <BrowserTile key={m.id} message={m} />
+                    ))}
+                  </div>
+                ) : (
+                  <div key={run.items[0].id} className="sm-rows">
+                    {run.items.map((m) => (
+                      <BrowserRow key={m.id} message={m} />
+                    ))}
+                  </div>
+                ),
               )}
             </div>
           ))
         )}
         {listing.items.length > 0 &&
-          (feed.phase === 'failed' ? (
-            <FailureLine text={feed.loaded ? 'Không tải thêm được' : 'Không tải được danh sách đầy đủ'} onRetry={() => void retrySharedMedia(conversationId, kind)} />
-          ) : feed.phase === 'loading' || (feed.loaded && feed.more) ? (
+          (state.someFailed && !state.loading ? (
+            <FailureLine text={state.everLoaded ? 'Không tải thêm được' : 'Không tải được danh sách đầy đủ'} onRetry={() => void retryFilter(conversationId, filter)} />
+          ) : state.loading || state.hasMore ? (
             <div ref={sentinel} className="sm-pending">
               <Spinner size={14} />
             </div>
@@ -295,7 +353,90 @@ export function SharedMediaBrowser({ conversationId, kind }: { conversationId: s
   );
 }
 
+/**
+ * "Thả vào đây để chia sẻ": files dropped on the window go to the open conversation (the chat's window-wide drop
+ * handler sends them); this zone shows where, lights up while files are dragged over the window, and picks files on
+ * click ("Ảnh hoặc Video" path: photos as photos, the rest as files).
+ */
+function DropTarget({ conversationId }: { conversationId: string }) {
+  const [over, setOver] = useState(false);
+  useEffect(() => {
+    let off: (() => void) | undefined;
+    let alive = true;
+    void onFileDrop((e) => setOver(e.kind === 'over')).then((u) => (alive ? (off = u) : u()));
+    return () => {
+      alive = false;
+      off?.();
+    };
+  }, []);
+  return (
+    <button
+      className={`sm-drop ${over ? 'is-over' : ''}`}
+      onClick={() => void sendMedia(conversationId).then((o) => reportComposer(o, conversationId))}
+      title="Chọn ảnh, video hoặc tệp để gửi vào cuộc trò chuyện"
+    >
+      <Upload size={16} />
+      <span className="sm-drop-text">
+        <span>Thả vào đây để chia sẻ</span>
+        <span className="sm-drop-sub">hoặc bấm để chọn tệp</span>
+      </span>
+    </button>
+  );
+}
+
+const showInChat = (m: ChatMessage) => void requestJumpToMessage(m.conversationId, m.id, m.date);
+
+const itemMenu = (m: ChatMessage): MenuItem[] => {
+  const k = m.kind;
+  const items: MenuItem[] = [{ label: 'Xem trong trò chuyện', icon: MessageSquareText, onSelect: () => showInChat(m) }];
+  if (k.type === 'photo' && k.url) items.push({ label: 'Lưu về máy…', icon: Download, onSelect: () => void saveMediaAs(k.url!, `Anh-${m.id}.jpg`, m.conversationId) });
+  if (k.type === 'video' && k.url) items.push({ label: 'Lưu về máy…', icon: Download, onSelect: () => void saveMediaAs(k.url!, `Video-${m.id}.mp4`, m.conversationId) });
+  if (k.type === 'file' && k.url) items.push({ label: 'Lưu về máy…', icon: Download, onSelect: () => void saveMediaAs(k.url!, k.name, m.conversationId) });
+  if (k.type === 'link' && k.url) {
+    items.push({ label: 'Mở liên kết', icon: ExternalLink, onSelect: () => void openExternal(k.url) });
+    items.push({ label: 'Sao chép liên kết', icon: Copy, onSelect: () => void navigator.clipboard.writeText(k.url!).then(() => showToast('Đã sao chép')) });
+  }
+  return items;
+};
+
+const senderLine = (m: ChatMessage) => `${m.isMine ? 'Bạn' : m.senderName || 'Thành viên'}, ${time(m.date)}`;
+
+/** A photo / video tile; hover shows "Xem trong trò chuyện", right click the item menu. */
+function BrowserTile({ message }: { message: ChatMessage }) {
+  return (
+    <div className="sm-tile" onContextMenu={(e) => openContextMenu(e, itemMenu(message))} title={senderLine(message)}>
+      <MediaTile message={message} />
+      <button
+        className="sm-tile-jump"
+        onClick={(e) => {
+          e.stopPropagation();
+          showInChat(message);
+        }}
+        title="Xem trong trò chuyện"
+        aria-label="Xem trong trò chuyện"
+      >
+        <MessageSquareText size={13} />
+      </button>
+    </div>
+  );
+}
+
+/** A file or link row with who sent it and when, and "Xem trong trò chuyện". */
+function BrowserRow({ message }: { message: ChatMessage }) {
+  return (
+    <div className="sm-browser-row" onContextMenu={(e) => openContextMenu(e, itemMenu(message))}>
+      <div className="sm-row-meta">
+        <span className="truncate">{senderLine(message)}</span>
+        <button className="sm-jump" onClick={() => showInChat(message)}>
+          Xem trong trò chuyện
+        </button>
+      </div>
+      {message.kind.type === 'file' ? <FileRow message={message} /> : <LinkRow message={message} />}
+    </div>
+  );
+}
+
 /** The inspector column's content while "Kho lưu trữ" is open for this conversation, else null. */
-export function useBrowsingSharedMedia(conversationId: string | null): SharedMediaKind | null {
+export function useBrowsingSharedMedia(conversationId: string | null): SharedMediaFilter | null {
   return useSharedMedia((s) => (s.browsing && s.browsing.conversationId === conversationId ? s.browsing.kind : null));
 }
