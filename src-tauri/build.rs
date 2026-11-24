@@ -3,7 +3,22 @@ fn main() {
     // The Compola Server admin console is embedded (`include_dir!`): rebuild when `npm run build:admin` changed it.
     println!("cargo:rerun-if-changed=admin-dist");
     println!("cargo:rerun-if-changed=web-dist");
-    tauri_build::build()
+    tauri_build::try_build(tauri_build::Attributes::new().windows_attributes(windows_attributes()))
+        .expect("failed to run tauri-build");
+}
+
+/// tauri-build embeds its app manifest (Common Controls v6, which the dialog APIs import from) into the app binary
+/// only: a test executable then fails to load (`STATUS_ENTRYPOINT_NOT_FOUND`). The linker embeds the same manifest
+/// into every artifact instead, tests included.
+fn windows_attributes() -> tauri_build::WindowsAttributes {
+    if !std::env::var("TARGET").is_ok_and(|t| t.ends_with("-windows-msvc")) {
+        return tauri_build::WindowsAttributes::new();
+    }
+    let manifest = std::path::Path::new(&std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("windows-app-manifest.xml");
+    println!("cargo:rerun-if-changed=windows-app-manifest.xml");
+    println!("cargo:rustc-link-arg=/MANIFEST:EMBED");
+    println!("cargo:rustc-link-arg=/MANIFESTINPUT:{}", manifest.display());
+    tauri_build::WindowsAttributes::new_without_app_manifest()
 }
 
 /// tauri-build refuses to build when a `bundle.externalBin` file is missing. On a fresh checkout, build the Go

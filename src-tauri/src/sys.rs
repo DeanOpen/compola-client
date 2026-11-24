@@ -85,6 +85,7 @@ pub fn pid_is_gone(pid: i32) -> bool {
 }
 
 /// The current user id (Unix); `None` where there is none.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))] // Orphan reaping (macOS).
 pub fn uid() -> Option<u32> {
     #[cfg(unix)]
     // SAFETY: plain syscall.
