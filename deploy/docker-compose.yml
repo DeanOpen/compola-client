@@ -13,18 +13,17 @@ services:
       SITE_ADDRESS: ${SITE_ADDRESS:-:8080}
       COMPOLA_UPSTREAM: ${COMPOLA_UPSTREAM:-http://host.docker.internal:39218}
     ports:
+      # One port for everything (admin console, web client, API, WebSocket, /healthz).
       - "${HTTP_PORT:-8080}:8080"
-      # Only used when SITE_ADDRESS is a domain (automatic HTTPS):
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
+      # With SITE_ADDRESS set to a domain (automatic HTTPS), publish 443 instead of the line above:
+      # - "443:443"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
       - caddy_data:/data
       - caddy_config:/config
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8081/healthz"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8081/healthz"]  # loopback only, see Caddyfile
       interval: 30s
       timeout: 3s
       retries: 3

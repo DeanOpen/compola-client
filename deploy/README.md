@@ -29,6 +29,28 @@ these, so WebSockets, uploads and cookie sign-in all work through it.
 3. Use the gateway image version that matches the Compola app version on the host (`0.2.0` with app 0.2.0). The admin
    console and web client in the image talk to that host's API.
 
+## Docker (Dockerfile only)
+
+Everything is on one port. Build from the repository root and run:
+
+```sh
+docker build -f deploy/gateway/Dockerfile -t compola-gateway .
+docker run -d --name compola-gateway --restart unless-stopped -p 8080:8080 \
+  -e COMPOLA_UPSTREAM=http://192.168.1.20:39218 compola-gateway
+```
+
+Then open `http://<docker-host>:8080/admin/`. The web client (`/web/`), API, WebSocket and `/healthz` use the same
+port. On Linux, if the Compola host is the Docker host itself, add `--add-host=host.docker.internal:host-gateway` and
+leave `COMPOLA_UPSTREAM` at its default.
+
+HTTPS with your own domain, still a single port (Caddy gets the certificate over 443 with TLS-ALPN):
+
+```sh
+docker run -d --name compola-gateway --restart unless-stopped -p 443:443 \
+  -e SITE_ADDRESS=compola.example.com -e COMPOLA_UPSTREAM=http://192.168.1.20:39218 \
+  -v compola-gateway-data:/data compola-gateway
+```
+
 ## Docker Compose
 
 ```sh
@@ -39,7 +61,7 @@ docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d
 | Variable | Default | Meaning |
 |---|---|---|
 | `COMPOLA_UPSTREAM` | `http://host.docker.internal:39218` | The Compola host |
-| `SITE_ADDRESS` | `:8080` | `:8080` serves plain HTTP. A domain (e.g. `compola.example.com`) makes Caddy obtain a Let's Encrypt certificate; ports 80 and 443 must be reachable |
+| `SITE_ADDRESS` | `:8080` | `:8080` serves plain HTTP. A domain (e.g. `compola.example.com`) makes Caddy obtain a Let's Encrypt certificate over port 443; publish 443 instead of `HTTP_PORT` (see the comment in `docker-compose.yml`) |
 | `HTTP_PORT` | `8080` | Host port for plain HTTP |
 | `COMPOLA_GATEWAY_TAG` | `latest` | Image tag: a version, `latest` (last release) or `edge` (main) |
 
@@ -59,7 +81,7 @@ helm install compola deploy/helm/compola-gateway \
 - `upstream.url` is required. The cluster must be able to reach the Mac.
 - The default ingress annotations are for ingress-nginx: a 1-hour timeout for the `/ws` WebSocket and a 200 MB body
   size for uploads. Add `cert-manager.io/cluster-issuer` for automatic certificates.
-- Pods run non-root with a read-only root filesystem and all capabilities dropped. Probes hit `:8081/healthz`.
+- Pods run non-root with a read-only root filesystem and all capabilities dropped. Probes hit `/healthz` on the `http` port (8080).
 - 2 replicas with a PodDisruptionBudget by default. The gateway is stateless; sessions live on the host.
 
 All settings are in [`helm/compola-gateway/values.yaml`](helm/compola-gateway/values.yaml).
