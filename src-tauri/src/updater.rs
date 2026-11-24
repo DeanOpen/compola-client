@@ -19,7 +19,8 @@ const INTERVAL: Duration = Duration::from_secs(6 * 60 * 60);
 
 fn enabled() -> bool {
     let flag = |name: &str| std::env::var(name).is_ok_and(|v| !v.is_empty() && v != "0");
-    if flag("COMPOLA_DISABLE_UPDATER") {
+    // A headless server (Linux container) is updated by pulling a newer image, never in place.
+    if flag("COMPOLA_DISABLE_UPDATER") || crate::platform::headless() {
         return false;
     }
     !cfg!(debug_assertions) || flag("COMPOLA_UPDATER_DEBUG")
