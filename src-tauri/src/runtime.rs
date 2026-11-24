@@ -40,6 +40,15 @@ pub const PINNED_VERSION: &str = "26.10.20";
 pub const PINNED_URL: &str = "https://res-download-pc.zadn.vn/mac/ZaloSetup-universal-26.10.20.dmg";
 pub const PINNED_SHA256: &str = "a45d30b7f7b060f76b87722ef419b8f41d23a2913cdef084dcb0955dde8d85a0";
 
+/// The same Zalo PC release for Windows (an NSIS installer). Off macOS (the Linux server container) the renderer is
+/// taken from it: `app.asar` is built from the same commit as the Mac one and reports the same client version.
+pub const PINNED_WINDOWS_URL: &str = "https://res-download-pc.zadn.vn/win/ZaloSetup-26.10.20.exe";
+pub const PINNED_WINDOWS_SHA256: &str = "8f2ee2c549c2b99e5acbe6af0063856a6b412331b23c23a5b8f2601ac20f99b7";
+
+pub fn pinned_windows() -> Release {
+    Release { version: PINNED_VERSION.into(), url: PINNED_WINDOWS_URL.into(), sha256: Some(PINNED_WINDOWS_SHA256.into()) }
+}
+
 pub fn pinned() -> Release {
     Release { version: PINNED_VERSION.into(), url: PINNED_URL.into(), sha256: Some(PINNED_SHA256.into()) }
 }
@@ -84,7 +93,8 @@ pub fn is_executable_file(path: &Path) -> bool {
 pub fn is_complete(dir: &Path) -> bool {
     dir.join("Contents/Info.plist").is_file()
         && dir.join("Contents/Resources/app.asar").is_file()
-        && is_executable_file(&helper("ZaloCall", dir))
+        // ZaloHelper.app (calls, screenshots) is a macOS program: elsewhere the runtime is the renderer only.
+        && (!cfg!(target_os = "macos") || is_executable_file(&helper("ZaloCall", dir)))
 }
 
 /// `26.10.20` is newer than `26.9.10`: compared component-wise as numbers (missing or non-numeric components are 0).

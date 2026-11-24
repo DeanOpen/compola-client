@@ -2,7 +2,11 @@ name: Release
 
 # Push a tag like v0.2.0 (or run it by hand with a tag): builds Compola for macOS (universal, ad-hoc signed),
 # Windows (x64: NSIS installer + MSI) and Linux (x64: .deb, .rpm, AppImage), then publishes them all with SHA256SUMS
-# to one GitHub Release. The gateway image is published by docker.yml.
+# to one GitHub Release. The gateway image is published by docker.yml, the Linux server image by server-image.yml.
+#
+# Every push to main also builds all platforms and replaces the rolling `edge` pre-release (version
+# <tauri.conf version>-<run number>), so the newest packages of main are always at /releases/tag/edge. The app's
+# updater reads releases/latest, which never points at a pre-release, so edge builds are not offered as updates.
 #
 # Auto-update: every build also produces a signed update bundle (macOS .app.tar.gz, Windows NSIS installer, Linux
 # AppImage) and the release gets a latest.json, which the app polls (tauri.conf.json › plugins.updater). Signing needs
@@ -11,6 +15,11 @@ name: Release
 on:
   push:
     tags: ['v*']
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - docs/**
+      - deploy/**
   workflow_dispatch:
     inputs:
       tag:
@@ -21,10 +30,15 @@ permissions:
   contents: write
 
 env:
-  TAG: ${{ inputs.tag || github.ref_name }}
+  TAG: ${{ inputs.tag || (github.ref_type == 'tag' && github.ref_name) || 'edge' }}
   TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
   TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
   UPDATER_CONFIG: '{"bundle":{"createUpdaterArtifacts":true}}'
+
+# A newer push to main supersedes an edge build still running; tag builds always finish.
+concurrency:
+  group: release-${{ inputs.tag || github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' && !inputs.tag }}
 
 jobs:
   build:
@@ -83,6 +97,10 @@ jobs:
       - name: Set the version from the tag
         run: |
           VERSION="${TAG#v}"
+          if [ "$TAG" = edge ]; then
+            # MSI accepts only a numeric pre-release (≤ 65535).
+            VERSION="$(node -p 'require("./src-tauri/tauri.conf.json").version.split("-")[0]')-${GITHUB_RUN_NUMBER}"
+          fi
           node -e '
             const fs = require("fs");
             const f = "src-tauri/tauri.conf.json";
@@ -155,6 +173,8 @@ jobs:
           ls dist-release/* >/dev/null 2>&1 || { echo "no platform built" >&2; exit 1; }
           (cd dist-release && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt)
       - name: Update manifest (latest.json)
+        # Not for edge: the updater only follows releases/latest (never a pre-release).
+        if: env.TAG != 'edge'
         run: |
           VERSION="${TAG#v}"
           BASE="https://github.com/${{ github.repository }}/releases/download/$TAG"
@@ -186,6 +206,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           VERSION="${TAG#v}"
+          if [ "$TAG" = edge ]; then
+            # The rolling pre-release of main: replaced (tag moved to this commit) on every push.
+            gh release delete edge --cleanup-tag --yes >/dev/null 2>&1 || true
+            gh release create edge dist-release/* --prerelease --target "$GITHUB_SHA" \
+              --title "Compola edge (main @ ${GITHUB_SHA::7})" \
+              --notes "Built automatically from \`main\` at ${GITHUB_SHA}. Not a release: for testing the newest changes. Stable versions are the \`v*\` releases."
+            exit 0
+          fi
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" dist-release/* --clobber
           else

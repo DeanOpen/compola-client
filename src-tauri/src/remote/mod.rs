@@ -104,6 +104,24 @@ fn load() -> Config {
         config.instance = uuid::Uuid::new_v4().simple().to_string();
         dirty = true;
     }
+    if crate::platform::headless() {
+        // A server container: the server is always on, reachable from outside the container, never joined elsewhere.
+        let port = std::env::var("COMPOLA_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(DEFAULT_PORT);
+        let s = &mut config.server;
+        if !s.enabled || !s.allow_network || s.port != port || config.join.is_some() {
+            s.enabled = true;
+            s.allow_network = true;
+            s.port = port;
+            config.join = None;
+            dirty = true;
+        }
+        if let Ok(url) = std::env::var("COMPOLA_PUBLIC_URL") {
+            if !url.is_empty() && s.public_url != url {
+                s.public_url = url;
+                dirty = true;
+            }
+        }
+    }
     if config.join.as_ref().is_some_and(|j| j.token.is_empty()) {
         // A join from before user accounts (access code): sign in again.
         config.join = None;
@@ -294,7 +312,6 @@ impl Remote {
     }
 
     pub fn start(self: &Arc<Self>) {
-        #[cfg(debug_assertions)]
         self.bootstrap_admin_from_env();
         if let Some(client) = &self.client {
             client.start();
@@ -306,14 +323,24 @@ impl Remote {
         }
     }
 
-    /// Development aid: `COMPOLA_SERVER_ADMIN=user:password` creates the first admin (debug builds only).
-    #[cfg(debug_assertions)]
+    /// The first admin from the environment, only while there is none: `COMPOLA_ADMIN=user:password` in headless server
+    /// mode (any build), `COMPOLA_SERVER_ADMIN=user:password` in debug builds (development aid).
     fn bootstrap_admin_from_env(&self) {
-        let (Some(auth), Ok(spec)) = (self.auth(), std::env::var("COMPOLA_SERVER_ADMIN")) else { return };
-        let Some((user, password)) = spec.split_once(':') else { return };
+        let var = if crate::platform::headless() { "COMPOLA_ADMIN" } else { "COMPOLA_SERVER_ADMIN" };
+        if !crate::platform::headless() && !cfg!(debug_assertions) {
+            return;
+        }
+        let (Some(auth), Ok(spec)) = (self.auth(), std::env::var(var)) else { return };
+        let Some((user, password)) = spec.split_once(':') else {
+            log::warn!("{var} must be user:password");
+            return;
+        };
         if auth.store.count_admins().unwrap_or(1) == 0 {
-            if let Ok(hash) = auth::hash_password(password) {
-                let _ = auth.store.create_user(user, user, "", "local", Some(&hash), true);
+            match auth::hash_password(password).map_err(|e| e.to_string()).and_then(|hash| {
+                auth.store.create_user(user, user, "", "local", Some(&hash), true).map_err(|e| e.to_string())
+            }) {
+                Ok(_) => log::info!("created the first admin '{user}' from {var}"),
+                Err(e) => log::warn!("{var}: could not create the first admin: {e}"),
             }
         }
     }

@@ -1,0 +1,26 @@
+# Compola Server on Linux: everything in one container (Zalo engine, API, admin console /admin, web client /web) on
+# one port. Set COMPOLA_ADMIN for the first start, then:
+#   docker compose -f deploy/server/docker-compose.yml up -d
+name: compola-server
+
+services:
+  server:
+    image: ghcr.io/deanopen/compola-server:${COMPOLA_SERVER_TAG:-edge}
+    build:
+      context: ../..
+      dockerfile: deploy/server/Dockerfile
+    restart: unless-stopped
+    environment:
+      # First admin, created only while there is none (change the password in /admin afterwards).
+      COMPOLA_ADMIN: ${COMPOLA_ADMIN:-}
+      # How people reach this server (SSO redirects, device sign-in links), e.g. https://compola.example.com
+      COMPOLA_PUBLIC_URL: ${COMPOLA_PUBLIC_URL:-}
+    ports:
+      - "${COMPOLA_HTTP_PORT:-39218}:39218"
+    volumes:
+      - compola-data:/data
+    # WebKitGTK needs more shared memory than Docker's 64 MB default.
+    shm_size: 1gb
+
+volumes:
+  compola-data:
