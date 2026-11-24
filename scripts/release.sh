@@ -27,7 +27,7 @@ DIST=src-tauri/target/dist   # not ./dist: that is the Vite output (frontendDist
 ZIP="$DIST/Compola-$VERSION.zip"
 DMG="$DIST/Compola-$VERSION.dmg"
 
-if ! security find-identity -v -p codesigning | grep -qF "$IDENTITY"; then
+if ! grep -qF "$IDENTITY" <<< "$(security find-identity -v -p codesigning)"; then
   echo "error: no code-signing identity matching '$IDENTITY' in the keychain" >&2
   exit 2
 fi
@@ -58,8 +58,10 @@ SIG="$(codesign -dvv --entitlements - "$APP" 2>&1)"  # -dvv: the Authority lines
 grep -q 'flags=.*runtime' <<< "$SIG" || { echo "error: hardened runtime missing" >&2; exit 1; }
 grep -q 'allow-jit' <<< "$SIG" || { echo "error: entitlements missing" >&2; exit 1; }
 grep -q 'Authority=Developer ID Application' <<< "$SIG" || { echo "error: not Developer ID signed" >&2; exit 1; }
-codesign -dv "$APP/Contents/MacOS/compola-fingerprint-helper" 2>&1 | grep -q 'flags=.*runtime' \
-  || { echo "error: fingerprint helper not signed with the hardened runtime" >&2; exit 1; }
+# Captured first: `codesign | grep -q` fails under pipefail (grep exits early, codesign gets SIGPIPE).
+HELPER_SIG="$(codesign -dvv "$APP/Contents/MacOS/compola-fingerprint-helper" 2>&1)"
+grep -q 'flags=.*runtime' <<< "$HELPER_SIG" || { echo "error: fingerprint helper not signed with the hardened runtime" >&2; exit 1; }
+grep -q 'Authority=Developer ID Application' <<< "$HELPER_SIG" || { echo "error: fingerprint helper not Developer ID signed" >&2; exit 1; }
 
 mkdir -p "$DIST"
 rm -f "$ZIP" "$DMG"
