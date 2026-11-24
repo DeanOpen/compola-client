@@ -21,6 +21,12 @@ pub fn app_support() -> PathBuf {
     dirs::data_dir().unwrap_or_else(|| PathBuf::from(".")).join("Compola")
 }
 
+/// Headless server mode (`COMPOLA_HEADLESS=1`, the Linux server container): no window is shown, Compola Server is
+/// always on and listens on every interface (`COMPOLA_PORT`), and `COMPOLA_ADMIN=user:password` creates the first admin.
+pub fn headless() -> bool {
+    std::env::var("COMPOLA_HEADLESS").is_ok_and(|v| !v.is_empty() && v != "0" && !v.eq_ignore_ascii_case("false"))
+}
+
 impl Platform {
     /// The platform of one account (its Electron `userData`: `ZaloData/` for `default`, `Accounts/<id>/ZaloData/`).
     pub fn new(app_version: String, client_version: String, user_data: PathBuf) -> Self {

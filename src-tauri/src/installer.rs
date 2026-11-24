@@ -130,6 +130,14 @@ impl Installer {
     async fn install(&self, destination: &Path) -> anyhow::Result<String> {
         (self.progress)(Step::Looking);
         tokio::fs::create_dir_all(&self.work).await?;
+        if cfg!(not(target_os = "macos")) {
+            // Off macOS (the Linux server container): the official Windows installer of the pinned release. Its
+            // SHA-256 (checked in `fetch`) stands in for VNG's signature; 7-Zip extracts the renderer from it.
+            let release = runtime::pinned_windows();
+            let setup = RemoveOnDrop(self.work.join(format!("ZaloSetup-{}.exe", uuid::Uuid::new_v4())));
+            self.fetch(&release, &setup.0).await?;
+            return self.extract_renderer(&setup.0, &release.version, destination).await;
+        }
         if let Some(local) = installed_zalo(&self.release.version) {
             match self.stage(&local, destination).await {
                 Ok(version) => return Ok(version),
@@ -190,6 +198,49 @@ impl Installer {
         };
         mount.detach().await;
         result
+    }
+
+    /// Off macOS: the Windows installer is NSIS → `$PLUGINSDIR/app-32.7z` → `Zalo-<version>/resources/app.asar`.
+    /// Only `app.asar` is kept (Rust plays the main process; native modules and ZaloCall are not used), laid out as
+    /// `Contents/Resources/app.asar` with a minimal `Contents/Info.plist` carrying the version, like the Mac runtime.
+    async fn extract_renderer(&self, setup: &Path, version: &str, destination: &Path) -> anyhow::Result<String> {
+        (self.progress)(Step::Installing);
+        let seven_zip = ["7z", "7zz", "7za"]
+            .into_iter()
+            .find(|t| std::process::Command::new(t).arg("i").stdout(std::process::Stdio::null()).status().is_ok())
+            .ok_or_else(|| anyhow!("Cần 7-Zip (7z) để cài Zalo trên máy này."))?;
+        let unpacked = RemoveOnDrop(self.work.join(format!("unpacked-{}", uuid::Uuid::new_v4())));
+        let out = format!("-o{}", unpacked.0.display());
+        let setup_arg = setup.to_string_lossy().into_owned();
+        run(seven_zip, &["x", "-y", "-bd", &out, &setup_arg, "$PLUGINSDIR/app-*.7z"]).await?;
+        let archive = std::fs::read_dir(unpacked.0.join("$PLUGINSDIR"))?
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .find(|p| p.extension().is_some_and(|e| e == "7z"))
+            .ok_or_else(|| anyhow!("Bộ cài Zalo không có gói ứng dụng."))?;
+        let archive_arg = archive.to_string_lossy().into_owned();
+        run(seven_zip, &["x", "-y", "-bd", &out, &archive_arg, "*/resources/app.asar"]).await?;
+        let asar = std::fs::read_dir(&unpacked.0)?
+            .filter_map(|e| e.ok().map(|e| e.path().join("resources/app.asar")))
+            .find(|p| p.is_file())
+            .ok_or_else(|| anyhow!("Không tìm thấy app.asar trong bộ cài Zalo."))?;
+        let staging = RemoveOnDrop(self.work.join(format!("staging-{}", uuid::Uuid::new_v4())));
+        let target = staging.0.join("Contents/Resources/app.asar");
+        tokio::fs::create_dir_all(target.parent().unwrap()).await?;
+        tokio::fs::rename(&asar, &target).await?;
+        let mut info = plist::Dictionary::new();
+        info.insert("CFBundleShortVersionString".into(), version.into());
+        info.insert("CFBundleIdentifier".into(), "com.vng.zalo".into());
+        plist::Value::Dictionary(info).to_file_xml(staging.0.join("Contents/Info.plist"))?;
+        ensure!(runtime::is_complete(&staging.0), "Bản sao Zalo không đầy đủ.");
+        if destination.exists() {
+            let _ = tokio::fs::remove_dir_all(destination).await;
+        }
+        if let Some(parent) = destination.parent() {
+            tokio::fs::create_dir_all(parent).await?;
+        }
+        tokio::fs::rename(&staging.0, destination).await?;
+        log::info!("runtime: Zalo {version} installed (renderer) from the official Windows installer");
+        Ok(version.to_owned())
     }
 
     /// Checks VNG's signature on the whole Zalo.app, then copies `runtime::PARTS` into `destination`.

@@ -83,6 +83,13 @@ pub fn run() {
         builder.on_web_content_process_terminate(|webview| account::renderer_terminated(webview.app_handle(), webview.label()));
     builder
         .setup(|app| {
+            // Headless server (Linux container): nobody looks at the UI; people use /web or a joined Compola app.
+            if platform::headless() {
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.hide();
+                }
+                log::info!("headless server mode: data in {}", platform::app_support().display());
+            }
             // Multi-account registry (docs/multi-account.md): an install from before it becomes the `default` account,
             // nothing moves.
             let accounts = account::Accounts::load(&platform::app_support());
