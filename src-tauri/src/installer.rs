@@ -559,7 +559,8 @@ mod tests {
         assert!(!runtime::is_newer("26.9.10", "26.10.20"));
     }
 
-    #[cfg(unix)] // Windows has no executable bit.
+    // macOS only: elsewhere the runtime is the renderer alone (ZaloCall is a macOS program, not required).
+    #[cfg(target_os = "macos")]
     #[test]
     fn completeness_requires_executable_call_helper() {
         let root = TempRoot::new();
@@ -570,6 +571,18 @@ mod tests {
         crate::sys::set_mode(&helper, 0o644);
         assert!(!runtime::is_complete(&dir));
         std::fs::remove_file(&helper).unwrap();
+        assert!(!runtime::is_complete(&dir));
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn completeness_off_macos_needs_only_the_renderer() {
+        let root = TempRoot::new();
+        let dir = root.0.join("current");
+        make_runtime(&dir, "26.10.20");
+        std::fs::remove_dir_all(dir.join("Contents/ZaloHelper.app")).unwrap();
+        assert!(runtime::is_complete(&dir));
+        std::fs::remove_file(dir.join("Contents/Resources/app.asar")).unwrap();
         assert!(!runtime::is_complete(&dir));
     }
 
