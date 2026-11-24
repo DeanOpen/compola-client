@@ -28,41 +28,108 @@ mod values;
 
 use tauri::Manager;
 
+/// The local log: `<app support>/logs/engine.log` (the previous run, or the part before a size rotation, in
+/// `engine.previous.log`). Settings › Engine shows its tail and reveals the file (`logs_reveal`).
+pub fn log_path() -> std::path::PathBuf {
+    platform::app_support().join("logs").join("engine.log")
+}
+
 fn init_logging() {
+    use std::collections::HashMap;
+    use std::io::Write;
+    use std::sync::Mutex;
+    use std::time::{Duration, Instant};
+
+    /// Rotated past this size, so a long run (or a chatty renderer) never fills the disk.
+    const MAX_BYTES: u64 = 32 * 1024 * 1024;
+    /// The same line again within this window is counted, not written (renderer errors polled every second).
+    const REPEAT_WINDOW: Duration = Duration::from_secs(60);
+
+    struct File {
+        file: Option<std::fs::File>,
+        written: u64,
+        /// line → (when it was last written, repeats skipped since).
+        recent: HashMap<String, (Instant, u32)>,
+    }
     struct Logger;
+    static FILE: std::sync::LazyLock<Mutex<File>> =
+        std::sync::LazyLock::new(|| Mutex::new(File { file: None, written: 0, recent: HashMap::new() }));
+
+    fn open(path: &std::path::Path) -> Option<std::fs::File> {
+        std::fs::OpenOptions::new().create(true).append(true).open(path).ok()
+    }
+
     impl log::Log for Logger {
         fn enabled(&self, m: &log::Metadata) -> bool {
             let max = if std::env::var_os("COMPOLA_DEBUG").is_some() { log::Level::Debug } else { log::Level::Info };
             m.level() <= max && (m.target().starts_with("compola") || m.level() <= log::Level::Warn)
         }
         fn log(&self, r: &log::Record) {
-            if self.enabled(r.metadata()) {
-                let line = format!("[{}] {}", r.level(), r.args());
-                eprintln!("{line}");
-                // Engine diagnostics on disk (shapes only: the bridge trace never logs contents).
-                if let Some(f) = LOG_FILE.get() {
-                    use std::io::Write;
-                    let ts = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
-                    let _ = writeln!(f.lock().unwrap(), "{ts} {line}");
+            if !self.enabled(r.metadata()) {
+                return;
+            }
+            let line = format!("[{}] {}", r.level(), r.args());
+            eprintln!("{line}");
+            let Ok(mut f) = FILE.lock() else { return };
+            let now = Instant::now();
+            let mut repeats = 0;
+            if let Some((last, skipped)) = f.recent.get_mut(&line) {
+                if now.duration_since(*last) < REPEAT_WINDOW {
+                    *skipped += 1;
+                    return;
                 }
+                repeats = *skipped;
+                *last = now;
+                *skipped = 0;
+            } else {
+                if f.recent.len() >= 512 {
+                    f.recent.retain(|_, (last, _)| now.duration_since(*last) < REPEAT_WINDOW);
+                }
+                f.recent.insert(line.clone(), (now, 0));
+            }
+            if f.written > MAX_BYTES {
+                let path = log_path();
+                let _ = std::fs::rename(&path, path.with_file_name("engine.previous.log"));
+                f.file = open(&path);
+                f.written = 0;
+            }
+            let ts = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
+            let text = if repeats > 0 { format!("{ts} {line}  (+{repeats} more like it in the last minute)\n") } else { format!("{ts} {line}\n") };
+            f.written += text.len() as u64;
+            if let Some(file) = f.file.as_mut() {
+                let _ = file.write_all(text.as_bytes());
             }
         }
         fn flush(&self) {}
     }
     static LOGGER: Logger = Logger;
-    static LOG_FILE: std::sync::OnceLock<std::sync::Mutex<std::fs::File>> = std::sync::OnceLock::new();
-    let dir = platform::app_support().join("logs");
-    let _ = std::fs::create_dir_all(&dir);
-    let path = dir.join("engine.log");
+
+    let path = log_path();
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
     // Keep one previous run.
     if std::fs::metadata(&path).is_ok_and(|m| m.len() > 0) {
-        let _ = std::fs::rename(&path, dir.join("engine.previous.log"));
+        let _ = std::fs::rename(&path, path.with_file_name("engine.previous.log"));
     }
-    if let Ok(f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
-        let _ = LOG_FILE.set(std::sync::Mutex::new(f));
+    if let Ok(mut f) = FILE.lock() {
+        f.file = open(&path);
     }
     let _ = log::set_logger(&LOGGER);
     log::set_max_level(log::LevelFilter::Debug);
+    log::info!("Compola {} ({} {}) — log {}", env!("CARGO_PKG_VERSION"), std::env::consts::OS, std::env::consts::ARCH, path.display());
+}
+
+/// Settings › Engine › "Mở tệp nhật ký": shows the log file in Finder / Explorer.
+#[tauri::command]
+fn logs_reveal() -> Result<(), String> {
+    tauri_plugin_opener::reveal_item_in_dir(log_path()).map_err(|e| e.to_string())
+}
+
+/// UI-side diagnostics (failed commands, adapter errors) into the same file.
+#[tauri::command]
+fn ui_log(line: String) {
+    log::info!("ui {}", line.chars().take(500).collect::<String>());
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -113,6 +180,8 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            logs_reveal,
+            ui_log,
             ai_clients::ai_clients_detect,
             ai_clients::ai_clients_install,
             ai_clients::ai_clients_remove,

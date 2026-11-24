@@ -55,6 +55,8 @@ export type RawInvoke = <T>(command: string, args?: Record<string, unknown>) => 
 
 /** Commands a joined UI still runs on this machine (besides every `remote_*`). */
 const joinedLocal = new Set([
+  'logs_reveal',
+  'ui_log',
   'ui_widen_window',
   'clipboard_paste_files',
   'media_allow_previews',
@@ -186,6 +188,8 @@ export const commands = {
   retryRuntime: async () => (await backend()).invoke('engine_retry_runtime'),
   showRenderer: async () => (await backend()).invoke('engine_show_renderer'),
   switchToSqlite: async () => (await backend()).invoke('engine_switch_to_sqlite'),
+  /** Shows this machine's log file (`engine.log`) in Finder / Explorer. */
+  revealLogs: async () => (await backend()).invoke('logs_reveal'),
   /** Tells Rust which chat is on screen (notifications for it are suppressed); null when none. */
   setOpenConversation: async (id: string | null) => (await backend()).invoke('ui_set_open_conversation', forAccount({ id })),
   /** Whether notifications may show the message text. */

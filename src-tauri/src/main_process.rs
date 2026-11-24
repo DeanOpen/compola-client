@@ -91,7 +91,7 @@ impl MainProcess {
     pub fn new(app: AppHandle, account: Arc<crate::account::Account>, platform: Arc<Platform>, asar: Arc<AsarArchive>) -> Arc<Self> {
         let storage = choose_storage(&platform);
         let sqlite = (storage == StorageBackend::Sqlite).then(|| SqliteHost::new(platform.user_data.join("sqlite/_production")));
-        log::info!("storage backend: {}", storage.as_str());
+        log::info!("storage backend: {} (account {})", storage.as_str(), account.id());
         Arc::new(Self {
             app,
             account,

@@ -17,6 +17,7 @@ import {
   ChevronRight,
   Copy,
   Cpu,
+  FolderOpen,
   Info,
   Lock,
   LogOut,
@@ -814,6 +815,15 @@ function EngineSettings() {
             <button className="st-log-action" onClick={() => void load()} title="Làm mới" aria-label="Làm mới">
               <RefreshCw size={13} /> Làm mới
             </button>
+            {usesTauri && (
+              <button
+                className="st-log-action"
+                onClick={() => void commands.revealLogs().catch((e) => setError(String(e)))}
+                title="Mở tệp nhật ký đầy đủ (engine.log) trong Finder"
+              >
+                <FolderOpen size={13} /> Mở tệp nhật ký
+              </button>
+            )}
           </div>
           {info === null ? (
             <div className="st-log-empty">

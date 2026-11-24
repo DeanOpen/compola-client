@@ -1,5 +1,5 @@
 // Mock of transfer-adapter.js (`__zaloTransfer`): availability, the official offer and a sync that runs through the
-// official phases. Scenarios: `&transfer=run` (start a sync after boot), `&transfer=offer|waiting|transferring|finished|
+// official phases. Scenarios: `&transfer=run` (start a sync after boot), `&transfer=offer|waiting|listing|transferring|finished|
 // failed` (a fixed state), `&transferBlocked=SYNC_RUNNING` (manual sync refused), `&setupSync=1` (sign in from the QR
 // screen straight into the setup sync step; combine with `&phase=login`).
 
@@ -40,6 +40,8 @@ const base = (phase: string, extra: Json = {}): Json => ({
 const fixed: Record<string, Json> = {
   offer: base('offer', { stage: 'modal' }),
   waiting: base('waitingForPhone', { stage: 'confirmMobile' }),
+  // The official conversation-list step: no progress for minutes (what looked stuck at 0%).
+  listing: base('transferring', { stage: 'conversationList', stageIndex: 1, stageCount: 3, progress: 0, stageProgress: 0 }),
   transferring: base('transferring', { stage: 'otherMessages', stageIndex: 3, stageCount: 3, progress: 0.72, stageProgress: 0.16, receivedMessages: 18_432 }),
   finished: base('finished', { progress: 1, receivedMessages: 24_816 }),
   failed: base('failed', { errorCode: 1003, errorName: 'MOBILE_BUSY', canRetry: true }),

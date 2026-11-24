@@ -40,6 +40,7 @@
     return v;
   };
 
+  const missingLogged = new Set(); // bridge members without a handler, already logged
   const listeners = new Map(); // event path -> Set(callback)
   let nextListener = 1;
 
@@ -138,7 +139,11 @@
         default:
           if (/^(on|once)[A-Z]/.test(name)) return subscribe(path, args);
           if (/^remove(Listen|Listener)/.test(name)) return unsubscribe(path, args);
-          log('[bridge:missing]', path, JSON.stringify(encode(args.filter((a) => typeof a !== 'function'))).slice(0, 200));
+          // Once per member and page: some are polled every second (zlog's readLogRange) and flooded the log.
+          if (!missingLogged.has(path)) {
+            missingLogged.add(path);
+            log('[bridge:missing]', path, JSON.stringify(encode(args.filter((a) => typeof a !== 'function'))).slice(0, 200), '(logged once)');
+          }
           // Most preload members wrap ipcRenderer.invoke (→ Promise); *Sync members return plain values.
           if (/Sync$/.test(name)) return undefined;
           { const cb = args.find((a) => typeof a === 'function'); if (cb) setTimeout(() => cb(null)); }

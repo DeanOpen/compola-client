@@ -551,10 +551,12 @@ impl MainProcess {
 
 impl HostObserver for Engine {
     fn console(&self, host: &Host, line: &str) {
+        // Every account's pages log into one file: lines of an added account carry its id.
+        let account = if host.account.paths.is_default() { String::new() } else { format!("<{}> ", host.account.id()) };
         let prefix = if host.kind == HostKind::Worker { "sw-console " } else { "" };
         let official = line.starts_with("[log]") || line.starts_with("[info]");
         if !official || line.contains("[adapter]") || line.contains("[chat]") || line.contains("[transfer]") {
-            log::info!("{prefix}{}", line.chars().take(300).collect::<String>());
+            log::info!("{account}{prefix}{}", line.chars().take(300).collect::<String>());
         }
         if host.kind == HostKind::Main {
             self.log_line(line);

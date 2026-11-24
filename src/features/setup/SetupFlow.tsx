@@ -186,32 +186,7 @@ function SyncStep({ onDone }: { onDone: (outcome: SyncOutcome) => void }) {
     );
   }
 
-  if (transfer?.phase === 'transferring') {
-    const count = transferCountText(transfer);
-    return (
-      <div className="setup-step fade-in">
-        <img src={illoSync} width={190} alt="" draggable={false} />
-        <div className="setup-heading" style={{ fontSize: 21 }}>Đang nhận tin nhắn…</div>
-        <p className="setup-lead">Giữ Zalo mở trên điện thoại. {appName} sẽ mở ngay khi đồng bộ xong.</p>
-        <div className="sync-progress">
-          <div className={'sync-bar' + (transfer.progress == null ? ' indeterminate' : '')}>
-            <div style={{ width: `${Math.round((transfer.progress ?? 0.3) * 100)}%` }} />
-          </div>
-          <div className="sync-progress-row">
-            <span>{count}</span>
-            {transfer.progress != null && <span className="sync-pct">{Math.round(transfer.progress * 100)}%</span>}
-          </div>
-          <div className="sync-progress-stage">
-            {stageTitle(transfer)}
-            {transfer.stageIndex != null && transfer.stageCount != null && ` · Bước ${transfer.stageIndex}/${transfer.stageCount}`}
-          </div>
-        </div>
-        <div className="setup-actions">
-          <button className="btn-link danger" onClick={() => respondToTransfer(false)}>Huỷ đồng bộ</button>
-        </div>
-      </div>
-    );
-  }
+  if (transfer?.phase === 'transferring') return <TransferringStep transfer={transfer} onDone={onDone} />;
 
   if (transfer?.phase === 'finished') {
     return (
@@ -293,6 +268,60 @@ function SyncStep({ onDone }: { onDone: (outcome: SyncOutcome) => void }) {
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+/** The running sync. The official client reports no progress inside a stage for minutes (the conversation list
+ * especially): the bar then moves without a number, the elapsed time shows it is alive, and after a minute the window
+ * can be entered while the sync goes on in the background. */
+function TransferringStep({ transfer, onDone }: { transfer: NonNullable<ReturnType<typeof useEngine.getState>['transfer']>; onDone: (outcome: SyncOutcome) => void }) {
+  const [started] = useState(() => Date.now());
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const elapsed = Math.floor((now - started) / 1000);
+  const known = transfer.stageProgress != null && transfer.stageProgress > 0 && transfer.progress != null;
+  const count = transferCountText(transfer);
+  return (
+    <div className="setup-step fade-in">
+      <img src={illoSync} width={190} alt="" draggable={false} />
+      <div className="setup-heading" style={{ fontSize: 21 }}>Đang nhận tin nhắn…</div>
+      <p className="setup-lead">Giữ Zalo mở trên điện thoại. {appName} sẽ mở ngay khi đồng bộ xong.</p>
+      <div className="sync-progress">
+        <div className={'sync-bar' + (known ? '' : ' indeterminate')}>
+          <div style={{ width: `${Math.round((known ? transfer.progress! : 0.3) * 100)}%` }} />
+        </div>
+        <div className="sync-progress-row">
+          <span>{count ?? `Đã chạy ${elapsed < 60 ? `${elapsed} giây` : `${Math.floor(elapsed / 60)} phút ${elapsed % 60} giây`}`}</span>
+          {known && <span className="sync-pct">{Math.round(transfer.progress! * 100)}%</span>}
+        </div>
+        <div className="sync-progress-stage">
+          {stageTitle(transfer)}
+          {transfer.stageIndex != null && transfer.stageCount != null && ` · Bước ${transfer.stageIndex}/${transfer.stageCount}`}
+        </div>
+      </div>
+      {elapsed >= 60 && (
+        <p className="sync-blocked">
+          Bước này có thể mất vài phút với tài khoản nhiều tin nhắn. Bạn có thể vào {appName} ngay, đồng bộ vẫn tiếp tục chạy nền.
+        </p>
+      )}
+      <div className="setup-actions">
+        {elapsed >= 60 && (
+          <button
+            className="btn btn-prominent btn-large"
+            onClick={() => {
+              dismissTransfer();
+              onDone('done');
+            }}
+          >
+            Vào {appName}, đồng bộ chạy nền
+          </button>
+        )}
+        <button className="btn-link danger" onClick={() => respondToTransfer(false)}>Huỷ đồng bộ</button>
+      </div>
     </div>
   );
 }

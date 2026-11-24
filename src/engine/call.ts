@@ -1,7 +1,7 @@
 // Calls into the host-script adapters running in the official renderer (`window[target][method](...args)`), via the
 // Rust `engine_call` command. Replaces every `host.evaluate("window.__zaloX.method(...)")` of the Swift engine.
 
-import { backend, forAccount } from './backend';
+import { backend, forAccount, usesTauri } from './backend';
 
 /** Adapter objects the renderer exposes (host-scripts/*-adapter.js). */
 export type AdapterTarget =
@@ -20,8 +20,11 @@ export type AdapterTarget =
   | '__zaloNotification'
   | '__zaloGroupCreate';
 
+/** UI-side diagnostics: the dev console, and in the app the local log file too (`ui_log` → engine.log). */
 export const log = (line: string) => {
   if (import.meta.env.DEV) console.debug('[engine]', line);
+  // Never through log() again on failure (no loop); the web client and the mock have no local file.
+  if (usesTauri) void backend().then((b) => b.invoke('ui_log', { line })).catch(() => {});
 };
 
 /**
