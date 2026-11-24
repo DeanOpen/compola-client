@@ -77,7 +77,7 @@ fi
 # first submissions can sit "In Progress" for hours), and the run then failed although Apple went on to accept it.
 # Polling `notarytool info` instead rides out dropped connections until COMPOLA_NOTARY_TIMEOUT seconds (default 4 h).
 notarize() {
-  local file="$1" out id="" status="" try deadline
+  local file="$1" out id="" verdict="" try deadline
   echo "==> Notarizing $file"
   for try in 1 2 3 4 5; do
     out="$(xcrun notarytool submit "$file" "${NOTARY[@]}" --output-format plist 2>&1)" || true
@@ -93,18 +93,18 @@ notarize() {
   deadline=$((SECONDS + ${COMPOLA_NOTARY_TIMEOUT:-14400}))
   while (( SECONDS < deadline )); do
     out="$(xcrun notarytool info "$id" "${NOTARY[@]}" --output-format plist 2>&1)" || true
-    status="$(plutil -extract status raw -o - - <<< "$out" 2>/dev/null)" || status=""
-    case "$status" in
+    verdict="$(plutil -extract status raw -o - - <<< "$out" 2>/dev/null)" || verdict=""
+    case "$verdict" in
       Accepted) echo "    status: Accepted"; return 0 ;;
       Invalid|Rejected) break ;;
       "") echo "    status unavailable (network?), still waiting" ;;
-      *) echo "    status: $status ($(( (deadline - SECONDS) / 60 )) min left)" ;;
+      *) echo "    status: $verdict ($(( (deadline - SECONDS) / 60 )) min left)" ;;
     esac
     sleep 30
   done
 
   for try in 1 2 3; do xcrun notarytool log "$id" "${NOTARY[@]}" >&2 && break; sleep 20; done || true
-  echo "error: notarization of $file (submission $id) was not accepted: ${status:-timed out}" >&2
+  echo "error: notarization of $file (submission $id) was not accepted: ${verdict:-timed out}" >&2
   echo "       if Apple accepts it later: xcrun notarytool info $id" >&2
   exit 1
 }
