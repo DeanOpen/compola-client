@@ -66,8 +66,7 @@ pub fn helper_executable(runtime: &Path) -> PathBuf {
 }
 
 pub fn is_executable(path: &Path) -> bool {
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+    crate::sys::is_executable_file(path)
 }
 
 /// Everything the bridge talks to (injected in tests).
@@ -841,6 +840,8 @@ pub fn call_show_window(app: AppHandle) -> Result<(), String> {
         let app = NSRunningApplication::runningApplicationWithProcessIdentifier(pid).ok_or("Cửa sổ cuộc gọi đã đóng.")?;
         app.activateWithOptions(NSApplicationActivationOptions::ActivateAllWindows);
     }
+    #[cfg(not(target_os = "macos"))]
+    let _ = pid;
     Ok(())
 }
 
@@ -880,5 +881,5 @@ mod owner_tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))] // The helper speaks over UNIX sockets.
 mod tests;

@@ -152,17 +152,17 @@ pub fn reap_orphans() -> Vec<i32> {
     let configured = ours(&helper_executable(&crate::runtime::candidate()));
     let runtime = ours(&crate::runtime::root());
     let log_dir = log_dir().to_string_lossy().into_owned();
-    let uid = unsafe { libc::getuid() };
+    let uid = crate::sys::uid();
     let mut reaped = Vec::new();
     for pid in helper::all_pids() {
         let Some(path) = helper::pid_path(pid).map(|p| ours(&p)) else { continue };
         let is_cap = path.file_name().is_some_and(|n| n == "ZaloCap") && (path == configured || path.starts_with(&runtime));
-        if !is_cap || helper::owner_uid(pid) != Some(uid) || helper::parent_pid(pid) != Some(1) {
+        if !is_cap || helper::owner_uid(pid) != uid || helper::parent_pid(pid) != Some(1) {
             continue;
         }
         if helper::arguments(pid).is_some_and(|a| a.len() >= 3 && a[1] == "zalo2017" && a[2] == log_dir) {
             log::info!("capture: reaping orphaned tool {pid}");
-            unsafe { libc::kill(pid, libc::SIGTERM) };
+            crate::sys::signal(pid, crate::sys::Signal::Terminate);
             reaped.push(pid);
         }
     }
@@ -245,7 +245,7 @@ impl ScreenCapture {
             st.pid.take()
         };
         if let Some(pid) = pid {
-            unsafe { libc::kill(pid as i32, libc::SIGTERM) };
+            crate::sys::signal(pid as i32, crate::sys::Signal::Terminate);
         }
         self.finish();
     }

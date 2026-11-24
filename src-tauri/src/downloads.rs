@@ -567,7 +567,7 @@ fn finalize(job: &Job, raw: TempFile, cancelled: &AtomicBool) -> Outcome {
     };
     match run() {
         Ok(o) => o,
-        Err(e) if e.raw_os_error() == Some(libc::EXDEV) => {
+        Err(e) if e.kind() == std::io::ErrorKind::CrossesDevices => {
             // Save folder on another volume than the temp dir: stage next to the destination instead.
             commit_across_volumes(job, raw, cancelled)
         }

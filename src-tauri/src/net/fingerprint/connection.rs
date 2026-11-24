@@ -9,7 +9,10 @@
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::Shutdown;
+#[cfg(unix)]
 use std::os::unix::net::UnixStream;
+#[cfg(not(unix))]
+use unsupported::UnixStream;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, mpsc as std_mpsc};
@@ -613,6 +616,47 @@ impl Drop for CancelOnDrop<'_> {
     fn drop(&mut self) {
         if self.armed {
             self.connection.cancel(self.id);
+        }
+    }
+}
+
+/// Never connected off Unix (`helper_path` is `None` there); it only keeps [`Connection`] one type.
+#[cfg(not(unix))]
+mod unsupported {
+    use std::io::{Error, ErrorKind, Read, Result, Write};
+    use std::net::Shutdown;
+    use std::path::Path;
+
+    pub struct UnixStream;
+
+    fn unsupported<T>() -> Result<T> {
+        Err(Error::new(ErrorKind::Unsupported, "UNIX sockets are not available on this platform"))
+    }
+
+    impl UnixStream {
+        pub fn connect(_path: &Path) -> Result<Self> {
+            unsupported()
+        }
+        pub fn try_clone(&self) -> Result<Self> {
+            unsupported()
+        }
+        pub fn shutdown(&self, _how: Shutdown) -> Result<()> {
+            Ok(())
+        }
+    }
+
+    impl Read for UnixStream {
+        fn read(&mut self, _buf: &mut [u8]) -> Result<usize> {
+            unsupported()
+        }
+    }
+
+    impl Write for UnixStream {
+        fn write(&mut self, _buf: &[u8]) -> Result<usize> {
+            unsupported()
+        }
+        fn flush(&mut self) -> Result<()> {
+            Ok(())
         }
     }
 }

@@ -54,8 +54,6 @@ jobs:
   cross:
     name: Rust build (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
-    # Windows and Linux support is being ported (branch port/cross-platform): non-blocking until it lands.
-    continue-on-error: true
     strategy:
       fail-fast: false
       matrix:

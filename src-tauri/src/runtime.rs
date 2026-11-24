@@ -78,8 +78,7 @@ pub fn helper(name: &str, runtime: &Path) -> PathBuf {
 }
 
 pub fn is_executable_file(path: &Path) -> bool {
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+    crate::sys::is_executable_file(path)
 }
 
 pub fn is_complete(dir: &Path) -> bool {

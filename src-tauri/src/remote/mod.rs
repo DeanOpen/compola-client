@@ -141,11 +141,7 @@ pub fn computer_name() -> String {
                 return name;
             }
         }
-        let mut buf = [0u8; 256];
-        // SAFETY: the buffer outlives the call and its length is passed along.
-        let ok = unsafe { libc::gethostname(buf.as_mut_ptr().cast(), buf.len()) } == 0;
-        let end = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
-        let name = if ok { String::from_utf8_lossy(&buf[..end]).trim_end_matches(".local").to_owned() } else { String::new() };
+        let name = crate::sys::hostname().trim_end_matches(".local").to_owned();
         if name.is_empty() { "Compola".to_owned() } else { name }
     })
     .clone()
@@ -168,7 +164,30 @@ fn points_at_this_mac(url: &str) -> bool {
 /// The IPv4 addresses joined apps can reach this Mac on: `{ip, kind: lan|tailscale|public}`.
 fn local_addresses() -> Vec<Value> {
     let mut out: Vec<(std::net::Ipv4Addr, &'static str)> = Vec::new();
+    let mut add = |ip: std::net::Ipv4Addr| {
+        let o = ip.octets();
+        let kind = if o[0] == 100 && (64..128).contains(&o[1]) {
+            "tailscale"
+        } else if ip.is_private() {
+            "lan"
+        } else {
+            "public"
+        };
+        if !ip.is_loopback() && !ip.is_link_local() && !ip.is_unspecified() && !out.iter().any(|(a, _)| *a == ip) {
+            out.push((ip, kind));
+        }
+    };
+    // No `getifaddrs` on Windows: the address of the default route (a UDP "connect" sends nothing).
+    #[cfg(not(unix))]
+    if let Ok(socket) = std::net::UdpSocket::bind(("0.0.0.0", 0)) {
+        if socket.connect(("192.0.2.1", 9)).is_ok() {
+            if let Ok(std::net::SocketAddr::V4(local)) = socket.local_addr() {
+                add(*local.ip());
+            }
+        }
+    }
     // SAFETY: getifaddrs' list is only read while it is alive and freed once.
+    #[cfg(unix)]
     unsafe {
         let mut list: *mut libc::ifaddrs = std::ptr::null_mut();
         if libc::getifaddrs(&mut list) != 0 {
@@ -179,18 +198,7 @@ fn local_addresses() -> Vec<Value> {
             let ifa = &*p;
             if !ifa.ifa_addr.is_null() && i32::from((*ifa.ifa_addr).sa_family) == libc::AF_INET {
                 let sin = &*(ifa.ifa_addr as *const libc::sockaddr_in);
-                let ip = std::net::Ipv4Addr::from(u32::from_be(sin.sin_addr.s_addr));
-                let o = ip.octets();
-                let kind = if o[0] == 100 && (64..128).contains(&o[1]) {
-                    "tailscale"
-                } else if ip.is_private() {
-                    "lan"
-                } else {
-                    "public"
-                };
-                if !ip.is_loopback() && !ip.is_link_local() && !ip.is_unspecified() && !out.iter().any(|(a, _)| *a == ip) {
-                    out.push((ip, kind));
-                }
+                add(std::net::Ipv4Addr::from(u32::from_be(sin.sin_addr.s_addr)));
             }
             p = ifa.ifa_next;
         }

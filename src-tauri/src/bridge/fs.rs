@@ -8,7 +8,7 @@
 //! Each operation is registered as async (Node callback / promise; run on the blocking pool) and, where Node has one,
 //! as a `*Sync` member.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
 use serde_json::{Value, json};
@@ -85,7 +85,12 @@ fn path_arg(args: &[Value]) -> &str {
 
 /// An I/O error as `"CODE: path"`, the code being the errno name Node would report.
 fn io_error(error: std::io::Error, path: &str) -> String {
-    let code = match error.raw_os_error() {
+    // errno values are Unix's; elsewhere `raw_os_error` is a system error code and only the kind is meaningful.
+    #[cfg(unix)]
+    let errno = error.raw_os_error();
+    #[cfg(not(unix))]
+    let errno: Option<i32> = None;
+    let code = match errno {
         Some(libc::ENOENT) => "ENOENT",
         Some(libc::EEXIST) => "EEXIST",
         Some(libc::EACCES) => "EACCES",
@@ -105,6 +110,15 @@ fn io_error(error: std::io::Error, path: &str) -> String {
             std::io::ErrorKind::NotFound => "ENOENT",
             std::io::ErrorKind::AlreadyExists => "EEXIST",
             std::io::ErrorKind::PermissionDenied => "EACCES",
+            std::io::ErrorKind::DirectoryNotEmpty => "ENOTEMPTY",
+            std::io::ErrorKind::NotADirectory => "ENOTDIR",
+            std::io::ErrorKind::IsADirectory => "EISDIR",
+            std::io::ErrorKind::CrossesDevices => "EXDEV",
+            std::io::ErrorKind::InvalidFilename => "ENAMETOOLONG",
+            std::io::ErrorKind::ResourceBusy => "EBUSY",
+            std::io::ErrorKind::ReadOnlyFilesystem => "EROFS",
+            std::io::ErrorKind::StorageFull => "ENOSPC",
+            std::io::ErrorKind::InvalidInput => "EINVAL",
             _ => "EIO",
         },
     };
@@ -133,6 +147,7 @@ fn ms(time: std::io::Result<std::time::SystemTime>) -> f64 {
     time.ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_secs_f64() * 1000.0).unwrap_or(0.0)
 }
 
+#[cfg(unix)]
 fn unix_ms(secs: i64, nanos: i64) -> f64 {
     secs as f64 * 1000.0 + nanos as f64 / 1_000_000.0
 }
@@ -145,7 +160,7 @@ fn remove_any(path: &Path) -> std::io::Result<()> {
 fn copy_tree(from: &Path, to: &Path) -> std::io::Result<()> {
     let meta = std::fs::symlink_metadata(from)?;
     if meta.file_type().is_symlink() {
-        std::os::unix::fs::symlink(std::fs::read_link(from)?, to)
+        crate::sys::symlink(&std::fs::read_link(from)?, to)
     } else if meta.is_dir() {
         std::fs::create_dir(to)?;
         for entry in std::fs::read_dir(from)? {
@@ -170,16 +185,38 @@ fn exists_op(_: &Platform, args: &[Value]) -> BridgeResult {
 
 /// Node `fs.Stats`-shaped object; its methods are rebuilt in JS (`bridge.js` decodes `__stats`).
 fn stat(path: &str, follow: bool) -> BridgeResult {
-    use std::os::unix::fs::MetadataExt;
     let meta = if follow { std::fs::metadata(path) } else { std::fs::symlink_metadata(path) };
     let meta = meta.map_err(|e| io_error(e, path))?;
+    #[cfg(unix)]
+    let (mode, mtime, ctime, atime) = {
+        use std::os::unix::fs::MetadataExt;
+        (
+            meta.mode(),
+            unix_ms(meta.mtime(), meta.mtime_nsec()),
+            unix_ms(meta.ctime(), meta.ctime_nsec()),
+            unix_ms(meta.atime(), meta.atime_nsec()),
+        )
+    };
+    // What Node reports on Windows: type bits, and write bits unless read-only.
+    #[cfg(not(unix))]
+    let (mode, mtime, ctime, atime) = {
+        let kind = if meta.file_type().is_symlink() {
+            0o120000
+        } else if meta.is_dir() {
+            0o040000
+        } else {
+            0o100000
+        };
+        let perm = if meta.permissions().readonly() { 0o444 } else { 0o666 } | if meta.is_dir() { 0o111 } else { 0 };
+        (kind | perm, ms(meta.modified()), ms(meta.modified()), ms(meta.accessed()))
+    };
     Ok(json!({
         "__stats": true,
-        "size": meta.size(),
-        "mode": meta.mode(),
-        "mtimeMs": unix_ms(meta.mtime(), meta.mtime_nsec()),
-        "ctimeMs": unix_ms(meta.ctime(), meta.ctime_nsec()),
-        "atimeMs": unix_ms(meta.atime(), meta.atime_nsec()),
+        "size": meta.len(),
+        "mode": mode,
+        "mtimeMs": mtime,
+        "ctimeMs": ctime,
+        "atimeMs": atime,
         "birthtimeMs": ms(meta.created()),
         "isFile": meta.is_file(),
         "isDirectory": meta.is_dir(),
@@ -224,7 +261,7 @@ fn move_item(platform: &Platform, from: &str, to: &str) -> Result<(), String> {
     }
     match std::fs::rename(from, to) {
         // Across volumes, as `FileManager.moveItem`: copy, then delete the source.
-        Err(e) if e.raw_os_error() == Some(libc::EXDEV) => {
+        Err(e) if e.kind() == std::io::ErrorKind::CrossesDevices => {
             copy_tree(Path::new(from), Path::new(to)).map_err(|e| io_error(e, to))?;
             remove_any(Path::new(from)).map_err(|e| io_error(e, from))
         }
@@ -255,13 +292,20 @@ const HARDLINK_WALK_LIMIT: usize = 200_000;
 /// Hard links of `file` under `scope` (same device and inode). A missing file, or one with a single link, has none:
 /// the official callers treat both as "not shared". The walk is bounded so a huge resource folder cannot stall a
 /// cleanup; symlinked directories are not followed.
+/// Windows (no stable inode/link count in std) reports none.
+#[cfg(not(unix))]
+fn hardlinks(_file: &str, _scope: &str, _limit: usize) -> Vec<String> {
+    Vec::new()
+}
+
+#[cfg(unix)]
 fn hardlinks(file: &str, scope: &str, limit: usize) -> Vec<String> {
     use std::os::unix::fs::MetadataExt;
     let Ok(target) = std::fs::symlink_metadata(file) else { return Vec::new() };
     if file.is_empty() || scope.is_empty() || target.nlink() <= 1 {
         return Vec::new();
     }
-    let root = PathBuf::from(scope.trim_end_matches('/'));
+    let root = std::path::PathBuf::from(scope.trim_end_matches('/'));
     let mut links = Vec::new();
     let mut stack = vec![root];
     let mut seen = 0;
@@ -287,15 +331,10 @@ fn hardlinks(file: &str, scope: &str, limit: usize) -> Vec<String> {
 /// `{total, free, available, used}` in bytes for the volume holding `path`.
 fn disk_usage(_: &Platform, args: &[Value]) -> BridgeResult {
     let path = args.str_at(0).unwrap_or("/");
-    let c_path = std::ffi::CString::new(path).map_err(|_| node_error("EINVAL", path))?;
-    // SAFETY: `statvfs` only writes into the zeroed struct we own.
-    let mut s: libc::statvfs = unsafe { std::mem::zeroed() };
-    if unsafe { libc::statvfs(c_path.as_ptr(), &mut s) } != 0 {
-        return Err(io_error(std::io::Error::last_os_error(), path));
+    if path.contains('\0') {
+        return Err(node_error("EINVAL", path));
     }
-    let frsize = s.f_frsize as u64;
-    let total = s.f_blocks as u64 * frsize;
-    let available = s.f_bavail as u64 * frsize;
+    let (total, available) = crate::sys::disk_space(Path::new(path)).map_err(|e| io_error(e, path))?;
     Ok(json!({ "total": total, "free": available, "available": available, "used": total.saturating_sub(available) }))
 }
 
@@ -331,7 +370,7 @@ mod tests {
     use super::*;
 
     struct Scratch {
-        root: PathBuf,
+        root: std::path::PathBuf,
         platform: Platform,
     }
 
@@ -424,7 +463,7 @@ mod tests {
         assert_eq!((st["isFile"].clone(), st["isDirectory"].clone()), (json!(true), json!(false)));
         assert!(st["mtimeMs"].as_f64().unwrap() > 1.0e12);
         let link = s.data("l");
-        std::os::unix::fs::symlink(&file, &link).unwrap();
+        crate::sys::symlink(Path::new(&file), Path::new(&link)).unwrap();
         assert_eq!(s.call("$znode.fs.stat", vec![json!(link)]).unwrap()["isFile"], json!(true));
         assert_eq!(s.call("$znode.fs.lstat", vec![json!(link)]).unwrap()["isSymbolicLink"], json!(true));
         let dir = s.call("$znode.fs.statSync", vec![json!(s.data(""))]).unwrap();
@@ -468,6 +507,7 @@ mod tests {
         s.call("$znode.fs.unlinkSync", vec![json!(moved)]).unwrap(); // missing is success
     }
 
+    #[cfg(unix)] // Windows reports no hard links (see `hardlinks`).
     #[test]
     fn detects_hardlinks() {
         let s = Scratch::new();

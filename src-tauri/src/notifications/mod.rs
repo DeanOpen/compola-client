@@ -669,18 +669,24 @@ mod tests {
 /// unbundled dev build cannot use the notification center).
 #[tauri::command]
 pub async fn notification_authorization() -> String {
-    if !un::available() {
-        return "unavailable".into();
+    #[cfg(target_os = "macos")]
+    {
+        if !un::available() {
+            return "unavailable".into();
+        }
+        un::status().await.unwrap_or("notDetermined").into()
     }
-    un::status().await.unwrap_or("notDetermined").into()
+    // tauri-plugin-notification on desktop needs no permission.
+    #[cfg(not(target_os = "macos"))]
+    "authorized".into()
 }
 
 /// Asks macOS for notification permission, then reports the resulting status.
 #[tauri::command]
 pub async fn notification_request_authorization() -> String {
-    if !un::available() {
-        return "unavailable".into();
+    #[cfg(target_os = "macos")]
+    if un::available() {
+        let _ = un::request().await;
     }
-    let _ = un::request().await;
-    un::status().await.unwrap_or("notDetermined").into()
+    notification_authorization().await
 }

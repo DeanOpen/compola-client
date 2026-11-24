@@ -78,12 +78,15 @@ impl Platform {
         std::fs::rename(tmp, path)
     }
 
-    /// The renderer may only write inside our data/temp directories and the user's Downloads.
+    /// The renderer may only write inside our data/temp directories and the user's Downloads. A missing Downloads
+    /// folder (Linux without XDG user dirs) is no root at all: an empty path would be a prefix of everything.
     pub fn is_writable(&self, path: &str) -> bool {
         let resolved = canonical(Path::new(path));
-        [self.user_data.clone(), self.temp_dir(), dirs::download_dir().unwrap_or_default()]
-            .iter()
-            .map(|p| canonical(p))
+        [Some(self.user_data.clone()), Some(self.temp_dir()), dirs::download_dir()]
+            .into_iter()
+            .flatten()
+            .filter(|p| !p.as_os_str().is_empty())
+            .map(|p| canonical(&p))
             .any(|root| resolved == root || resolved.starts_with(&root))
     }
 }

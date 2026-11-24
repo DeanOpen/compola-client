@@ -226,6 +226,7 @@ pub(crate) mod tests {
         assert_eq!(std::fs::read(&part).unwrap(), b"hello world");
         let s = progress.snapshot();
         assert_eq!((s.part.as_deref(), s.received, s.total), (Some(part.as_path()), 11, Some(11)));
+        #[cfg(target_os = "macos")] // The content type is kept in an extended attribute (macOS only).
         assert_eq!(cache::file_content_type(&part), "video/mp4");
         let _ = std::fs::remove_dir_all(&dir);
     }
