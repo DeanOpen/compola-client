@@ -32,6 +32,7 @@ host_triple() {
       Darwin-x86_64) echo x86_64-apple-darwin ;;
       Linux-x86_64) echo x86_64-unknown-linux-gnu ;;
       Linux-aarch64) echo aarch64-unknown-linux-gnu ;;
+      MINGW*-x86_64 | MSYS*-x86_64 | CYGWIN*-x86_64) echo x86_64-pc-windows-msvc ;;
       *) echo "unsupported host $(uname -s)-$(uname -m)" >&2; exit 1 ;;
     esac
   fi
@@ -56,9 +57,12 @@ build_one() { # <triple>
     x86_64-apple-darwin) goos=darwin goarch=amd64 ;;
     aarch64-unknown-linux-*) goos=linux goarch=arm64 ;;
     x86_64-unknown-linux-*) goos=linux goarch=amd64 ;;
-    *) echo "unsupported target $triple (the client side needs unix sockets)" >&2; exit 1 ;;
+    x86_64-pc-windows-*) goos=windows goarch=amd64 ;;
+    aarch64-pc-windows-*) goos=windows goarch=arm64 ;;
+    *) echo "unsupported target $triple" >&2; exit 1 ;;
   esac
   local dest="$OUT/$NAME-$triple"
+  [ "$goos" = windows ] && dest="$dest.exe"
   rm -f "$dest"
   GOOS=$goos GOARCH=$goarch go build -trimpath -ldflags="-s -w" -o "$dest" .
   echo "Built ${dest#"$ROOT"/} ($(du -h "$dest" | cut -f1))"
