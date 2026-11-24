@@ -25,6 +25,11 @@
   min-width: 0;
 }
 
+/* The avatar keeps its size on a narrow chat column (a squeezed group stack covered the name's first letter). */
+.chat-header > :first-child {
+  flex: none;
+}
+
 .chat-header-text {
   display: flex;
   flex-direction: column;

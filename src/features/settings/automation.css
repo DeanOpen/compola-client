@@ -332,7 +332,8 @@ select.st-input {
   border-radius: 2px;
 }
 
-.st-search-provider {
+.st-auto-editor.st-search-provider {
+  /* Beats `.st-auto-editor.is-flat` (padding 0), which left the fields flush with the card edge. */
   padding: 12px 14px 14px;
   border-top: 1px solid var(--st-border);
 }

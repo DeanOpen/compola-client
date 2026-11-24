@@ -200,7 +200,8 @@ export const commands = {
   screenCaptureStart: async (conversationId: string, withCompola: boolean) =>
     (await backend()).invoke('screen_capture_start', { conversationId, withCompola }),
   /** Widens (or with a negative delta narrows) the main window by `delta` logical px; the minimum width is 960. */
-  widenWindow: async (delta: number) => (await backend()).invoke('ui_widen_window', { delta }),
+  /** Widens (or narrows) the window, keeping it on screen; resolves to the width actually added (pt). */
+  widenWindow: async (delta: number) => (await backend()).invoke<number | null>('ui_widen_window', { delta }),
   /** Downloads an attachment through the client's network stack and opens it (files that could run code are revealed). */
   mediaOpenFile: async (url: string, name: string) => (await backend()).invoke<{ path: string; revealed: boolean }>('media_open_file', { url, name }),
   /** Saves a media URL to an absolute path (its folder must exist) → the path. */

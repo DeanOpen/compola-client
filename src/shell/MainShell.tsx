@@ -158,22 +158,28 @@ const useHiddenChatLock = (selection: string | null) => {
 };
 
 /** Rail + list + the chat's minimum + the info panel: below this the window is widened while the panel shows. */
-const roomWithInspector = 64 + 344 + 520 + 344;
-const inspectorWidening = 300;
+const roomWithInspector = 76 + 344 + 520 + 344;
 
 /**
  * Swift `InspectorRoom`: the info panel takes its width from the window, never from the chat. Opening it on a window
- * too narrow widens the window (`ui_widen_window`); closing it gives back what was added.
+ * too narrow widens the window by what is missing (`ui_widen_window`, which also keeps the window on screen); closing
+ * it gives back exactly what was added (the host reports it: a small screen may allow less).
  */
 const useInspectorRoom = (shown: boolean) => {
-  const widened = useRef(false);
+  const added = useRef(0);
+  const pending = useRef(false);
   useEffect(() => {
-    if (shown && !widened.current && window.innerWidth < roomWithInspector) {
-      widened.current = true;
-      void commands.widenWindow(inspectorWidening).catch(() => (widened.current = false));
-    } else if (!shown && widened.current) {
-      widened.current = false;
-      void commands.widenWindow(-inspectorWidening).catch(() => {});
+    if (shown && added.current === 0 && !pending.current && window.innerWidth < roomWithInspector) {
+      pending.current = true;
+      void commands
+        .widenWindow(roomWithInspector - window.innerWidth)
+        .then((applied) => (added.current = typeof applied === 'number' && applied > 0 ? applied : 0))
+        .catch(() => {})
+        .finally(() => (pending.current = false));
+    } else if (!shown && added.current > 0) {
+      const back = added.current;
+      added.current = 0;
+      void commands.widenWindow(-back).catch(() => {});
     }
   }, [shown]);
 };

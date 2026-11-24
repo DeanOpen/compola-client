@@ -242,6 +242,7 @@ pub fn run() {
             automation::automation_search_set_config,
             automation::automation_search_clear,
             automation::automation_search_test,
+            automation::automation_search_pull_model,
             remote::remote_status,
             remote::remote_state,
             remote::remote_set_server,

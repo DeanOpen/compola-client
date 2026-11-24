@@ -52,10 +52,18 @@ export const messageSearch = {
   clear: () => call<void>('automation_search_clear'),
   /** Embeds a sample with `config` → vector size. */
   test: (config: SearchConfig) => call<number>('automation_search_test', { config }),
+  /** `ollama pull <model>` through the local Ollama (minutes for a large model). */
+  pullModel: (config: SearchConfig) => call<void>('automation_search_pull_model', { config }),
 };
 
 /** Suggested embedding models per provider (multilingual: Vietnamese works). */
 export const embeddingPresets: Record<SearchConfig['provider'], { url: string; model: string; note: string }> = {
-  ollama: { url: 'http://127.0.0.1:11434', model: 'bge-m3', note: 'Chạy trên máy, miễn phí: cài Ollama rồi chạy “ollama pull bge-m3”.' },
+  ollama: { url: 'http://127.0.0.1:11434', model: 'bge-m3', note: 'Chạy trên máy, miễn phí, tin nhắn không rời máy này. Cần cài Ollama; Compola tự tải model khi kiểm tra.' },
   openai: { url: 'https://api.openai.com/v1', model: 'text-embedding-3-small', note: 'Mọi API tương thích OpenAI (OpenAI, Voyage, Jina, LM Studio…). Nội dung tin nhắn được gửi tới nhà cung cấp này.' },
+};
+
+/** What an embeddings error asks of the user (search.rs `OLLAMA_MISSING` / `OLLAMA_MODEL`), and its text. */
+export const embedProblem = (e: string): { kind: 'ollama-missing' | 'ollama-model' | null; text: string } => {
+  const m = /^\[(ollama-missing|ollama-model)\]\s*/.exec(e);
+  return m ? { kind: m[1] as 'ollama-missing' | 'ollama-model', text: e.slice(m[0].length) } : { kind: null, text: e };
 };

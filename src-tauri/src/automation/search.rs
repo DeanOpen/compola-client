@@ -324,6 +324,31 @@ impl Index {
 
 // ---- embeddings providers ----
 
+/// Error prefixes the settings recognise: Ollama is not running at the URL / it lacks the model.
+pub const OLLAMA_MISSING: &str = "[ollama-missing]";
+pub const OLLAMA_MODEL: &str = "[ollama-model]";
+
+/// Downloads `cfg.model` into the local Ollama (`/api/pull`, what `ollama pull <model>` does). Minutes for a large
+/// model, so it has its own long timeout.
+pub async fn pull_ollama_model(cfg: &SearchConfig) -> Result<(), String> {
+    let base = cfg.url.trim().trim_end_matches('/');
+    let http = reqwest::Client::builder().timeout(std::time::Duration::from_secs(60 * 60)).build().map_err(|e| e.to_string())?;
+    let resp = http
+        .post(format!("{base}/api/pull"))
+        .header("Content-Type", "application/json")
+        .body(json!({ "model": cfg.model.trim(), "stream": false }).to_string())
+        .send()
+        .await
+        .map_err(|e| if e.is_connect() { format!("{OLLAMA_MISSING} Chưa thấy Ollama ở {base}.") } else { e.to_string() })?;
+    let status = resp.status();
+    let v: Value = resp.bytes().await.ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or(Value::Null);
+    if !status.is_success() || v.get("error").is_some() {
+        let msg = v.get("error").and_then(Value::as_str).unwrap_or_default();
+        return Err(format!("không tải được model {}: HTTP {status} {msg}", cfg.model.trim()));
+    }
+    Ok(())
+}
+
 pub async fn embed(http: &reqwest::Client, cfg: &SearchConfig, texts: &[String]) -> Result<Vec<Vec<f32>>, String> {
     let base = cfg.url.trim().trim_end_matches('/');
     if base.is_empty() || cfg.model.trim().is_empty() {
@@ -337,13 +362,25 @@ pub async fn embed(http: &reqwest::Client, cfg: &SearchConfig, texts: &[String])
     if !cfg.api_key.is_empty() {
         req = req.header("Authorization", format!("Bearer {}", cfg.api_key));
     }
-    let resp = req.send().await.map_err(|e| format!("không kết nối được {url}: {e}"))?;
+    let ollama = cfg.provider != "openai";
+    let resp = req.send().await.map_err(|e| {
+        // The settings tell these two apart (`[ollama-missing]` / `[ollama-model]`) and offer the fix for each.
+        if ollama && e.is_connect() {
+            format!("{OLLAMA_MISSING} Chưa thấy Ollama ở {base}. Cài Ollama, mở nó lên rồi kiểm tra lại.")
+        } else {
+            format!("không kết nối được {url}: {e}")
+        }
+    })?;
     let status = resp.status();
     let bytes = resp.bytes().await.map_err(|e| e.to_string())?;
     let v: Value = serde_json::from_slice(&bytes).map_err(|e| format!("trả lời không hợp lệ: {e}"))?;
     if !status.is_success() {
         let msg = v.pointer("/error/message").or_else(|| v.get("error")).map(|e| e.as_str().map(str::to_owned).unwrap_or_else(|| e.to_string()));
-        return Err(format!("HTTP {status}: {}", msg.unwrap_or_default()));
+        let msg = msg.unwrap_or_default();
+        if ollama && status == reqwest::StatusCode::NOT_FOUND && msg.contains("not found") {
+            return Err(format!("{OLLAMA_MODEL} Ollama chưa có model {}.", cfg.model.trim()));
+        }
+        return Err(format!("HTTP {status}: {msg}"));
     }
     let vectors: Vec<Vec<f32>> = match cfg.provider.as_str() {
         "openai" => v.get("data").and_then(Value::as_array).into_iter().flatten().filter_map(|d| d.get("embedding")).map(vector).collect(),

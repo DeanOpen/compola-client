@@ -930,6 +930,12 @@ pub fn automation_search_clear(automation: AutomationState<'_>, account: Option<
     automation.changed();
 }
 
+/// Settings › Tìm kiếm › "Tải model": `ollama pull <model>` through the local Ollama.
+#[tauri::command]
+pub async fn automation_search_pull_model(config: config::SearchConfig) -> Result<(), String> {
+    search::pull_ollama_model(&config).await
+}
+
 /// Embeds a sample text with `config` → the vector size, so the settings can verify a provider before saving.
 #[tauri::command]
 pub async fn automation_search_test(automation: AutomationState<'_>, config: config::SearchConfig) -> Result<usize, String> {

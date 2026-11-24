@@ -1,6 +1,8 @@
 // Mock of the message index (`automation_search*`, Rust src-tauri/src/automation/search.rs): an accent-insensitive
 // keyword search over what the mock has shown — every conversation's latest message and the loaded chat histories —
 // so the list column's "Tin nhắn" results and "Tìm kiếm tin nhắn" work in the browser. No semantic search here.
+// Settings › Tìm kiếm: status / config / the embeddings test — `&ollama=missing|nomodel|ok` picks what the test answers
+// (default missing: Ollama not installed); "Tải model" succeeds after 2 s.
 
 import type { MirrorMessage } from '../../automation';
 import type { SearchHit } from '../../search';
@@ -44,4 +46,32 @@ registerMockCommand('automation_search', (args) => {
     .slice(0, limit)
     .map((m, i) => ({ ...m, score: 1 / (61 + i), matched: 'keyword' }));
   return { mode: 'keyword', hits, semanticError: null };
+});
+
+// ---- Settings › Tìm kiếm ----
+
+let config = { enabled: true, semantic: false, provider: 'ollama', url: 'http://127.0.0.1:11434', model: 'bge-m3', apiKey: '' };
+let pulled = false;
+const ollama = () => new URLSearchParams(location.search).get('ollama') ?? 'missing';
+
+registerMockCommand('automation_search_status', () => ({
+  config,
+  stats: { messages: 133, conversations: 15, embedded: 0, embedModel: '', oldest: Date.now() - 86_400_000 * 240, newest: Date.now(), bytes: 4.2 * (1 << 20) },
+  embedError: null,
+  path: '/mock/search.db',
+}));
+registerMockCommand('automation_search_set_config', (args) => {
+  config = { ...config, ...(args.config as object) };
+  return null;
+});
+registerMockCommand('automation_search_test', async () => {
+  await new Promise((r) => setTimeout(r, 500));
+  if (ollama() === 'missing') throw new Error('[ollama-missing] Chưa thấy Ollama ở http://127.0.0.1:11434. Cài Ollama, mở nó lên rồi kiểm tra lại.');
+  if (ollama() === 'nomodel' && !pulled) throw new Error(`[ollama-model] Ollama chưa có model ${config.model}.`);
+  return 1024;
+});
+registerMockCommand('automation_search_pull_model', async () => {
+  await new Promise((r) => setTimeout(r, 2000));
+  pulled = true;
+  return null;
 });

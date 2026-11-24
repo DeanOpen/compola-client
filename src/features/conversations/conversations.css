@@ -117,6 +117,8 @@
   position: relative;
   display: inline-flex;
   align-items: center;
+  flex: none;
+  white-space: nowrap; /* never "Tất / cả" on two lines when the list narrows for the info panel */
   font-size: 13px;
   font-weight: 600;
   color: var(--text-secondary);

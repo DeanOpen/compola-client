@@ -5,8 +5,9 @@ import { Search, Sparkles } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { formatTime } from '../../engine/automation';
 import { usesMock } from '../../engine/backend';
+import { openExternal } from '../../engine/system';
 import { openConversation } from '../../engine/chat';
-import { embeddingPresets, messageSearch, type SearchConfig, type SearchResult, type SearchStatus } from '../../engine/search';
+import { embedProblem, embeddingPresets, messageSearch, type SearchConfig, type SearchResult, type SearchStatus } from '../../engine/search';
 import { Highlight } from '../../ui/Highlight';
 import { Alert } from '../../ui/Overlays';
 import { Spinner } from '../../ui/Spinner';
@@ -177,6 +178,7 @@ function SemanticSection({ status, reload }: { status: SearchStatus; reload: () 
   const [draft, setDraft] = useState<SearchConfig>(status.config);
   const [test, setTest] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [pulling, setPulling] = useState(false);
   const saved = status.config;
   const dirty = JSON.stringify({ ...draft, enabled: saved.enabled }) !== JSON.stringify(saved);
   const s = status.stats;
@@ -194,6 +196,18 @@ function SemanticSection({ status, reload }: { status: SearchStatus; reload: () 
       .catch((e) => setTest({ ok: false, text: errorText(e) }))
       .finally(() => setBusy(false));
   };
+  const problem = test && !test.ok ? embedProblem(test.text) : null;
+  /** Ollama runs but lacks the model: download it (like `ollama pull`), then test and save again. */
+  const pull = () => {
+    const next = { ...draft, enabled: saved.enabled, semantic: true };
+    setPulling(true);
+    setTest(null);
+    void messageSearch
+      .pullModel(next)
+      .then(() => save(next))
+      .catch((e) => setTest({ ok: false, text: errorText(e) }))
+      .finally(() => setPulling(false));
+  };
   return (
     <Section
       title="Tìm theo ý nghĩa (RAG)"
@@ -203,7 +217,7 @@ function SemanticSection({ status, reload }: { status: SearchStatus; reload: () 
         label="Bật tìm theo ý nghĩa"
         detail={
           saved.semantic && s
-            ? `${s.embedded.toLocaleString('vi-VN')} / ${s.messages.toLocaleString('vi-VN')} tin đã có vector${s.embedModel ? ` (${s.embedModel})` : ''}${status.embedError ? ` · lỗi: ${status.embedError}` : ''}`
+            ? `${s.embedded.toLocaleString('vi-VN')} / ${s.messages.toLocaleString('vi-VN')} tin đã có vector${s.embedModel ? ` (${s.embedModel})` : ''}${status.embedError ? ` · lỗi: ${embedProblem(status.embedError).text}` : ''}`
             : 'Cần một mô hình embeddings: Ollama trên máy hoặc một API.'
         }
       >
@@ -241,10 +255,27 @@ function SemanticSection({ status, reload }: { status: SearchStatus; reload: () 
             <input className="st-input st-auto-mono" type="password" value={draft.apiKey} onChange={(e) => setDraft({ ...draft, apiKey: e.target.value })} spellCheck={false} />
           </label>
         )}
-        {test && <div className={test.ok ? 'st-ok' : 'st-auto-error'}>{test.text}</div>}
+        {test && <div className={test.ok ? 'st-ok' : 'st-auto-error'}>{problem ? problem.text : test.text}</div>}
+        {problem?.kind === 'ollama-missing' && (
+          <div className="st-auto-actions">
+            <span className="st-muted">Ollama chạy mô hình AI ngay trên máy này, miễn phí.</span>
+            <button className="st-button" onClick={() => void openExternal('https://ollama.com/download')}>
+              Tải Ollama
+            </button>
+          </div>
+        )}
+        {(problem?.kind === 'ollama-model' || pulling) && (
+          <div className="st-auto-actions">
+            <span className="st-muted">{pulling ? `Đang tải ${draft.model}… (bge-m3 khoảng 1,2 GB, có thể mất vài phút)` : `Compola có thể tải ${draft.model} vào Ollama cho bạn.`}</span>
+            <button className="st-button is-primary" disabled={pulling} onClick={pull}>
+              {pulling && <Spinner size={12} />}
+              Tải model {draft.model}
+            </button>
+          </div>
+        )}
         <div className="st-auto-actions is-end">
           {dirty && saved.model !== draft.model && saved.semantic && <span className="st-muted">Đổi model sẽ tính lại toàn bộ vector.</span>}
-          <button className="st-button is-primary" disabled={busy || (!dirty && !!test?.ok)} onClick={() => save({ ...draft, enabled: saved.enabled, semantic: true })}>
+          <button className="st-button is-primary" disabled={busy || pulling || (!dirty && !!test?.ok)} onClick={() => save({ ...draft, enabled: saved.enabled, semantic: true })}>
             {busy && <Spinner size={12} />}
             Kiểm tra và lưu
           </button>

@@ -100,14 +100,25 @@
   flex-direction: column;
   flex: 1;
   min-width: 420px;
+}
+
+/* With the info panel open on a window that could not be widened enough (small screen), the list and the chat give
+   way before anything is cut off: rail 76 + 250 + 340 + 294 = 960, the narrowest window. */
+.shell.has-inspector .shell-content {
+  flex: 0 1 344px;
+  min-width: 250px;
+}
+
+.shell.has-inspector .shell-detail {
+  min-width: 340px;
   background: var(--chat-bg);
 }
 
 .shell-inspector {
   display: flex;
   flex-direction: column;
-  flex: none;
-  width: 344px;
+  flex: 0 1 344px;
+  min-width: 294px;
   border-left: 1px solid var(--border);
   background: var(--content);
   animation: compola-panel-in var(--motion-sheet) both;

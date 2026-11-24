@@ -780,13 +780,55 @@ pub(crate) async fn pick_files(app: &AppHandle, pick: Option<&str>) -> Option<Ve
 
 /// Widens (or narrows back) the main window when the inspector opens, so the chat keeps its width (Swift InspectorRoom).
 #[tauri::command]
-pub fn ui_widen_window(app: AppHandle, delta: f64) -> Result<(), String> {
+pub fn ui_widen_window(app: AppHandle, delta: f64) -> Result<f64, String> {
+    /// How far widening moved the window left to keep it on screen; given back when it narrows again.
+    static SHIFTED: std::sync::Mutex<f64> = std::sync::Mutex::new(0.0);
     let w = app.get_webview_window("main").ok_or("no window")?;
+    if w.is_maximized().unwrap_or(false) || w.is_fullscreen().unwrap_or(false) {
+        return Ok(0.0);
+    }
     let scale = w.scale_factor().map_err(|e| e.to_string())?;
-    let size = w.inner_size().map_err(|e| e.to_string())?.to_logical::<f64>(scale);
-    let monitor_w = w.current_monitor().ok().flatten().map(|m| m.size().to_logical::<f64>(m.scale_factor()).width).unwrap_or(f64::MAX);
-    let width = (size.width + delta).clamp(960.0, monitor_w);
-    w.set_size(tauri::LogicalSize::new(width, size.height)).map_err(|e| e.to_string())
+    let inner = w.inner_size().map_err(|e| e.to_string())?.to_logical::<f64>(scale);
+    let outer = w.outer_size().map_err(|e| e.to_string())?.to_logical::<f64>(scale);
+    let pos = w.outer_position().map_err(|e| e.to_string())?.to_logical::<f64>(scale);
+    let frame = (outer.width - inner.width).max(0.0);
+    // The usable part of the screen the window is on (without the Dock / taskbar).
+    let area = w.current_monitor().ok().flatten().map(|m| {
+        let s = m.scale_factor();
+        let a = m.work_area();
+        (a.position.to_logical::<f64>(s), a.size.to_logical::<f64>(s))
+    });
+    let max_width = area.map(|(_, size)| size.width - frame).unwrap_or(f64::MAX).max(960.0);
+    let width = (inner.width + delta).clamp(960.0, max_width);
+    let applied = width - inner.width;
+    w.set_size(tauri::LogicalSize::new(width, inner.height)).map_err(|e| e.to_string())?;
+
+    if let Some((origin, size)) = area {
+        let mut shifted = SHIFTED.lock().map_err(|e| e.to_string())?;
+        let right = origin.x + size.width;
+        let x = if applied > 0.0 {
+            // Past the screen's right edge: slide left so the whole window (and its new panel) stays visible.
+            let over = pos.x + width + frame - right;
+            if over > 0.0 {
+                let nx = (pos.x - over).max(origin.x);
+                *shifted += pos.x - nx;
+                Some(nx)
+            } else {
+                None
+            }
+        } else if *shifted > 0.0 {
+            // Narrowed again: back where it was, as far as the screen allows.
+            let nx = (pos.x + *shifted).min(right - width - frame).max(origin.x);
+            *shifted = 0.0;
+            Some(nx)
+        } else {
+            None
+        };
+        if let Some(x) = x {
+            w.set_position(tauri::LogicalPosition::new(x, pos.y)).map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(applied)
 }
 
 /// ⌘V in the composer: what the clipboard holds as files to send — files copied in Finder (their paths), or an image
