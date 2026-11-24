@@ -51,6 +51,8 @@ impl Drop for ServerHandle {
 
 pub async fn start<H: ToolHost>(automation: Weak<H>, port: u16) -> Result<ServerHandle, String> {
     let listener = TcpListener::bind(("127.0.0.1", port)).await.map_err(|e| format!("không mở được cổng {port}: {e}"))?;
+    // Port 0 asks the OS for a free port; report the one actually bound.
+    let port = listener.local_addr().map(|a| a.port()).unwrap_or(port);
     log::info!("mcp server listening on 127.0.0.1:{port}");
     let task = tauri::async_runtime::spawn(async move {
         loop {
@@ -296,11 +298,9 @@ mod tests {
     #[tokio::test]
     async fn serves_mcp_over_http_to_our_own_client() {
         let host = Arc::new(Fake);
-        let port = {
-            let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-            l.local_addr().unwrap().port()
-        };
-        let _server = start(Arc::downgrade(&host), port).await.unwrap();
+        // Bind port 0 inside `start` (no probe-then-rebind race with tests running in parallel).
+        let _server = start(Arc::downgrade(&host), 0).await.unwrap();
+        let port = _server.port;
 
         let ping = r#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#;
         assert!(raw(port, post("wrong", None, ping)).await.starts_with("HTTP/1.1 401"));
