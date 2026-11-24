@@ -174,7 +174,8 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: COMPOLA_VERSION="$VERSION" scripts/release.sh
+        # Two notarizations (app, DMG) must fit in the job's 6 h: give up on each after 2.5 h.
+        run: COMPOLA_VERSION="$VERSION" COMPOLA_NOTARY_TIMEOUT=9000 scripts/release.sh
 
       - name: Build (Windows / Linux)
         if: runner.os != 'macOS'

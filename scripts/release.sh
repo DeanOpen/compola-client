@@ -72,24 +72,59 @@ if [[ -n "${COMPOLA_SKIP_NOTARIZE:-}" ]]; then
   exit 0
 fi
 
-# Submits one file and fails loudly (with Apple's log) unless the ticket was issued.
+# Submits one file and waits for Apple's verdict; fails loudly (with Apple's log) unless the ticket was issued.
+# Not `notarytool submit --wait`: that gives up on the first network hiccup while Apple is still working (a new team's
+# first submissions can sit "In Progress" for hours), and the run then failed although Apple went on to accept it.
+# Polling `notarytool info` instead rides out dropped connections until COMPOLA_NOTARY_TIMEOUT seconds (default 4 h).
 notarize() {
-  local file="$1" out id
+  local file="$1" out id="" status="" try deadline
   echo "==> Notarizing $file"
-  out="$(xcrun notarytool submit "$file" "${NOTARY[@]}" --wait 2>&1)" || true
-  echo "$out"
-  if ! grep -q 'status: Accepted' <<< "$out"; then
-    id="$(grep -m1 -E '^\s*id:' <<< "$out" | awk '{print $2}')"
-    [[ -n "$id" ]] && xcrun notarytool log "$id" "${NOTARY[@]}" >&2 || true
-    echo "error: notarization of $file was not accepted" >&2
-    exit 1
-  fi
+  for try in 1 2 3 4 5; do
+    out="$(xcrun notarytool submit "$file" "${NOTARY[@]}" --output-format plist 2>&1)" || true
+    id="$(plutil -extract id raw -o - - <<< "$out" 2>/dev/null)" || id=""
+    [[ -n "$id" ]] && break
+    echo "$out" >&2
+    echo "    upload failed (attempt $try), retrying in $((try * 30)) s" >&2
+    sleep $((try * 30))
+  done
+  [[ -n "$id" ]] || { echo "error: could not upload $file for notarization" >&2; exit 1; }
+  echo "    submission $id"
+
+  deadline=$((SECONDS + ${COMPOLA_NOTARY_TIMEOUT:-14400}))
+  while (( SECONDS < deadline )); do
+    out="$(xcrun notarytool info "$id" "${NOTARY[@]}" --output-format plist 2>&1)" || true
+    status="$(plutil -extract status raw -o - - <<< "$out" 2>/dev/null)" || status=""
+    case "$status" in
+      Accepted) echo "    status: Accepted"; return 0 ;;
+      Invalid|Rejected) break ;;
+      "") echo "    status unavailable (network?), still waiting" ;;
+      *) echo "    status: $status ($(( (deadline - SECONDS) / 60 )) min left)" ;;
+    esac
+    sleep 30
+  done
+
+  for try in 1 2 3; do xcrun notarytool log "$id" "${NOTARY[@]}" >&2 && break; sleep 20; done || true
+  echo "error: notarization of $file (submission $id) was not accepted: ${status:-timed out}" >&2
+  echo "       if Apple accepts it later: xcrun notarytool info $id" >&2
+  exit 1
+}
+
+# stapler fetches the ticket from Apple too: retry it on a flaky connection.
+staple() {
+  local try
+  for try in 1 2 3 4 5; do
+    xcrun stapler staple "$1" && return 0
+    echo "    stapling $1 failed (attempt $try), retrying" >&2
+    sleep $((try * 20))
+  done
+  echo "error: could not staple $1" >&2
+  exit 1
 }
 
 # 1. The app itself, so the stapled ticket travels with it even when copied out of the DMG.
 ditto -c -k --keepParent "$APP" "$ZIP"
 notarize "$ZIP"
-xcrun stapler staple "$APP"
+staple "$APP"
 rm -f "$ZIP"
 ditto -c -k --keepParent "$APP" "$ZIP"   # re-zip the stapled app
 
@@ -107,7 +142,7 @@ echo "==> Creating $DMG"
 COMPOLA_DMG_NOTARIZED=1 scripts/make-dmg.sh "$APP" "$DMG"
 codesign --force --timestamp --sign "$IDENTITY" "$DMG"
 notarize "$DMG"
-xcrun stapler staple "$DMG"
+staple "$DMG"
 
 echo "==> Gatekeeper assessment"
 spctl --assess --type execute -vv "$APP"
