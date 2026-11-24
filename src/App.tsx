@@ -4,9 +4,11 @@
 // Joined to a Compola Server: the connection gate replaces all of it until the first connection, and a banner shows
 // while a dropped connection comes back (src/features/remote/RemoteGate.tsx).
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
+import { useAccounts } from './engine/accounts';
 import { useRemote } from './engine/remote';
 import { useEngine } from './engine/store';
+import { AccountEscape } from './features/accounts/AccountEscape';
 import { RemoteBanner, RemoteConnectScreen, useRemoteGateActive } from './features/remote/RemoteGate';
 import { RuntimeSetupView } from './features/setup/RuntimeSetupView';
 import { SetupFlow } from './features/setup/SetupFlow';
@@ -35,6 +37,16 @@ export default function App() {
     }
   }, [phase.kind]);
 
+  // Switching to an account that is already signed in: the first-run steps are owed to a fresh QR sign-in (possibly of
+  // the account just left, e.g. one switched to or signed out by mistake), never to it.
+  const activeId = useAccounts((s) => s.activeId);
+  const lastActive = useRef(activeId);
+  useEffect(() => {
+    const switched = lastActive.current !== null && activeId !== lastActive.current;
+    lastActive.current = activeId;
+    if (switched && useAccounts.getState().accounts.find((a) => a.id === activeId)?.phase === 'ready') setPref('setupPending', false);
+  }, [activeId]);
+
   const finishSetup = (_startTour: boolean) => {
     // The coach-mark tour is a later wave; finishing goes straight to the main window.
     setPref('didFinishSetup', true);
@@ -42,6 +54,7 @@ export default function App() {
   };
 
   let content;
+  let fullWindow = true; // a screen without the rail (and its account column)
   switch (phase.kind) {
     case 'starting':
       content = <SplashView message={`Đang khởi động ${appName}…`} />;
@@ -57,6 +70,7 @@ export default function App() {
       break;
     case 'ready':
       content = setupPending ? <SetupFlow onFinish={finishSetup} /> : <MainShell />;
+      fullWindow = setupPending;
       break;
   }
 
@@ -65,6 +79,7 @@ export default function App() {
   return (
     <>
       {content}
+      {fullWindow && !remoteGate && <AccountEscape />}
       <RemoteBanner />
       <MenuHost />
     </>

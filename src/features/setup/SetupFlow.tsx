@@ -144,6 +144,16 @@ function SyncStep({ onDone }: { onDone: (outcome: SyncOutcome) => void }) {
     return () => clearInterval(t);
   }, [canStart]);
 
+  // Zalo may never say sync can start (its sync module not ready, or no answer at all): after a while the step stops
+  // looking busy and going on without syncing becomes the main button, so the window is never stuck here.
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    setSlow(false);
+    if (canStart) return;
+    const t = setTimeout(() => setSlow(true), 10_000);
+    return () => clearTimeout(t);
+  }, [canStart]);
+
   const startSync = () => (offered ? respondToTransfer(true) : canStartTransfer ? startTransfer() : undefined);
   const later = () => {
     if (transfer?.phase === 'offer') respondToTransfer(false);
@@ -162,6 +172,15 @@ function SyncStep({ onDone }: { onDone: (outcome: SyncOutcome) => void }) {
         </div>
         <div className="setup-actions">
           <button className="btn-link" onClick={() => respondToTransfer(false)}>Huỷ</button>
+          <button
+            className="btn-link"
+            onClick={() => {
+              respondToTransfer(false);
+              onDone('skipped');
+            }}
+          >
+            Để sau, vào {appName}
+          </button>
         </div>
       </div>
     );
@@ -244,21 +263,36 @@ function SyncStep({ onDone }: { onDone: (outcome: SyncOutcome) => void }) {
         <Bullet icon={Clock} title="Vài phút" text="Thường mất vài phút, tuỳ số lượng tin nhắn." />
         <Bullet icon={Wifi} title="Giữ kết nối" text="Giữ Zalo mở và có mạng cho đến khi xong." />
       </div>
-      <div className="setup-actions">
-        <button className="btn btn-prominent btn-large" disabled={!canStart} onClick={startSync}>
-          {canStart ? (
-            'Đồng bộ ngay'
-          ) : (
-            <>
-              <Spinner size={13} /> Đang chuẩn bị…
-            </>
-          )}
-        </button>
-        {!canStart && blocked && <div className="sync-blocked">{transferBlockedText(blocked)}</div>}
-        <button className="btn-link" onClick={later}>
-          Để sau, chỉ nhận tin nhắn mới
-        </button>
-      </div>
+      {slow && !canStart ? (
+        <div className="setup-actions">
+          <div className="sync-blocked">
+            {blocked ? transferBlockedText(blocked) : 'Zalo chưa sẵn sàng để đồng bộ lúc này.'} Bạn có thể vào {appName} ngay và đồng
+            bộ sau trong Cài đặt › Sao lưu & đồng bộ.
+          </div>
+          <button className="btn btn-prominent btn-large" onClick={later}>
+            Vào {appName}
+          </button>
+          <button className="btn-link" onClick={() => fireAdapter('__zaloTransfer', 'availability')}>
+            Kiểm tra lại
+          </button>
+        </div>
+      ) : (
+        <div className="setup-actions">
+          <button className="btn btn-prominent btn-large" disabled={!canStart} onClick={startSync}>
+            {canStart ? (
+              'Đồng bộ ngay'
+            ) : (
+              <>
+                <Spinner size={13} /> Đang chuẩn bị…
+              </>
+            )}
+          </button>
+          {!canStart && blocked && <div className="sync-blocked">{transferBlockedText(blocked)}</div>}
+          <button className="btn-link" onClick={later}>
+            Để sau, chỉ nhận tin nhắn mới
+          </button>
+        </div>
+      )}
     </div>
   );
 }
