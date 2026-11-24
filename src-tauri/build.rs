@@ -13,12 +13,14 @@ fn ensure_fingerprint_helper() {
     use std::path::PathBuf;
     let (Ok(target), Ok(manifest)) = (std::env::var("TARGET"), std::env::var("CARGO_MANIFEST_DIR")) else { return };
     let manifest = PathBuf::from(manifest);
-    let binary = manifest.join("binaries").join(format!("compola-fingerprint-helper-{target}"));
+    let exe = if target.contains("windows") { ".exe" } else { "" };
+    let binary = manifest.join("binaries").join(format!("compola-fingerprint-helper-{target}{exe}"));
     if binary.exists() {
         return;
     }
+    // Through bash: Windows cannot execute a shell script directly (Git Bash provides `bash` there).
     let script = manifest.join("../scripts/build-fingerprint-helper.sh");
-    let status = std::process::Command::new(&script).arg(&target).status();
+    let status = std::process::Command::new("bash").arg(&script).arg(&target).status();
     if binary.exists() {
         return;
     }

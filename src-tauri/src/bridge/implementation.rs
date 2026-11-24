@@ -89,6 +89,7 @@ pub fn install(reg: &mut Registry, platform: &Arc<Platform>) {
     super::file_manager::install(reg, platform);
 }
 
+#[cfg(unix)]
 fn uname() -> (String, String, String) {
     // SAFETY: plain libc call into a zeroed struct.
     unsafe {
@@ -101,16 +102,17 @@ fn uname() -> (String, String, String) {
     }
 }
 
-/// Node's `os.hostname()` = `gethostname(3)`.
-pub fn hostname() -> String {
-    let mut buf = [0 as libc::c_char; 256];
-    // SAFETY: buffer is valid for its length.
-    unsafe {
-        libc::gethostname(buf.as_mut_ptr(), buf.len());
-        std::ffi::CStr::from_ptr(buf.as_ptr()).to_string_lossy().into_owned()
-    }
+#[cfg(not(unix))]
+fn uname() -> (String, String, String) {
+    (String::new(), String::new(), std::env::consts::ARCH.to_owned())
 }
 
+/// Node's `os.hostname()` = `gethostname(3)`.
+pub fn hostname() -> String {
+    crate::sys::hostname()
+}
+
+#[cfg(target_os = "macos")]
 fn sysctl_u64(name: &str) -> Option<u64> {
     let cname = std::ffi::CString::new(name).ok()?;
     let mut value: u64 = 0;
@@ -120,10 +122,39 @@ fn sysctl_u64(name: &str) -> Option<u64> {
     (rc == 0).then_some(value)
 }
 
+#[cfg(target_os = "macos")]
 fn total_memory() -> u64 {
     sysctl_u64("hw.memsize").unwrap_or(8 << 30)
 }
 
+#[cfg(target_os = "linux")]
+fn linux_sysinfo() -> Option<libc::sysinfo> {
+    // SAFETY: `sysinfo` only writes into the zeroed struct we own.
+    let mut info: libc::sysinfo = unsafe { std::mem::zeroed() };
+    (unsafe { libc::sysinfo(&mut info) } == 0).then_some(info)
+}
+
+#[cfg(target_os = "linux")]
+fn total_memory() -> u64 {
+    linux_sysinfo().map(|i| i.totalram as u64 * u64::from(i.mem_unit)).filter(|t| *t > 0).unwrap_or(8 << 30)
+}
+
+#[cfg(target_os = "linux")]
+fn uptime_seconds() -> u64 {
+    linux_sysinfo().map(|i| i.uptime.max(0) as u64).unwrap_or(0)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn total_memory() -> u64 {
+    8 << 30
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn uptime_seconds() -> u64 {
+    0
+}
+
+#[cfg(target_os = "macos")]
 fn uptime_seconds() -> u64 {
     let mut tv = libc::timeval { tv_sec: 0, tv_usec: 0 };
     let mut size = std::mem::size_of::<libc::timeval>();
@@ -139,6 +170,13 @@ fn uptime_seconds() -> u64 {
 
 /// Node's `os.networkInterfaces()` as a JSON array of `[name, [addresses…]]` pairs (getifaddrs order kept: the
 /// official QoS code takes the *first* non-internal IPv4 as the local IP). Address objects match Node's shape.
+/// Windows (no `getifaddrs`) reports none.
+#[cfg(not(unix))]
+pub fn network_interfaces_json() -> String {
+    "[]".into()
+}
+
+#[cfg(unix)]
 pub fn network_interfaces_json() -> String {
     use std::collections::HashMap;
     let mut order: Vec<String> = Vec::new();
@@ -174,20 +212,10 @@ pub fn network_interfaces_json() -> String {
         while !cur.is_null() {
             let ifa = &*cur;
             cur = ifa.ifa_next;
-            if ifa.ifa_addr.is_null() || (*ifa.ifa_addr).sa_family as i32 != libc::AF_LINK {
-                continue;
+            if let Some(mac) = link_address(ifa) {
+                let name = std::ffi::CStr::from_ptr(ifa.ifa_name).to_string_lossy().into_owned();
+                macs.insert(name, mac.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(":"));
             }
-            let name = std::ffi::CStr::from_ptr(ifa.ifa_name).to_string_lossy().into_owned();
-            let dl = &*(ifa.ifa_addr as *const libc::sockaddr_dl);
-            if dl.sdl_alen != 6 {
-                continue;
-            }
-            let data = std::slice::from_raw_parts(dl.sdl_data.as_ptr() as *const u8, dl.sdl_data.len());
-            let start = dl.sdl_nlen as usize;
-            if start + 6 > data.len() {
-                continue;
-            }
-            macs.insert(name, data[start..start + 6].iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(":"));
         }
 
         let mut cur = ifap;
@@ -253,4 +281,42 @@ pub fn network_interfaces_json() -> String {
     }
     let pairs: Vec<Value> = order.iter().map(|n| json!([n, addresses.remove(n).unwrap_or_default()])).collect();
     serde_json::to_string(&pairs).unwrap_or_else(|_| "[]".into())
+}
+
+/// The 6-byte hardware address of a link-layer `ifaddrs` entry (macOS `AF_LINK`, Linux `AF_PACKET`).
+///
+/// SAFETY: `ifa` comes from a live `getifaddrs` list.
+#[cfg(target_os = "macos")]
+unsafe fn link_address(ifa: &libc::ifaddrs) -> Option<[u8; 6]> {
+    unsafe {
+        if ifa.ifa_addr.is_null() || (*ifa.ifa_addr).sa_family as i32 != libc::AF_LINK {
+            return None;
+        }
+        let dl = &*(ifa.ifa_addr as *const libc::sockaddr_dl);
+        if dl.sdl_alen != 6 {
+            return None;
+        }
+        let data = std::slice::from_raw_parts(dl.sdl_data.as_ptr() as *const u8, dl.sdl_data.len());
+        let start = dl.sdl_nlen as usize;
+        data.get(start..start + 6)?.try_into().ok()
+    }
+}
+
+#[cfg(target_os = "linux")]
+unsafe fn link_address(ifa: &libc::ifaddrs) -> Option<[u8; 6]> {
+    unsafe {
+        if ifa.ifa_addr.is_null() || (*ifa.ifa_addr).sa_family as i32 != libc::AF_PACKET {
+            return None;
+        }
+        let ll = &*(ifa.ifa_addr as *const libc::sockaddr_ll);
+        if ll.sll_halen != 6 {
+            return None;
+        }
+        ll.sll_addr[..6].try_into().ok()
+    }
+}
+
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "linux"))))]
+unsafe fn link_address(_ifa: &libc::ifaddrs) -> Option<[u8; 6]> {
+    None
 }

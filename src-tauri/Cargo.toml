@@ -71,6 +71,9 @@ objc2-app-kit = { version = "0.3", default-features = false, features = ["std", 
 security-framework = "3"
 core-foundation = "0.10"
 
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Threading"] }
+
 [profile.release]
 codegen-units = 1
 lto = true

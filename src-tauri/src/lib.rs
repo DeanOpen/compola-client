@@ -21,6 +21,7 @@ mod runtime;
 mod screen_capture;
 mod shared_worker;
 mod sqlite_host;
+mod sys;
 mod values;
 
 
@@ -67,15 +68,18 @@ fn init_logging() {
 pub fn run() {
     init_logging();
     let _ = rustls::crypto::ring::default_provider().install_default();
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .register_asynchronous_uri_scheme_protocol(host::SCHEME, host::protocol::handle)
         .register_asynchronous_uri_scheme_protocol(media::protocol::SCHEME, media::protocol::handle)
-        .manage(host::Hosts::default())
-        // A crashed WebContent process (one webview) is reloaded by its own account only (docs/multi-account.md §11).
-        .on_web_content_process_terminate(|webview| account::renderer_terminated(webview.app_handle(), webview.label()))
+        .manage(host::Hosts::default());
+    // A crashed WebContent process (one webview) is reloaded by its own account only (docs/multi-account.md §11).
+    #[cfg(target_os = "macos")]
+    let builder =
+        builder.on_web_content_process_terminate(|webview| account::renderer_terminated(webview.app_handle(), webview.label()));
+    builder
         .setup(|app| {
             // Multi-account registry (docs/multi-account.md): an install from before it becomes the `default` account,
             // nothing moves.

@@ -6,7 +6,6 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
 
 use super::{CallProcess, ExitFn};
 
@@ -55,7 +54,7 @@ pub fn owner_pid(directory_name: &str) -> Option<i32> {
 }
 
 pub fn is_dead(pid: i32) -> bool {
-    unsafe { libc::kill(pid, 0) != 0 && *libc::__error() == libc::ESRCH }
+    crate::sys::pid_is_gone(pid)
 }
 
 /// For helper argv `[exe, recvPath, sendPath]`: the dead owner's pid when it is one of our stale directories.
@@ -86,19 +85,19 @@ fn is_our_helper(path: &Path, helper: &Path) -> bool {
 #[cfg(target_os = "macos")]
 pub fn reap_orphans(helper_executable: &Path) -> Vec<i32> {
     let me = std::process::id() as i32;
-    let uid = unsafe { libc::getuid() };
+    let uid = crate::sys::uid();
     let mut reaped = Vec::new();
     for pid in all_pids() {
         if pid == me {
             continue;
         }
         let Some(path) = pid_path(pid) else { continue };
-        if !is_our_helper(&path, helper_executable) || owner_uid(pid) != Some(uid) {
+        if !is_our_helper(&path, helper_executable) || owner_uid(pid) != uid {
             continue;
         }
         if arguments(pid).is_some_and(|argv| stale_owner(&argv).is_some()) {
             log::info!("call: reaping orphaned helper {pid}");
-            unsafe { libc::kill(pid, libc::SIGTERM) };
+            crate::sys::signal(pid, crate::sys::Signal::Terminate);
             reaped.push(pid);
         }
     }
@@ -113,10 +112,10 @@ pub(crate) fn kill_later(pids: Vec<i32>) {
         return;
     }
     std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_secs(2));
+        std::thread::sleep(std::time::Duration::from_secs(2));
         for pid in pids {
-            if unsafe { libc::kill(pid, 0) } == 0 {
-                unsafe { libc::kill(pid, libc::SIGKILL) };
+            if crate::sys::pid_is_alive(pid) {
+                crate::sys::signal(pid, crate::sys::Signal::Kill);
             }
         }
     });
@@ -209,9 +208,7 @@ pub fn parse_proc_args(data: &[u8]) -> Option<Vec<String>> {
 
 /// Directories of Compola processes that no longer exist (crash / force quit) — only our own, never through a link.
 pub fn remove_stale_directories(base: &Path) {
-    use std::os::unix::fs::MetadataExt;
     let Ok(entries) = std::fs::read_dir(base) else { return };
-    let uid = unsafe { libc::getuid() };
     let me = std::process::id() as i32;
     for entry in entries.flatten() {
         let name = entry.file_name();
@@ -220,7 +217,7 @@ pub fn remove_stale_directories(base: &Path) {
             continue;
         }
         let Ok(meta) = std::fs::symlink_metadata(entry.path()) else { continue };
-        if meta.is_dir() && meta.uid() == uid {
+        if meta.is_dir() && crate::sys::owned_by_me(&meta) {
             let _ = std::fs::remove_dir_all(entry.path());
         }
     }
@@ -228,6 +225,7 @@ pub fn remove_stale_directories(base: &Path) {
 
 /// A fresh private directory made with `mkdtemp` (0700, fails when the name exists): `$TMPDIR` is already per-user;
 /// a short `/tmp` name is the fallback when the path would not fit `sockaddr_un`.
+#[cfg(unix)]
 pub fn make_socket_directory(base: &Path) -> Result<PathBuf, String> {
     remove_stale_directories(base);
     remove_stale_directories(Path::new("/tmp"));
@@ -249,6 +247,20 @@ pub fn make_socket_directory(base: &Path) -> Result<PathBuf, String> {
     Err("socket path too long".into())
 }
 
+/// No UNIX sockets for the helper here: a uniquely named directory under `base` (the helper never runs off macOS).
+#[cfg(not(unix))]
+pub fn make_socket_directory(base: &Path) -> Result<PathBuf, String> {
+    remove_stale_directories(base);
+    let pid = std::process::id();
+    for _ in 0..16 {
+        let dir = base.join(format!("compola-call-{pid}-{:06x}", rand::random::<u32>() & 0xFF_FFFF));
+        if std::fs::create_dir(&dir).is_ok() {
+            return Ok(dir);
+        }
+    }
+    Err("could not create the socket directory".into())
+}
+
 // ---------------------------------------------------------------------------------------------------------------------
 // Parent-death watchdog
 // ---------------------------------------------------------------------------------------------------------------------
@@ -265,6 +277,7 @@ pub struct Watchdog {
 const WATCHDOG_SCRIPT: &str = r#"read -r _ ; kill -TERM "$1" 2>/dev/null; i=0; while kill -0 "$1" 2>/dev/null && [ $i -lt 20 ]; do sleep 0.1; i=$((i+1)); done; kill -KILL "$1" 2>/dev/null"#;
 
 impl Watchdog {
+    #[cfg(unix)]
     pub fn spawn(target: u32) -> Option<Self> {
         use std::os::unix::process::CommandExt;
         let child = Command::new("/bin/sh")
@@ -277,6 +290,12 @@ impl Watchdog {
             .inspect_err(|e| log::warn!("helper watchdog not started: {e}"))
             .ok()?;
         Some(Self { child: Some(child) })
+    }
+
+    /// No `/bin/sh` elsewhere: the helper only runs on macOS.
+    #[cfg(not(unix))]
+    pub fn spawn(_target: u32) -> Option<Self> {
+        None
     }
 
     /// The target ended on its own (or was stopped by us): stop watching without touching its pid again.
@@ -346,10 +365,13 @@ impl SystemCallProcess {
             }
             flag.store(false, Ordering::SeqCst);
             let code = match status {
+                #[cfg(unix)]
                 Ok(s) => {
                     use std::os::unix::process::ExitStatusExt;
                     s.code().or(s.signal()).unwrap_or(-1)
                 }
+                #[cfg(not(unix))]
+                Ok(s) => s.code().unwrap_or(-1),
                 Err(_) => -1,
             };
             let bytes = counter.join().unwrap_or(0);
@@ -359,9 +381,9 @@ impl SystemCallProcess {
         Ok(Arc::new(SystemCallProcess { pid, running }))
     }
 
-    fn signal(&self, sig: i32) {
+    fn signal(&self, sig: crate::sys::Signal) {
         if self.running.load(Ordering::SeqCst) {
-            unsafe { libc::kill(self.pid, sig) };
+            crate::sys::signal(self.pid, sig);
         }
     }
 }
@@ -371,13 +393,13 @@ impl CallProcess for SystemCallProcess {
         self.running.load(Ordering::SeqCst)
     }
     fn interrupt(&self) {
-        self.signal(libc::SIGINT);
+        self.signal(crate::sys::Signal::Interrupt);
     }
     fn terminate(&self) {
-        self.signal(libc::SIGTERM);
+        self.signal(crate::sys::Signal::Terminate);
     }
     fn force_kill(&self) {
-        self.signal(libc::SIGKILL);
+        self.signal(crate::sys::Signal::Kill);
     }
     fn pid(&self) -> Option<i32> {
         self.is_running().then_some(self.pid)
@@ -387,7 +409,10 @@ impl CallProcess for SystemCallProcess {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
+    use std::time::Duration;
 
+    #[cfg(unix)]
     #[test]
     fn orphan_matching_only_touches_our_stale_directories() {
         let dead = "/tmp/compola-call-999999-AbCdEf";
@@ -418,6 +443,7 @@ mod tests {
         assert!(arguments(std::process::id() as i32).is_some_and(|a| !a.is_empty()));
     }
 
+    #[cfg(unix)]
     #[test]
     fn stale_directories_of_dead_processes_are_removed() {
         let base = PathBuf::from(format!("/tmp/szt-stale-{}", rand::random::<u32>() % 1_000_000));
@@ -435,10 +461,12 @@ mod tests {
         let _ = std::fs::remove_dir_all(&base);
     }
 
+    #[cfg(unix)]
     fn alive(pid: u32) -> bool {
-        unsafe { libc::kill(pid as i32, 0) == 0 }
+        crate::sys::pid_is_alive(pid as i32)
     }
 
+    #[cfg(unix)]
     #[test]
     fn watchdog_kills_the_helper_when_its_parent_goes() {
         // Our death closes the pipe; dropping the armed watchdog does exactly that.
@@ -452,6 +480,7 @@ mod tests {
         assert_eq!(status.signal(), Some(libc::SIGTERM));
     }
 
+    #[cfg(unix)]
     #[test]
     fn disarmed_watchdog_leaves_the_helper_alone() {
         let mut helper = Command::new("/bin/sleep").arg("60").spawn().unwrap();

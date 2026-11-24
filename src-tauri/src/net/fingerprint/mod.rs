@@ -531,30 +531,31 @@ fn retry_delay(attempts: u32) -> Duration {
 
 /// SIGTERM (the helper removes its socket and exits), then reap it if it is already gone.
 fn terminate(child: &mut Child) {
-    unsafe {
-        libc::kill(child.id() as libc::pid_t, libc::SIGTERM);
-    }
+    crate::sys::signal(child.id() as i32, crate::sys::Signal::Terminate);
     let _ = child.try_wait();
 }
 
 /// Next to the app executable (bundles: `Contents/MacOS/`; `cargo run`/`tauri dev`: tauri-build copies the
 /// sidecar into `target/<profile>/`), else the build script's output in `src-tauri/binaries/` (tests).
 fn helper_path() -> Option<PathBuf> {
+    // The helper listens on a UNIX socket, which std cannot connect to on Windows: the fallback stack is used there.
+    if cfg!(not(unix)) {
+        return None;
+    }
     let mut candidates = Vec::new();
     if let Some(directory) = std::env::current_exe().ok().and_then(|exe| exe.parent().map(Path::to_path_buf)) {
-        candidates.push(directory.join(HELPER_NAME));
+        candidates.push(directory.join(format!("{HELPER_NAME}{}", std::env::consts::EXE_SUFFIX)));
     }
     candidates.push(
         Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("binaries")
-            .join(format!("{HELPER_NAME}-{}", env!("TAURI_ENV_TARGET_TRIPLE"))),
+            .join(format!("{HELPER_NAME}-{}{}", env!("TAURI_ENV_TARGET_TRIPLE"), std::env::consts::EXE_SUFFIX)),
     );
     candidates.into_iter().find(|path| is_executable(path))
 }
 
 fn is_executable(path: &Path) -> bool {
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+    crate::sys::is_executable_file(path)
 }
 
 /// Sockets of helpers whose owning process is gone (`fp-helper-<pid>-<random>.sock`).
@@ -564,13 +565,13 @@ fn sweep_stale_sockets(directory: &Path) {
         let name = entry.file_name().to_string_lossy().into_owned();
         let Some(rest) = name.strip_prefix("fp-helper-").filter(|_| name.ends_with(".sock")) else { continue };
         let pid: String = rest.chars().take_while(char::is_ascii_digit).collect();
-        let Ok(pid) = pid.parse::<libc::pid_t>() else { continue };
+        let Ok(pid) = pid.parse::<i32>() else { continue };
         if pid > 0 && pid_is_gone(pid) {
             let _ = std::fs::remove_file(entry.path());
         }
     }
 }
 
-fn pid_is_gone(pid: libc::pid_t) -> bool {
-    unsafe { libc::kill(pid, 0) != 0 && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH) }
+fn pid_is_gone(pid: i32) -> bool {
+    crate::sys::pid_is_gone(pid)
 }

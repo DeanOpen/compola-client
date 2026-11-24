@@ -422,10 +422,13 @@ impl Accounts {
         let list = self.list();
         let total: i64 = list.accounts.iter().map(|a| a.badge.max(0)).sum();
         let Some(app) = self.app() else { return };
+        #[cfg(target_os = "macos")]
         if let Some(w) = app.get_webview_window("main") {
             let label = (total > 0).then(|| if total > 5 { "5+".to_owned() } else { total.to_string() });
             let _ = w.set_badge_label(label);
         }
+        #[cfg(not(target_os = "macos"))]
+        let _ = total;
         use tauri::Emitter;
         let _ = app.emit_to("main", "compola://accounts", json!({ "kind": "changed", "list": list }));
     }

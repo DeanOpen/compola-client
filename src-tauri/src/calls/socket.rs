@@ -5,13 +5,14 @@
 //! Writes are queued and never block the caller.
 
 use std::collections::HashMap;
-use std::os::unix::fs::PermissionsExt;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+#[cfg(unix)]
 use std::time::Duration;
 
 use parking_lot::Mutex;
 use tauri::async_runtime::JoinHandle;
+#[cfg(unix)]
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::mpsc;
 
@@ -76,9 +77,17 @@ impl UnixSocketServer {
         if self.path.len() > MAX_PATH_LENGTH {
             return Err("socket path too long".into());
         }
+        #[cfg(not(unix))]
+        return Err("UNIX sockets are not available on this platform".into());
+        #[cfg(unix)]
+        self.listen()
+    }
+
+    #[cfg(unix)]
+    fn listen(&self) -> Result<(), String> {
         let _ = std::fs::remove_file(&self.path);
         let listener = std::os::unix::net::UnixListener::bind(&self.path).map_err(|e| format!("bind(): {e}"))?;
-        let _ = std::fs::set_permissions(&self.path, std::fs::Permissions::from_mode(0o600));
+        crate::sys::set_mode(std::path::Path::new(&self.path), 0o600);
         listener.set_nonblocking(true).map_err(|e| format!("listen(): {e}"))?;
         self.listening.store(true, Ordering::SeqCst);
         let inner = self.inner.clone();
@@ -127,6 +136,7 @@ impl Drop for UnixSocketServer {
     }
 }
 
+#[cfg(unix)]
 fn accept_one(inner: &Arc<Inner>, stream: tokio::net::UnixStream) {
     let id = inner.next_id.fetch_add(1, Ordering::Relaxed);
     let (mut read_half, mut write_half) = stream.into_split();
