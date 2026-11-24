@@ -91,11 +91,7 @@ ditto -c -k --keepParent "$APP" "$ZIP"   # re-zip the stapled app
 
 # 2. A drag-to-Applications DMG, signed, notarized and stapled too.
 echo "==> Creating $DMG"
-STAGE="$(mktemp -d)"
-cp -R "$APP" "$STAGE/"
-ln -s /Applications "$STAGE/Applications"
-hdiutil create -volname "Compola" -srcfolder "$STAGE" -ov -quiet -format UDZO "$DMG"
-rm -rf "$STAGE"
+scripts/make-dmg.sh "$APP" "$DMG"
 codesign --force --timestamp --sign "$IDENTITY" "$DMG"
 notarize "$DMG"
 xcrun stapler staple "$DMG"

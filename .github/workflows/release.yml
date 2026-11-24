@@ -3,6 +3,11 @@ name: Release
 # Push a tag like v0.2.0 (or run it by hand with a tag): builds Compola for macOS (universal, ad-hoc signed),
 # Windows (x64: NSIS installer + MSI) and Linux (x64: .deb, .rpm, AppImage), then publishes them all with SHA256SUMS
 # to one GitHub Release. The gateway image is published by docker.yml.
+#
+# Auto-update: every build also produces a signed update bundle (macOS .app.tar.gz, Windows NSIS installer, Linux
+# AppImage) and the release gets a latest.json, which the app polls (tauri.conf.json › plugins.updater). Signing needs
+# the TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD secrets (`npx tauri signer generate`); the
+# public half is plugins.updater.pubkey.
 on:
   push:
     tags: ['v*']
@@ -17,6 +22,9 @@ permissions:
 
 env:
   TAG: ${{ inputs.tag || github.ref_name }}
+  TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+  TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+  UPDATER_CONFIG: '{"bundle":{"createUpdaterArtifacts":true}}'
 
 jobs:
   build:
@@ -88,13 +96,13 @@ jobs:
       # Users open it the first time with right-click → Open (or System Settings → Privacy & Security → Open Anyway).
       - name: Build (macOS)
         if: runner.os == 'macOS'
-        run: scripts/make-app.sh --universal --dmg
+        run: scripts/make-app.sh --universal --dmg --updater
 
       - name: Build (Windows / Linux)
         if: runner.os != 'macOS'
         run: |
           scripts/build-fingerprint-helper.sh "${{ matrix.target }}"
-          npx tauri build --target "${{ matrix.target }}" --bundles "${{ matrix.bundles }}"
+          npx tauri build --target "${{ matrix.target }}" --bundles "${{ matrix.bundles }}" --config "$UPDATER_CONFIG"
 
       - name: Package
         run: |
@@ -102,17 +110,21 @@ jobs:
           mkdir -p dist-release
           case "$RUNNER_OS" in
             macOS)
-              cp "$OUT"/dmg/*.dmg "dist-release/Compola-$VERSION-macos-universal.dmg"
+              cp "$OUT"/dmg/Compola.dmg "dist-release/Compola-$VERSION-macos-universal.dmg"
               ditto -c -k --keepParent "$OUT/macos/Compola.app" "dist-release/Compola-$VERSION-macos-universal.zip"
+              cp "$OUT"/macos/Compola.app.tar.gz "dist-release/Compola-$VERSION-macos-universal.app.tar.gz"
+              cp "$OUT"/macos/Compola.app.tar.gz.sig "dist-release/Compola-$VERSION-macos-universal.app.tar.gz.sig"
               ;;
             Windows)
               cp "$OUT"/nsis/*.exe "dist-release/Compola-$VERSION-windows-x64-setup.exe"
+              cp "$OUT"/nsis/*.exe.sig "dist-release/Compola-$VERSION-windows-x64-setup.exe.sig"
               cp "$OUT"/msi/*.msi "dist-release/Compola-$VERSION-windows-x64.msi"
               ;;
             Linux)
               cp "$OUT"/deb/*.deb "dist-release/Compola-$VERSION-linux-amd64.deb"
               cp "$OUT"/rpm/*.rpm "dist-release/Compola-$VERSION-linux-x86_64.rpm"
               cp "$OUT"/appimage/*.AppImage "dist-release/Compola-$VERSION-linux-x86_64.AppImage"
+              cp "$OUT"/appimage/*.AppImage.sig "dist-release/Compola-$VERSION-linux-x86_64.AppImage.sig"
               ;;
           esac
           ls -l dist-release
@@ -142,6 +154,33 @@ jobs:
         run: |
           ls dist-release/* >/dev/null 2>&1 || { echo "no platform built" >&2; exit 1; }
           (cd dist-release && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt)
+      - name: Update manifest (latest.json)
+        run: |
+          VERSION="${TAG#v}"
+          BASE="https://github.com/${{ github.repository }}/releases/download/$TAG"
+          python3 - "$VERSION" "$BASE" <<'PY'
+          import json, sys, datetime, pathlib
+          version, base = sys.argv[1], sys.argv[2]
+          d = pathlib.Path("dist-release")
+          def entry(name):
+              sig = d / f"{name}.sig"
+              return {"signature": sig.read_text().strip(), "url": f"{base}/{name}"} if sig.exists() else None
+          mac = entry(f"Compola-{version}-macos-universal.app.tar.gz")
+          targets = {
+              "darwin-aarch64": mac,
+              "darwin-x86_64": mac,
+              "windows-x86_64": entry(f"Compola-{version}-windows-x64-setup.exe"),
+              "linux-x86_64": entry(f"Compola-{version}-linux-x86_64.AppImage"),
+          }
+          manifest = {
+              "version": version,
+              "notes": f"Compola {version}: https://github.com/${{ github.repository }}/releases/tag/v{version}",
+              "pub_date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+              "platforms": {k: v for k, v in targets.items() if v},
+          }
+          (d / "latest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+          print(json.dumps(manifest, indent=2))
+          PY
       - name: Create or update the release
         env:
           GH_TOKEN: ${{ github.token }}

@@ -22,6 +22,7 @@ mod screen_capture;
 mod shared_worker;
 mod sqlite_host;
 mod sys;
+mod updater;
 mod values;
 
 
@@ -72,6 +73,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .register_asynchronous_uri_scheme_protocol(host::SCHEME, host::protocol::handle)
         .register_asynchronous_uri_scheme_protocol(media::protocol::SCHEME, media::protocol::handle)
         .manage(host::Hosts::default());
@@ -100,6 +102,7 @@ pub fn run() {
                 automation.start();
             }
             remote.start();
+            updater::start(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

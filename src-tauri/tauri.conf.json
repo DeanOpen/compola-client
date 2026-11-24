@@ -51,5 +51,16 @@
       "hardenedRuntime": true,
       "signingIdentity": "-"
     }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEJGMUE5OTQyMEUzMjAxOEQKUldTTkFUSU9RcGthdjhoRksyYWU0YnNDNTBYRk9uUTE0dlNqcUlaNE1CUGxFZGdsNXJlQVdUUHcK",
+      "endpoints": [
+        "https://github.com/DeanOpen/compola-client/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

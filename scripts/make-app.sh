@@ -4,19 +4,23 @@
 # Info.plist keys merged from src-tauri/Info.plist, the fingerprint helper sidecar in Contents/MacOS.
 #
 #   scripts/make-app.sh            # host architecture, .app only
-#   scripts/make-app.sh --dmg      # .app + .dmg
+#   scripts/make-app.sh --dmg      # .app + .dmg (scripts/make-dmg.sh: background + drag-to-Applications layout)
 #   scripts/make-app.sh --universal [--dmg]
+#   scripts/make-app.sh --updater  # also the signed update bundle (Compola.app.tar.gz + .sig); needs
+#                                  # TAURI_SIGNING_PRIVATE_KEY (+ _PASSWORD), see .github/workflows/release.yml
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-BUNDLES=app
+DMG=
 TARGET_ARGS=()
+CONFIG_ARGS=()
 TRIPLE="$(rustc -vV | sed -n 's/^host: //p')"
 for arg in "$@"; do
   case "$arg" in
-    --dmg) BUNDLES=app,dmg ;;
+    --dmg) DMG=1 ;;
     --universal) TRIPLE=universal-apple-darwin; TARGET_ARGS=(--target universal-apple-darwin) ;;
-    *) echo "usage: $0 [--dmg] [--universal]" >&2; exit 2 ;;
+    --updater) CONFIG_ARGS=(--config '{"bundle":{"createUpdaterArtifacts":true}}') ;;
+    *) echo "usage: $0 [--dmg] [--universal] [--updater]" >&2; exit 2 ;;
   esac
 done
 
@@ -24,11 +28,11 @@ done
 # The sidecar for the bundle's architecture (build.rs only builds per-arch helpers, never the universal one).
 scripts/build-fingerprint-helper.sh "$TRIPLE"
 
-npx tauri build --bundles "$BUNDLES" "${TARGET_ARGS[@]}"
+npx tauri build --bundles app "${TARGET_ARGS[@]}" "${CONFIG_ARGS[@]}"
 
 OUT=src-tauri/target/${TARGET_ARGS:+universal-apple-darwin/}release/bundle
 APP="$OUT/macos/Compola.app"
 codesign --verify --deep --strict "$APP"
 echo "Bundled $APP"
-[[ "$BUNDLES" == *dmg* ]] && ls "$OUT"/dmg/*.dmg
+[[ -n "$DMG" ]] && scripts/make-dmg.sh "$APP" "$OUT/dmg/Compola.dmg"
 echo "Launch with: open $APP   (quit any running dev instance first: they share the account session)"
