@@ -1027,7 +1027,7 @@ mod tests {
     #[tokio::test]
     async fn files_partitions_and_delete() {
         let h = host();
-        assert!(h.file_path("a/../b/c").to_string_lossy().ends_with("/a/b/c.db"));
+        assert!(h.file_path("a/../b/c").ends_with(std::path::Path::new("a").join("b").join("c.db")));
         h.run("family/group/key1", st("CREATE TABLE t (x)", vec![])).await.unwrap();
         h.run("family/group/key2", st("CREATE TABLE t (x)", vec![])).await.unwrap();
         assert_eq!(h.partition_keys("family"), vec!["key1".to_owned(), "key2".to_owned()]);

@@ -80,7 +80,7 @@ pub fn check_local_path(raw: &str, roots: &[PathBuf]) -> Result<PathBuf, (u16, &
             let parent_inside = path.parent().and_then(|p| std::fs::canonicalize(p).ok()).is_some_and(|parent| {
                 roots.iter().filter_map(|r| std::fs::canonicalize(r).ok()).any(|root| parent.starts_with(&root))
             });
-            Err(if parent_inside && !raw.split('/').any(|s| s == "..") { (404, "no such file") } else { (403, "path not allowed") })
+            Err(if parent_inside && !raw.split(['/', '\\']).any(|s| s == "..") { (404, "no such file") } else { (403, "path not allowed") })
         }
     }
 }
@@ -527,12 +527,18 @@ mod tests {
         let default = parse_request_with_roots(&uri(&format!("compola-media://load?file={}", enc(photo.to_str().unwrap()))), &roots).unwrap();
         assert!(matches!(default, Request::Local(_, LocalFlavour::Image)));
         let status = |path: &str| parse_request_with_roots(&uri(&format!("compola-media://load?file={}", enc(path))), &roots).unwrap_err().0;
-        assert_eq!(status("/etc/hosts"), 403);
+        // An existing file and a missing folder outside the roots (absolute: `/etc/hosts` has no drive on Windows).
+        let (outside, nowhere) = if cfg!(windows) {
+            (r"C:\Windows\win.ini", r"C:\nonexistent-compola\x.jpg")
+        } else {
+            ("/etc/hosts", "/nonexistent-compola/x.jpg")
+        };
+        assert_eq!(status(outside), 403);
         assert_eq!(status("relative/a.jpg"), 400);
         assert_eq!(status(&format!("{}/ZaloData/ZaloDownloads/../../../../../../etc/hosts", root.display())), 403);
         assert_eq!(status(&format!("{}/ZaloData/ZaloDownloads/missing.jpg", root.display())), 404);
         assert_eq!(status(&format!("{}/ZaloData/ZaloDownloads", root.display())), 403); // a directory
-        assert_eq!(status("/nonexistent-compola/x.jpg"), 403);
+        assert_eq!(status(nowhere), 403);
         #[cfg(unix)]
         {
             std::os::unix::fs::symlink("/etc/hosts", root.join("ZaloData/escape")).unwrap();
