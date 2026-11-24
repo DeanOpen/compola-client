@@ -54,7 +54,7 @@ env -u APPLE_ID -u APPLE_PASSWORD -u APPLE_TEAM_ID -u APPLE_API_KEY -u APPLE_API
   npx tauri build --target "$TRIPLE" --bundles app --config "{\"version\":\"$VERSION\"}"
 
 codesign --verify --deep --strict --verbose=2 "$APP"
-SIG="$(codesign -dv --entitlements - "$APP" 2>&1)"
+SIG="$(codesign -dvv --entitlements - "$APP" 2>&1)"  # -dvv: the Authority lines only print at this level
 grep -q 'flags=.*runtime' <<< "$SIG" || { echo "error: hardened runtime missing" >&2; exit 1; }
 grep -q 'allow-jit' <<< "$SIG" || { echo "error: entitlements missing" >&2; exit 1; }
 grep -q 'Authority=Developer ID Application' <<< "$SIG" || { echo "error: not Developer ID signed" >&2; exit 1; }
