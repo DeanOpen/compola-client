@@ -119,10 +119,22 @@ jobs:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           if [ -z "$APPLE_CERTIFICATE" ]; then
             echo "::notice::No APPLE_CERTIFICATE secret: the macOS build is ad-hoc signed (not notarized)."
             exit 0
+          fi
+          # Signing without notarization would still be blocked by Gatekeeper: both or neither.
+          if [ -z "$APPLE_API_KEY_P8" ] || [ -z "$APPLE_API_KEY" ] || [ -z "$APPLE_API_ISSUER" ]; then
+            if [ -z "$APPLE_ID" ] || [ -z "$APPLE_PASSWORD" ] || [ -z "$APPLE_TEAM_ID" ]; then
+              echo "::warning::APPLE_CERTIFICATE is set but no notarization credentials (APPLE_API_KEY + APPLE_API_ISSUER + APPLE_API_KEY_P8, or APPLE_ID + APPLE_PASSWORD + APPLE_TEAM_ID): the macOS build stays ad-hoc signed."
+              exit 0
+            fi
           fi
           KEYCHAIN="$RUNNER_TEMP/compola-signing.keychain-db"
           KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"
