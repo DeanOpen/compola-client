@@ -9,6 +9,7 @@
 //! - `{kind:'changed'}` — config, jobs, runs or server status changed: refetch `automation_state`
 
 pub mod addons;
+pub mod ai;
 pub mod config;
 pub mod cron;
 pub mod mcp_client;
@@ -30,6 +31,7 @@ use tokio::sync::{Mutex as AsyncMutex, Notify, oneshot};
 
 use crate::engine::{Engine, Phase};
 use crate::host::emit_ui;
+use addons::host::AddonHost;
 use config::{Action, AddonState, Config, Job, McpClientConfig, McpServerConfig, Schedule};
 
 pub const EVENT: &str = "compola://automation";
@@ -66,6 +68,8 @@ pub struct Automation {
     http: reqwest::Client,
     /// Last embeddings failure, shown in Settings; cleared on success.
     embed_error: Mutex<Option<String>>,
+    /// Add-on runtimes and what they show people (`addons::host`).
+    pub addons: Arc<AddonHost>,
 }
 
 enum IndexJob {
@@ -129,7 +133,9 @@ impl Automation {
         if let Err(e) = config::save(&config) {
             log::warn!("automation: cannot save config: {e}");
         }
-        Arc::new(Self {
+        let addon_host = AddonHost::new(app.clone());
+        let this = Arc::new(Self {
+            addons: addon_host.clone(),
             app,
             config: Mutex::new(config),
             accounts: Mutex::default(),
@@ -144,11 +150,14 @@ impl Automation {
             wake: Notify::new(),
             http: reqwest::Client::builder().timeout(Duration::from_secs(120)).build().unwrap_or_default(),
             embed_error: Mutex::new(None),
-        })
+        });
+        addon_host.attach(&this);
+        this
     }
 
     pub fn start(self: &Arc<Self>) {
         self.recompute_due();
+        self.addons.sync();
         // Background embeddings for semantic search.
         let weak = Arc::downgrade(self);
         tauri::async_runtime::spawn(async move {
@@ -270,13 +279,15 @@ impl Automation {
             let new = m.apply(state);
             (new, m.take_indexable())
         };
-        if !indexable.is_empty() && self.config.lock().search.enabled {
+        if !indexable.is_empty() && self.indexing() {
             if let Some(tx) = &data.index_tx {
                 let _ = tx.send(IndexJob::Upsert(indexable));
             }
         }
         for message in new {
-            emit_ui(&self.app, EVENT, json!({ "kind": "message", "account": account, "message": message }));
+            let value = serde_json::to_value(&message).unwrap_or(Value::Null);
+            self.addons.message(account, &value);
+            emit_ui(&self.app, EVENT, json!({ "kind": "message", "account": account, "message": value }));
         }
     }
 
@@ -450,11 +461,12 @@ impl Automation {
             },
             Action::Addon { addon_id, payload } => {
                 let enabled = self.config.lock().addons.get(addon_id).is_some_and(|a| a.enabled);
-                if enabled {
-                    emit_ui(&self.app, EVENT, json!({ "kind": "schedule", "addonId": addon_id, "jobId": job.id, "payload": payload }));
+                if !enabled {
+                    Err("add-on đang tắt".into())
+                } else if self.addons.schedule(addon_id, payload) {
                     Ok("Đã chuyển cho add-on".into())
                 } else {
-                    Err("add-on đang tắt".into())
+                    Err("add-on không chạy (xem Cài đặt › Add-on)".into())
                 }
             }
         };
@@ -595,8 +607,11 @@ impl Automation {
         let request_id = uuid::Uuid::new_v4().to_string();
         let (tx, rx) = oneshot::channel();
         self.addon_calls.lock().insert(request_id.clone(), tx);
-        emit_ui(&self.app, EVENT, json!({ "kind": "toolCall", "requestId": request_id, "addonId": addon_id, "tool": tool, "arguments": arguments }));
-        match tokio::time::timeout(Duration::from_secs(60), rx).await {
+        if !self.addons.tool_call(addon_id, &request_id, tool, arguments) {
+            self.addon_calls.lock().remove(&request_id);
+            return Err("add-on không chạy".into());
+        }
+        match tokio::time::timeout(Duration::from_secs(120), rx).await {
             Ok(Ok(r)) => r,
             _ => {
                 self.addon_calls.lock().remove(&request_id);
@@ -629,9 +644,12 @@ pub struct AddonView {
     #[serde(flatten)]
     pub addon: addons::Addon,
     pub enabled: bool,
+    /// The user's values over the manifest's defaults.
     pub settings: serde_json::Map<String, Value>,
-    pub storage: serde_json::Map<String, Value>,
+    pub limits: config::AddonLimits,
     pub tools: Vec<Value>,
+    pub status: addons::host::Status,
+    pub stats: Value,
 }
 
 #[tauri::command]
@@ -644,9 +662,11 @@ pub async fn automation_state(automation: AutomationState<'_>) -> Result<Value, 
     let addons: Vec<AddonView> = addons::list()
         .into_iter()
         .map(|addon| {
-            let st = cfg.addons.get(&addon.manifest.id).cloned().unwrap_or_default();
-            let tools = addon_tools.get(&addon.manifest.id).cloned().unwrap_or_default();
-            AddonView { addon, enabled: st.enabled, settings: st.settings, storage: st.storage, tools }
+            let id = addon.manifest.id.clone();
+            let st = cfg.addons.get(&id).cloned().unwrap_or_default();
+            let tools = addon_tools.get(&id).cloned().unwrap_or_default();
+            let settings = addons::host::settings_with_defaults(&addon.manifest, &st.settings);
+            AddonView { status: a.addons.status(&id), stats: a.addons.stats(&id), addon, enabled: st.enabled, settings, limits: st.limits, tools }
         })
         .collect();
     let runs: Vec<RunLog> = a.runs.lock().iter().cloned().collect();
@@ -666,6 +686,7 @@ pub async fn automation_state(automation: AutomationState<'_>) -> Result<Value, 
         "addons": addons,
         "addonDir": addons::dir().to_string_lossy(),
         "permissions": addons::PERMISSIONS,
+        "ai": addons::commands::ai_view(&cfg.ai),
     }))
 }
 
@@ -764,98 +785,7 @@ pub fn automation_cron_preview(expr: String, count: Option<usize>) -> Result<Vec
     Ok(cron::upcoming(&expr, count.unwrap_or(5).clamp(1, 20))?.into_iter().map(|t| t.timestamp_millis()).collect())
 }
 
-/// Installs an add-on from `path` (a folder with manifest.json or a .js file), or from what the user picks.
-#[tauri::command]
-pub async fn automation_addon_install(app: AppHandle, automation: AutomationState<'_>, path: Option<String>, folder: Option<bool>) -> Result<Option<String>, String> {
-    let path = match path {
-        Some(p) => p,
-        None => {
-            use tauri_plugin_dialog::DialogExt;
-            let (tx, rx) = oneshot::channel();
-            let dialog = app.dialog().file().set_title("Chọn add-on");
-            if folder.unwrap_or(false) {
-                dialog.pick_folder(move |p| {
-                    let _ = tx.send(p);
-                });
-            } else {
-                dialog.add_filter("Add-on (JavaScript)", &["js", "mjs"]).pick_file(move |p| {
-                    let _ = tx.send(p);
-                });
-            }
-            match rx.await.ok().flatten().and_then(|p| p.into_path().ok()) {
-                Some(p) => p.to_string_lossy().into_owned(),
-                None => return Ok(None),
-            }
-        }
-    };
-    let id = addons::install(std::path::Path::new(&path))?;
-    automation.update_config(|c| {
-        c.addons.entry(id.clone()).or_default();
-    })?;
-    automation.changed();
-    Ok(Some(id))
-}
-
-#[tauri::command]
-pub fn automation_addon_set_enabled(automation: AutomationState<'_>, id: String, enabled: bool) -> Result<(), String> {
-    automation.update_config(|c| c.addons.entry(id.clone()).or_default().enabled = enabled)?;
-    if !enabled {
-        automation.addon_tools.lock().remove(&id);
-    }
-    automation.changed();
-    Ok(())
-}
-
-#[tauri::command]
-pub fn automation_addon_set_settings(automation: AutomationState<'_>, id: String, settings: serde_json::Map<String, Value>) -> Result<(), String> {
-    automation.update_config(|c| c.addons.entry(id).or_default().settings = settings)?;
-    automation.changed();
-    Ok(())
-}
-
-#[tauri::command]
-pub fn automation_addon_storage_set(automation: AutomationState<'_>, id: String, key: String, value: Value) -> Result<(), String> {
-    automation.update_config(|c| {
-        let st: &mut AddonState = c.addons.entry(id).or_default();
-        if value.is_null() {
-            st.storage.remove(&key);
-        } else {
-            st.storage.insert(key, value);
-        }
-    })
-}
-
-#[tauri::command]
-pub fn automation_addon_remove(automation: AutomationState<'_>, id: String) -> Result<(), String> {
-    addons::remove(&id)?;
-    automation.update_config(|c| {
-        c.addons.remove(&id);
-        c.jobs.retain(|j| !matches!(&j.action, Action::Addon { addon_id, .. } if *addon_id == id));
-    })?;
-    automation.addon_tools.lock().remove(&id);
-    automation.recompute_due();
-    automation.changed();
-    Ok(())
-}
-
-/// The tools a running add-on offers to MCP clients (replaces its earlier list).
-#[tauri::command]
-pub fn automation_addon_register_tools(automation: AutomationState<'_>, id: String, tools: Vec<Value>) {
-    let tools: Vec<Value> = tools.into_iter().filter(|t| t.get("name").and_then(Value::as_str).is_some_and(|n| !n.is_empty())).collect();
-    let mut map = automation.addon_tools.lock();
-    if tools.is_empty() {
-        map.remove(&id);
-    } else {
-        map.insert(id, tools);
-    }
-}
-
-#[tauri::command]
-pub fn automation_addon_tool_reply(automation: AutomationState<'_>, request_id: String, ok: bool, result: Value) {
-    if let Some(tx) = automation.addon_calls.lock().remove(&request_id) {
-        let _ = tx.send(if ok { Ok(result) } else { Err(result.as_str().map(str::to_owned).unwrap_or_else(|| result.to_string())) });
-    }
-}
+// Add-on commands: `addons/commands.rs`.
 
 #[tauri::command]
 pub fn automation_conversations(automation: AutomationState<'_>, account: Option<String>, query: Option<String>, limit: Option<usize>) -> Result<Vec<mirror::Conversation>, String> {
@@ -903,6 +833,121 @@ impl Automation {
         json!({ "config": cfg, "stats": stats, "embedError": self.embed_error.lock().clone(), "path": path, "account": id })
     }
 
+    /// Every add-on's stored state (enabled, settings, limits).
+    pub(crate) fn addon_states(&self) -> std::collections::BTreeMap<String, AddonState> {
+        self.config.lock().addons.clone()
+    }
+
+    pub(crate) fn ai_config(&self) -> config::AiConfig {
+        self.config.lock().ai.clone()
+    }
+
+    pub(crate) fn set_addon_tools(&self, addon: &str, tools: Vec<Value>) {
+        let tools: Vec<Value> = tools.into_iter().filter(|t| t.get("name").and_then(Value::as_str).is_some_and(|n| !n.is_empty())).take(100).collect();
+        let mut map = self.addon_tools.lock();
+        if tools.is_empty() {
+            map.remove(addon);
+        } else {
+            map.insert(addon.to_owned(), tools);
+        }
+    }
+
+    pub(crate) fn addon_tool_reply(&self, request_id: &str, ok: bool, result: Value) {
+        if let Some(tx) = self.addon_calls.lock().remove(request_id) {
+            let _ = tx.send(if ok { Ok(result) } else { Err(result.as_str().map(str::to_owned).unwrap_or_else(|| result.to_string())) });
+        }
+    }
+
+    pub(crate) fn addon_jobs(&self, addon: &str) -> Vec<Job> {
+        self.config.lock().jobs.iter().filter(|j| matches!(&j.action, Action::Addon { addon_id, .. } if addon_id == addon)).cloned().collect()
+    }
+
+    /// The account id `account` names (None: the active account).
+    pub(crate) fn resolve_account(&self, account: Option<&str>) -> Result<String, String> {
+        self.resolve(account)
+    }
+
+    /// The first account (active first) whose mirror knows the conversation.
+    pub(crate) fn account_of_conversation(&self, conversation: &str) -> Option<String> {
+        let active = self.resolve(None).ok();
+        let all = self.accounts.lock();
+        if let Some(a) = active.as_ref().and_then(|a| all.get(a).map(|d| (a, d))) {
+            if a.1.mirror.lock().knows(conversation) {
+                return Some(a.0.clone());
+            }
+        }
+        all.iter().find(|(_, d)| d.mirror.lock().knows(conversation)).map(|(id, _)| id.clone())
+    }
+
+    pub(crate) fn account_list(&self) -> Value {
+        let reg = crate::account::accounts(&self.app).registry();
+        json!(reg
+            .accounts
+            .iter()
+            .map(|r| json!({ "id": r.id, "name": r.label.clone().or_else(|| r.name.clone()).unwrap_or_default(), "active": r.id == reg.active }))
+            .collect::<Vec<_>>())
+    }
+
+    /// Messages are indexed when search is on or an enabled add-on reads messages (`compola.history`).
+    fn indexing(&self) -> bool {
+        let cfg = self.config.lock();
+        cfg.search.enabled
+            || cfg.addons.iter().any(|(id, st)| st.enabled && addons::get(id).is_some_and(|a| a.manifest.has("messages:read")))
+    }
+
+    /// A conversation's messages between `since` and `until`: the index (what Compola has seen over time) merged with
+    /// the opened chat's loaded messages, oldest first.
+    pub(crate) async fn history(&self, account: &str, conversation: &str, since: i64, until: i64, limit: usize) -> Result<Vec<mirror::Message>, String> {
+        let data = self.data(Some(account))?;
+        let mut out: Vec<mirror::Message> = match data.index.clone() {
+            Some(ix) => {
+                let conv = conversation.to_owned();
+                tauri::async_runtime::spawn_blocking(move || ix.range(&conv, since, until, limit)).await.map_err(|e| e.to_string())?
+            }
+            None => Vec::new(),
+        };
+        let live = data.mirror.lock().messages(Some(conversation), 500);
+        for m in live.into_iter().filter(|m| m.date >= since && m.date < until) {
+            if !out.iter().any(|x| x.id == m.id || (x.source == "preview" && x.text == m.text && (x.date - m.date).abs() < 3000)) {
+                out.push(m);
+            }
+        }
+        out.sort_by_key(|m| m.date);
+        let skip = out.len().saturating_sub(limit);
+        Ok(out.into_iter().skip(skip).collect())
+    }
+
+    /// Conversations with messages since `since` (index), newest first.
+    pub(crate) async fn active_conversations(&self, account: &str, since: i64, limit: usize) -> Result<Value, String> {
+        let ix = self.data(Some(account))?.index.clone().ok_or("chỉ mục tin nhắn không mở được")?;
+        let rows = tauri::async_runtime::spawn_blocking(move || ix.active_since(since, limit)).await.map_err(|e| e.to_string())?;
+        Ok(json!(rows
+            .into_iter()
+            .map(|(id, name, is_group, count, last)| json!({ "id": id, "name": name, "isGroup": is_group, "count": count, "lastDate": last, "account": account }))
+            .collect::<Vec<_>>()))
+    }
+
+    pub(crate) fn mcp_servers(&self) -> Value {
+        json!(self
+            .config
+            .lock()
+            .mcp_clients
+            .iter()
+            .filter(|c| c.enabled)
+            .map(|c| json!({ "id": c.id, "name": c.name, "transport": c.transport }))
+            .collect::<Vec<_>>())
+    }
+
+    pub(crate) async fn mcp_tools(&self, id: &str) -> Result<Value, String> {
+        let cfg = self.client_config(id).ok_or("máy chủ MCP không tồn tại hoặc đang tắt")?;
+        json_ok(self.pool.get(&cfg).await?.list_tools().await?)
+    }
+
+    pub(crate) async fn mcp_call(&self, id: &str, tool: &str, arguments: Value) -> Result<Value, String> {
+        let cfg = self.client_config(id).ok_or("máy chủ MCP không tồn tại hoặc đang tắt")?;
+        self.pool.get(&cfg).await?.call_tool(tool, arguments).await
+    }
+
     /// `automation_messages` without the Tauri state (`crate::remote`).
     pub(crate) fn recent_messages(&self, account: Option<&str>, conversation_id: Option<&str>, limit: usize) -> Result<Vec<mirror::Message>, String> {
         Ok(self.data(account)?.mirror.lock().messages(conversation_id, limit.min(500)))
@@ -942,4 +987,8 @@ pub async fn automation_search_test(automation: AutomationState<'_>, config: con
     let a = automation.inner().clone();
     let v = search::embed(&a.http, &config, &["Xin chào, hẹn gặp lúc 3 giờ chiều".to_owned()]).await?;
     Ok(v.first().map(Vec::len).unwrap_or(0))
+}
+
+fn json_ok<T: Serialize>(v: T) -> Result<Value, String> {
+    serde_json::to_value(v).map_err(|e| e.to_string())
 }

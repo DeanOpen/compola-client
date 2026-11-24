@@ -1,9 +1,10 @@
 // Settings › Nâng cao: MCP (Compola's own MCP server + external MCP servers), Lịch tự động (cron / one-time schedules)
 // and Add-on. Backed by src/engine/automation.ts (Rust src-tauri/src/automation).
 
-import { CalendarClock, Check, ChevronDown, ChevronRight, Copy, Play, Plus, Puzzle, RefreshCw, Trash2, Wrench } from 'lucide-react';
+import { AlertTriangle, CalendarClock, Check, ChevronDown, ChevronRight, Copy, History, Package, Play, Plus, Puzzle, RefreshCw, RotateCw, Sparkles, Trash2, Wrench } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { useAddonLogs } from '../../engine/addons';
+import { addons as addonApi, useAddonCatalog, type AddonLimits, type AddonLogLine, type AddonPreview, type AiConfig } from '../../engine/addons';
+import { AddonFrame } from '../addons/AddonFrame';
 import {
   addonSettings,
   automation,
@@ -819,42 +820,86 @@ function JobEditor({ initial, onDone }: { initial: Job; onDone: () => void }) {
 
 // MARK: - Add-on
 
+const kb = (n: number) => (n > 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
+
+function statusChip(addon: Addon) {
+  if (!addon.enabled) return <span className="st-chip">Đang tắt</span>;
+  switch (addon.status.state) {
+    case 'running':
+      return <span className="st-chip is-ok">Đang chạy</span>;
+    case 'restarting':
+      return <span className="st-chip is-warn" title={addon.status.reason}>Đang khởi động lại ({addon.status.attempt})</span>;
+    case 'faulted':
+      return <span className="st-chip is-bad" title={addon.status.reason}>Tạm dừng do lỗi</span>;
+    default:
+      return <span className="st-chip">Đang dừng</span>;
+  }
+}
+
 export function AddonSettings() {
   const { state, error } = useAutomationState();
   const [problem, setProblem] = useState<string | null>(null);
   const [removing, setRemoving] = useState<Addon | null>(null);
+  const [pending, setPending] = useState<{ path: string; preview: AddonPreview } | null>(null);
+  const [installing, setInstalling] = useState(false);
   if (!state) return <Unavailable error={error} />;
-  const install = (folder: boolean) => {
+  const pick = (kind: 'zip' | 'js' | 'folder') => {
     setProblem(null);
-    void automation
-      .installAddon(folder)
-      .then(refreshAutomation)
+    void addonApi
+      .pick(kind)
+      .then((path) => (path ? addonApi.inspect(path).then((preview) => setPending({ path, preview })) : undefined))
       .catch((e) => setProblem(errorText(e)));
+  };
+  const install = () => {
+    if (!pending) return;
+    setInstalling(true);
+    void addonApi
+      .install(pending.path)
+      .then(() => {
+        setPending(null);
+        return refreshAutomation();
+      })
+      .catch((e) => setProblem(errorText(e)))
+      .finally(() => setInstalling(false));
   };
   return (
     <>
-      <Section title="Add-on đã cài" footer={<>Thư mục add-on: <code className="selectable">{state.addonDir}</code></>}>
+      <Section
+        title="Add-on đã cài"
+        footer={
+          <>
+            Mỗi add-on chạy trong một vùng cách ly riêng (giới hạn bộ nhớ, thời gian và quyền), tự khởi động lại khi lỗi. Thư mục:{' '}
+            <code className="selectable">{state.addonDir}</code>
+          </>
+        }
+      >
         {state.addons.length === 0 && <Row label="Chưa có add-on nào" />}
         {state.addons.map((a) => (
           <AddonCard key={a.manifest.id} addon={a} onRemove={() => setRemoving(a)} />
         ))}
         <div className="st-auto-footer-actions">
-          <button className="st-button" onClick={() => install(false)}>
-            <Plus size={14} />
-            Cài từ tệp .js…
+          <button className="st-button is-primary" onClick={() => pick('zip')}>
+            <Package size={14} />
+            Cài từ tệp .zip…
           </button>
-          <button className="st-button" onClick={() => install(true)}>
+          <button className="st-button" onClick={() => pick('js')}>
             <Plus size={14} />
-            Cài từ thư mục…
+            Từ tệp .js…
+          </button>
+          <button className="st-button" onClick={() => pick('folder')}>
+            <Plus size={14} />
+            Từ thư mục…
           </button>
         </div>
       </Section>
       <Problem text={problem} />
+      <AiSection config={state.ai} />
       <AddonGuide />
+      {pending && <InstallConsent preview={pending.preview} busy={installing} onCancel={() => setPending(null)} onInstall={install} />}
       {removing && (
         <Alert
           title={`Gỡ add-on “${removing.manifest.name}”?`}
-          message="Cài đặt, dữ liệu và lịch của add-on này cũng bị xoá."
+          message="Cài đặt, dữ liệu, lịch và giao diện của add-on này cũng bị xoá. Ghi chú nó đã viết vẫn được giữ."
           buttons={[
             { label: 'Huỷ', role: 'cancel', onClick: () => setRemoving(null) },
             {
@@ -863,7 +908,7 @@ export function AddonSettings() {
               onClick: () => {
                 const id = removing.manifest.id;
                 setRemoving(null);
-                void automation.removeAddon(id).then(refreshAutomation).catch((e) => setProblem(errorText(e)));
+                void addonApi.remove(id).then(refreshAutomation).catch((e) => setProblem(errorText(e)));
               },
             },
           ]}
@@ -873,10 +918,42 @@ export function AddonSettings() {
   );
 }
 
+/** What the user agrees to before a package is installed. */
+function InstallConsent({ preview, busy, onCancel, onInstall }: { preview: AddonPreview; busy: boolean; onCancel: () => void; onInstall: () => void }) {
+  const m = preview.manifest;
+  const update = preview.installedVersion !== null;
+  const lines = [
+    `${m.name} ${m.version ? `v${m.version}` : ''}${m.author ? ` · ${m.author}` : ''}`,
+    m.description,
+    update ? `Cập nhật từ v${preview.installedVersion}${preview.downgrade ? ' (phiên bản cũ hơn!)' : ''}. Có thể khôi phục phiên bản trước.` : '',
+    `Quyền: ${m.permissions.length ? m.permissions.map((p) => permissionTitles[p] ?? p).join(', ') : 'không có'}`,
+    preview.newPermissions.length ? `Quyền mới so với bản đang cài: ${preview.newPermissions.map((p) => permissionTitles[p] ?? p).join(', ')}` : '',
+    m.hosts?.length ? `Chỉ truy cập: ${m.hosts.join(', ')}` : '',
+    ...preview.warnings.map((w) => `⚠︎ ${w}`),
+    `${preview.files} tệp · ${kb(preview.bytes)}`,
+    'Chỉ cài add-on từ nguồn bạn tin tưởng.',
+  ].filter(Boolean);
+  return (
+    <Alert
+      title={update ? `Cập nhật add-on “${m.name}”?` : `Cài add-on “${m.name}”?`}
+      message={lines.join('\n')}
+      buttons={[
+        { label: 'Huỷ', role: 'cancel', onClick: onCancel },
+        { label: busy ? 'Đang cài…' : update ? 'Cập nhật' : 'Cài đặt', onClick: () => !busy && onInstall() },
+      ]}
+    />
+  );
+}
+
 function AddonCard({ addon, onRemove }: { addon: Addon; onRemove: () => void }) {
   const [open, setOpen] = useState(false);
-  const logs = useAddonLogs((s) => s[addon.manifest.id]);
+  const [problem, setProblem] = useState<string | null>(null);
   const m = addon.manifest;
+  const allViews = useAddonCatalog((s) => s.views);
+  const settingsViews = useMemo(() => allViews.filter((v) => v.addonId === m.id && v.location === 'settings'), [allViews, m.id]);
+  const views = m.contributes?.views ?? [];
+  const act = (p: Promise<unknown>) => void p.then(refreshAutomation).catch((e) => setProblem(errorText(e)));
+  const failed = addon.enabled && (addon.status.state === 'faulted' || addon.status.state === 'restarting');
   return (
     <div className="st-auto-item">
       <Row
@@ -886,6 +963,7 @@ function AddonCard({ addon, onRemove }: { addon: Addon; onRemove: () => void }) 
             {m.name}
             {m.version && <span className="st-muted">v{m.version}</span>}
             {addon.builtin && <span className="st-chip">có sẵn</span>}
+            {statusChip(addon)}
           </span>
         }
         detail={
@@ -897,17 +975,27 @@ function AddonCard({ addon, onRemove }: { addon: Addon; onRemove: () => void }) 
                   {permissionTitles[p] ?? p}
                 </span>
               ))}
+              {views.map((v) => (
+                <span key={v.id} className="st-chip is-tool" title={`Giao diện HTML (${v.location})`}>
+                  {v.location === 'tab' ? 'Tab' : v.location === 'inspector' ? 'Bảng thông tin' : v.location === 'composer' ? 'Ô soạn tin' : v.location === 'modal' ? 'Hộp thoại' : 'Cài đặt'}: {v.title}
+                </span>
+              ))}
               {addon.tools.map((t) => (
                 <span key={t.name} className="st-chip is-tool" title={t.description}>
                   MCP: {t.name}
                 </span>
               ))}
             </span>
+            {failed && (
+              <span className="st-bad st-auto-status">
+                <AlertTriangle size={12} /> {'reason' in addon.status ? addon.status.reason : ''}
+              </span>
+            )}
           </>
         }
       >
         <div className="st-auto-actions">
-          <Toggle label={`Bật ${m.name}`} on={addon.enabled} onChange={(enabled) => void automation.setAddonEnabled(m.id, enabled).then(refreshAutomation)} />
+          <Toggle label={`Bật ${m.name}`} on={addon.enabled} onChange={(enabled) => act(addonApi.setEnabled(m.id, enabled))} />
           <button className="st-button" onClick={() => setOpen((o) => !o)}>
             {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
             Tuỳ chỉnh
@@ -916,15 +1004,35 @@ function AddonCard({ addon, onRemove }: { addon: Addon; onRemove: () => void }) 
       </Row>
       {open && (
         <div className="st-auto-sub">
-          {m.settings.length > 0 ? <AddonSettingsForm addon={addon} /> : <div className="st-muted">Add-on này không có tuỳ chỉnh.</div>}
-          <div className="st-field">
-            <span>Nhật ký</span>
-            <pre className="st-snippet selectable st-auto-log">
-              {logs?.length ? logs.map((l) => `${new Date(l.at).toLocaleTimeString('vi-VN')}  ${l.text}`).join('\n') : addon.enabled ? 'Chưa có dòng nào.' : 'Add-on đang tắt.'}
-            </pre>
-          </div>
+          {settingsViews.map((v) => (
+            <div key={v.id} className="st-field">
+              <span>{v.title}</span>
+              <div className="st-addon-view">
+                <AddonFrame view={v} minHeight={60} />
+              </div>
+            </div>
+          ))}
+          {m.settings.length > 0 ? <AddonSettingsForm addon={addon} /> : settingsViews.length === 0 && <div className="st-muted">Add-on này không có tuỳ chỉnh.</div>}
+          <AddonHealth addon={addon} />
+          <AddonLimitsForm addon={addon} />
+          <AddonLog addon={addon} />
+          <Problem text={problem} />
           <div className="st-auto-actions">
-            <span className="st-muted st-auto-mono truncate">{addon.path}</span>
+            <span className="st-muted st-auto-mono truncate" title={addon.path}>
+              {addon.path}
+            </span>
+            {addon.enabled && (
+              <button className="st-button" onClick={() => act(addonApi.restart(m.id))}>
+                <RotateCw size={14} />
+                Khởi động lại
+              </button>
+            )}
+            {addon.hasBackup && (
+              <button className="st-button" onClick={() => act(addonApi.rollback(m.id))} title="Quay về phiên bản trước lần cập nhật cuối">
+                <History size={14} />
+                Khôi phục bản trước
+              </button>
+            )}
             <button className="st-button is-danger" onClick={onRemove}>
               <Trash2 size={14} />
               Gỡ add-on
@@ -932,6 +1040,125 @@ function AddonCard({ addon, onRemove }: { addon: Addon; onRemove: () => void }) 
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function AddonHealth({ addon }: { addon: Addon }) {
+  const s = addon.stats;
+  if (!addon.enabled) return null;
+  const items: [string, string][] = [
+    ['Sự kiện', String(s.events ?? 0)],
+    ['Lệnh gọi', String(s.calls ?? 0)],
+    ['Lỗi', String(s.errors ?? 0)],
+    ['Bộ nhớ', s.memory ? kb(s.memory) : '—'],
+    ['Thời gian xử lý', `${s.busyMs ?? 0} ms`],
+    ['Sự kiện bị bỏ', String(s.dropped ?? 0)],
+    ['Yêu cầu AI', s.aiRequests ? `${s.aiRequests} (${(s.aiInputTokens ?? 0) + (s.aiOutputTokens ?? 0)} token)` : '0'],
+  ];
+  return (
+    <div className="st-field">
+      <span>Tình trạng</span>
+      <div className="st-auto-stats">
+        {items.map(([k, v]) => (
+          <div key={k} className="st-auto-stat">
+            <span className="st-muted">{k}</span>
+            <span className="nums">{v}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AddonLimitsForm({ addon }: { addon: Addon }) {
+  const [limits, setLimits] = useState<AddonLimits>(addon.limits);
+  const [saved, setSaved] = useState(false);
+  const dirty = JSON.stringify(limits) !== JSON.stringify(addon.limits);
+  const fields: [keyof AddonLimits, string, string | null][] = [
+    ['sendPerMinute', 'Tin nhắn gửi / phút', 'messages:send'],
+    ['sendPerConversationHour', 'Tin nhắn / giờ cho một hội thoại', 'messages:send'],
+    ['aiPerHour', 'Yêu cầu AI / giờ', 'ai'],
+    ['fetchPerMinute', 'Yêu cầu mạng / phút', 'network'],
+  ];
+  const shown = fields.filter(([, , perm]) => !perm || addon.manifest.permissions.includes(perm));
+  if (!shown.length) return null;
+  return (
+    <div className="st-field">
+      <span>Giới hạn (bảo vệ tài khoản Zalo và chi phí AI)</span>
+      <div className="st-auto-limits">
+        {shown.map(([k, label]) => (
+          <label key={k} className="st-auto-limit">
+            <span className="st-muted">{label}</span>
+            <input
+              className="st-input is-narrow nums"
+              type="number"
+              min={0}
+              value={limits[k]}
+              onChange={(e) => {
+                setSaved(false);
+                setLimits((l) => ({ ...l, [k]: Math.max(0, Number(e.target.value) || 0) }));
+              }}
+            />
+          </label>
+        ))}
+        <button className="st-button" disabled={!dirty} onClick={() => void addonApi.setLimits(addon.manifest.id, limits).then(() => (setSaved(true), refreshAutomation()))}>
+          {saved ? <Check size={14} /> : null}
+          Lưu giới hạn
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function AddonLog({ addon }: { addon: Addon }) {
+  const [lines, setLines] = useState<AddonLogLine[]>([]);
+  useEffect(() => {
+    let alive = true;
+    const load = () => void addonApi.logs(addon.manifest.id).then((l) => alive && setLines(l)).catch(() => {});
+    load();
+    const t = setInterval(load, 2000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, [addon.manifest.id]);
+  return (
+    <div className="st-field">
+      <span className="st-auto-title">
+        Nhật ký
+        <button className="st-chip is-button" onClick={() => void addonApi.clearLogs(addon.manifest.id).then(() => setLines([]))}>
+          Xoá
+        </button>
+      </span>
+      <pre className="st-snippet selectable st-auto-log">
+        {lines.length
+          ? lines
+              .slice(-150)
+              .map((l) => `${new Date(l.at).toLocaleTimeString('vi-VN')} ${l.level === 'error' ? '✖' : l.level === 'warn' ? '⚠' : ' '} ${l.text}`)
+              .join('\n')
+          : addon.enabled
+            ? 'Chưa có dòng nào.'
+            : 'Add-on đang tắt.'}
+      </pre>
+    </div>
+  );
+}
+
+function ConversationsField({ value, onChange }: { value: string[]; onChange: (ids: string[]) => void }) {
+  const conversations = useEngine(visibleConversations);
+  const name = (id: string) => conversations.find((c) => c.id === id)?.name || id;
+  return (
+    <div className="st-auto-multi">
+      <div className="st-auto-chips">
+        {value.map((id) => (
+          <button key={id} className="st-chip is-button" onClick={() => onChange(value.filter((v) => v !== id))} title="Bỏ">
+            {name(id)} ✕
+          </button>
+        ))}
+        {value.length === 0 && <span className="st-muted">Tất cả</span>}
+      </div>
+      <ConversationSelect allowEmpty value="" onChange={(id) => id && !value.includes(id) && onChange([...value, id])} />
     </div>
   );
 }
@@ -948,6 +1175,7 @@ function AddonSettingsForm({ addon }: { addon: Addon }) {
   };
   const field = (s: AddonSetting): ReactNode => {
     const v = values[s.key];
+    const hint = s.description ? <span className="st-muted">{s.description}</span> : null;
     switch (s.type) {
       case 'boolean':
         return (
@@ -960,7 +1188,8 @@ function AddonSettingsForm({ addon }: { addon: Addon }) {
         return (
           <label className="st-field" key={s.key}>
             <span>{s.label}</span>
-            <textarea className="st-input" rows={3} value={String(v ?? '')} onChange={(e) => set(s.key, e.target.value)} />
+            <textarea className="st-input" rows={4} value={String(v ?? '')} onChange={(e) => set(s.key, e.target.value)} />
+            {hint}
           </label>
         );
       case 'number':
@@ -968,6 +1197,37 @@ function AddonSettingsForm({ addon }: { addon: Addon }) {
           <label className="st-field" key={s.key}>
             <span>{s.label}</span>
             <input className="st-input is-narrow nums" type="number" value={String(v ?? '')} onChange={(e) => set(s.key, e.target.value === '' ? '' : Number(e.target.value))} />
+            {hint}
+          </label>
+        );
+      case 'select':
+        return (
+          <label className="st-field" key={s.key}>
+            <span>{s.label}</span>
+            <select className="st-input" value={String(v ?? '')} onChange={(e) => set(s.key, e.target.value)}>
+              {(s.options ?? []).map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+            {hint}
+          </label>
+        );
+      case 'secret':
+        return (
+          <label className="st-field" key={s.key}>
+            <span>{s.label}</span>
+            <input className="st-input" type="password" autoComplete="off" value={String(v ?? '')} onChange={(e) => set(s.key, e.target.value)} />
+            {hint}
+          </label>
+        );
+      case 'time':
+        return (
+          <label className="st-field" key={s.key}>
+            <span>{s.label}</span>
+            <input className="st-input is-narrow nums" type="time" value={String(v ?? '')} onChange={(e) => set(s.key, e.target.value)} />
+            {hint}
           </label>
         );
       case 'conversation':
@@ -975,7 +1235,16 @@ function AddonSettingsForm({ addon }: { addon: Addon }) {
           <label className="st-field" key={s.key}>
             <span>{s.label}</span>
             <ConversationSelect allowEmpty value={String(v ?? '')} onChange={(id) => set(s.key, id)} />
+            {hint}
           </label>
+        );
+      case 'conversations':
+        return (
+          <div className="st-field" key={s.key}>
+            <span>{s.label}</span>
+            <ConversationsField value={Array.isArray(v) ? (v as string[]) : []} onChange={(ids) => set(s.key, ids)} />
+            {hint}
+          </div>
         );
       case 'cron':
         return <CronField key={s.key} value={String(v ?? '')} onChange={(expr) => set(s.key, expr)} />;
@@ -984,6 +1253,7 @@ function AddonSettingsForm({ addon }: { addon: Addon }) {
           <label className="st-field" key={s.key}>
             <span>{s.label}</span>
             <input className="st-input" value={String(v ?? '')} onChange={(e) => set(s.key, e.target.value)} />
+            {hint}
           </label>
         );
     }
@@ -998,8 +1268,8 @@ function AddonSettingsForm({ addon }: { addon: Addon }) {
           className="st-button is-primary"
           disabled={!dirty}
           onClick={() =>
-            void automation
-              .setAddonSettings(addon.manifest.id, values)
+            void addonApi
+              .setSettings(addon.manifest.id, values)
               .then(() => {
                 setSaved(true);
                 return refreshAutomation();
@@ -1014,29 +1284,149 @@ function AddonSettingsForm({ addon }: { addon: Addon }) {
   );
 }
 
-const guide = `/* @compola-addon {"id":"hello","name":"Xin chào","version":"1.0.0",
-   "permissions":["messages:read","messages:send"],
-   "settings":[{"key":"reply","label":"Câu trả lời","type":"text","default":"Chào bạn!"}]} */
+// MARK: - AI for add-ons
 
-compola.on('message', async (m) => {
-  // m: {conversationId, conversationName, isGroup, senderName, fromMe, text, date}
-  if (!m.fromMe && /^xin chào/i.test(m.text)) await compola.sendText(m.conversationId, compola.settings.reply);
+const efforts = [
+  { value: 'low', label: 'Nhanh (low)' },
+  { value: 'medium', label: 'Cân bằng (medium)' },
+  { value: 'high', label: 'Kỹ (high)' },
+];
+
+function AiSection({ config }: { config: AiConfig }) {
+  const [c, setC] = useState<AiConfig>({ ...config, apiKey: '' });
+  const [status, setStatus] = useState<{ ok: boolean; text: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => setC({ ...config, apiKey: '' }), [JSON.stringify(config)]);
+  const dirty = JSON.stringify({ ...c, apiKey: '' }) !== JSON.stringify({ ...config, apiKey: '' }) || c.apiKey !== '';
+  const save = () =>
+    addonApi.setAi(c).then((saved) => {
+      setC({ ...saved, apiKey: '' });
+      return refreshAutomation();
+    });
+  return (
+    <Section
+      title={
+        <span className="st-auto-title">
+          <Sparkles size={14} /> AI cho add-on
+        </span>
+      }
+      footer="Add-on có quyền “Dùng AI” gọi AI qua đây (compola.ai.complete); khoá API không bao giờ được đưa cho add-on. Claude: tạo khoá tại console.anthropic.com. Hoặc dùng máy chủ tương thích OpenAI như Ollama chạy trên máy."
+    >
+      <Row label="Bật AI cho add-on">
+        <Toggle label="Bật AI cho add-on" on={c.enabled} onChange={(enabled) => setC({ ...c, enabled })} />
+      </Row>
+      <div className="st-auto-sub">
+        <div className="st-field">
+          <span>Nhà cung cấp</span>
+          <Segmented
+            label="Nhà cung cấp AI"
+            value={c.provider}
+            options={[
+              { value: 'anthropic', title: 'Claude (Anthropic)' },
+              { value: 'openai', title: 'Tương thích OpenAI / Ollama' },
+            ]}
+            onChange={(provider) => setC({ ...c, provider, model: provider === 'anthropic' ? 'claude-opus-5-5' : c.model === 'claude-opus-5-5' ? 'qwen3' : c.model })}
+          />
+        </div>
+        <label className="st-field">
+          <span>Model</span>
+          <input className="st-input st-auto-mono" value={c.model} onChange={(e) => setC({ ...c, model: e.target.value })} spellCheck={false} />
+        </label>
+        {c.provider === 'anthropic' && (
+          <label className="st-field">
+            <span>Mức suy nghĩ</span>
+            <select className="st-input" value={c.effort} onChange={(e) => setC({ ...c, effort: e.target.value })}>
+              {efforts.map((e) => (
+                <option key={e.value} value={e.value}>
+                  {e.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        <label className="st-field">
+          <span>Khoá API {config.hasKey && <span className="st-muted">(đã lưu — để trống để giữ)</span>}</span>
+          <input className="st-input" type="password" autoComplete="off" value={c.apiKey} placeholder={config.hasKey ? '••••••••' : c.provider === 'anthropic' ? 'sk-ant-…' : 'không bắt buộc'} onChange={(e) => setC({ ...c, apiKey: e.target.value })} />
+        </label>
+        <label className="st-field">
+          <span>Địa chỉ máy chủ (để trống = mặc định)</span>
+          <input className="st-input st-auto-mono" value={c.url} placeholder={c.provider === 'anthropic' ? 'https://api.anthropic.com' : 'http://127.0.0.1:11434/v1'} onChange={(e) => setC({ ...c, url: e.target.value })} spellCheck={false} />
+        </label>
+        <label className="st-field">
+          <span>Token trả lời tối đa mỗi yêu cầu</span>
+          <input className="st-input is-narrow nums" type="number" value={c.maxTokens} onChange={(e) => setC({ ...c, maxTokens: Number(e.target.value) || 0 })} />
+        </label>
+        {status && <div className={status.ok ? 'st-ok' : 'st-bad'}>{status.text}</div>}
+        <div className="st-auto-actions is-end">
+          <button
+            className="st-button"
+            disabled={busy}
+            onClick={() => {
+              setBusy(true);
+              setStatus(null);
+              void (dirty ? save() : Promise.resolve())
+                .then(() => addonApi.testAi())
+                .then((r) => setStatus({ ok: true, text: `Hoạt động — ${r.model}: “${r.text.trim().slice(0, 60)}”` }))
+                .catch((e) => setStatus({ ok: false, text: errorText(e) }))
+                .finally(() => setBusy(false));
+            }}
+          >
+            {busy ? <Spinner size={12} /> : <RefreshCw size={14} />}
+            Lưu và thử
+          </button>
+          <button className="st-button is-primary" disabled={!dirty} onClick={() => void save().catch((e) => setStatus({ ok: false, text: errorText(e) }))}>
+            Lưu
+          </button>
+        </div>
+      </div>
+    </Section>
+  );
+}
+
+const guide = `my-addon.zip
+├── manifest.json
+├── main.js
+└── ui/panel.html        (tuỳ chọn: giao diện HTML)
+
+manifest.json:
+{ "id": "my-addon", "name": "Của tôi", "version": "1.0.0", "main": "main.js",
+  "permissions": ["messages:read", "notes", "ui", "ai"],
+  "settings": [{ "key": "tone", "label": "Giọng văn", "type": "text", "default": "thân thiện" }],
+  "contributes": {
+    "views": [{ "id": "panel", "title": "Khách hàng", "location": "inspector", "entry": "ui/panel.html" }],
+    "actions": [{ "id": "summarize", "title": "Tóm tắt", "context": "conversation" }]
+  } }
+
+main.js:
+compola.on('message', async (m) => {           // {account, conversationId, conversationName, isGroup, senderName, fromMe, sentBy, text, date}
+  if (m.fromMe || !m.text) return;
+  const r = await compola.ai.complete({ prompt: 'Gợi ý trả lời: ' + m.text, maxTokens: 500 });
+  await compola.ui.suggest(m.conversationId, r.text, { account: m.account });
 });
+compola.on('action', async (a) => {            // nút "Tóm tắt" trong bảng thông tin
+  const msgs = await compola.history(a.conversationId, { since: Date.now() - 86400000 });
+  await compola.notes.add(a.conversationId, 'Hôm nay có ' + msgs.length + ' tin.', { account: a.account });
+});
+compola.views.handle('stats', async (data, ctx) => ({ notes: (await compola.notes.list(ctx.conversationId)).length }));
 
-// Khác: compola.conversations({query}), compola.messages(convId, limit), compola.notify(title, body),
-// compola.storage.get/set, compola.schedules.save({cron | at, payload}) + compola.on('schedule', fn),
-// compola.mcp.servers()/tools(id)/call(id, tool, args), compola.tools.register({name, description, inputSchema}, fn),
-// compola.on('ready' | 'settings', fn), compola.log(...)
-// Quyền: messages:read, messages:send, schedules, mcp, network, notifications`;
+ui/panel.html:
+<div id="out">…</div>
+<script>
+  compola.ready(async (ctx) => {               // ctx: {conversationId, conversationName, theme, …}
+    const s = await compola.call('stats');
+    document.getElementById('out').textContent = s.notes + ' ghi chú';
+  });
+</script>
+
+Khác: compola.sendText, conversations, messages, search, activeConversations, notes.*, ui.panel/toast/openView,
+quickReplies.set, views.post, storage, assets.read, require('./lib.js'), fetch (quyền network + "hosts"),
+schedules.*, mcp.*, tools.register, setTimeout/setInterval. Đầy đủ: docs/addons.md`;
 
 function AddonGuide() {
   const [open, setOpen] = useState(false);
   return (
     <Section title="Viết add-on">
-      <Row
-        label="Add-on là tệp JavaScript chạy trong một worker riêng"
-        detail="Một tệp .js có chú thích @compola-addon, hoặc một thư mục có manifest.json và main.js."
-      >
+      <Row label="Đóng gói thành tệp .zip" detail="manifest.json + main.js (+ giao diện HTML, thư viện, tệp dữ liệu). Giao diện HTML có thể là tab riêng, mục trong bảng thông tin, thanh trên ô soạn tin, trang cài đặt hoặc hộp thoại.">
         <button className="st-button" onClick={() => setOpen((o) => !o)}>
           {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
           Ví dụ
@@ -1051,4 +1441,3 @@ function AddonGuide() {
     </Section>
   );
 }
-

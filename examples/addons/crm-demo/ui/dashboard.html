@@ -1,0 +1,35 @@
+<!doctype html>
+<html>
+<head><link rel="stylesheet" href="shared.css"><style> body { padding: 16px 24px; } h2 { font-size: 15px; margin: 22px 0 8px; } </style></head>
+<body>
+  <div class="cards" id="cards"></div>
+  <h2>Khách hàng</h2>
+  <table><thead><tr><th>Khách</th><th>Giai đoạn</th><th>Nhãn</th><th>Đơn</th><th></th></tr></thead><tbody id="customers"></tbody></table>
+  <h2>Trò chuyện 24 giờ qua</h2>
+  <table><thead><tr><th>Hội thoại</th><th>Tin nhắn</th><th>Gần nhất</th></tr></thead><tbody id="active"></tbody></table>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const cell = (tr, text) => { const td = document.createElement('td'); td.textContent = text; tr.appendChild(td); return td; };
+    async function load() {
+      const d = await compola.call('dashboard');
+      $('cards').innerHTML = '';
+      const card = (label, value) => { const c = document.createElement('div'); c.className = 'card'; c.innerHTML = '<span class="muted"></span><b></b>'; c.firstChild.textContent = label; c.lastChild.textContent = value; $('cards').appendChild(c); };
+      for (const [stage, n] of Object.entries(d.stages)) card(stage, n);
+      card('Doanh thu', d.revenue.toLocaleString('vi-VN') + ' ₫');
+      $('customers').innerHTML = '';
+      for (const c of d.customers) {
+        const tr = document.createElement('tr');
+        cell(tr, c.name || c.conversationId); cell(tr, c.stage); cell(tr, c.tags.join(', ')); cell(tr, c.orders.length);
+        const b = document.createElement('button'); b.textContent = 'Mở'; b.onclick = () => compola.openConversation(c.conversationId);
+        cell(tr, '').appendChild(b);
+        $('customers').appendChild(tr);
+      }
+      if (!d.customers.length) $('customers').innerHTML = '<tr><td colspan="5" class="muted">Chưa có khách hàng — mở một hội thoại và chọn giai đoạn trong bảng thông tin.</td></tr>';
+      $('active').innerHTML = '';
+      for (const a of d.active) { const tr = document.createElement('tr'); cell(tr, a.name || a.id); cell(tr, a.count); cell(tr, new Date(a.lastDate).toLocaleString('vi-VN')); tr.style.cursor = 'pointer'; tr.onclick = () => compola.openConversation(a.id); $('active').appendChild(tr); }
+    }
+    compola.ready(load);
+    compola.on('changed', load);
+  </script>
+</body>
+</html>

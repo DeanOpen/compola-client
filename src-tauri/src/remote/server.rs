@@ -691,6 +691,7 @@ async fn dispatch(remote: &Remote, who: &Who, cmd: &str, args: &Value) -> Result
             Ok(Value::Null)
         }
         "automation_search" | "automation_search_status" | "automation_conversations" | "automation_messages" => automation(remote, &account, cmd, args).await,
+        c if crate::automation::addons::commands::WORKSPACE_COMMANDS.contains(&c) => addons(remote, &account, who, cmd, args).await,
         _ => Err(format!("Lệnh «{cmd}» không dùng được khi kết nối qua Compola Server.")),
     };
     // Who did what on the Zalo account (docs: "Activity tracking"); administration stays in the audit log.
@@ -715,6 +716,16 @@ async fn dispatch(remote: &Remote, who: &Who, cmd: &str, args: &Value) -> Result
         return Ok(remote.with_mirror(&account, |mirror| policy::filter_result(&access, mirror, cmd, args, result)));
     }
     Ok(result)
+}
+
+/// Add-on workspace commands of a joined user (notes, suggestions, actions, views): written in their name.
+async fn addons(remote: &Remote, account: &str, who: &Who, cmd: &str, args: &Value) -> Result<Value, String> {
+    use tauri::Manager;
+    let a = remote.app.try_state::<Arc<crate::automation::Automation>>().map(|s| s.inner().clone()).ok_or("automation not running")?;
+    let account = if crate::account::server_multi_account() { account.to_owned() } else { crate::account::DEFAULT_ID.to_owned() };
+    let name = if who.user.display_name.is_empty() { who.user.username.clone() } else { who.user.display_name.clone() };
+    let author = crate::automation::addons::workspace::Author { kind: "user", id: format!("user:{}", who.user.id), name };
+    crate::automation::addons::commands::workspace(&a, &account, cmd, args, author).await
 }
 
 async fn automation(remote: &Remote, account: &str, cmd: &str, args: &Value) -> Result<Value, String> {

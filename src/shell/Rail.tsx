@@ -19,11 +19,15 @@ import { unreadCounts } from '../features/conversations/support';
 import { Avatar } from '../ui/Avatar';
 import { openMenuBelow, type MenuItem } from '../ui/Menu';
 import { isContacts, isConversationList, shell, useShell } from './shellStore';
+import { useAddonCatalog } from '../engine/addons';
+import { addonIcon } from '../features/addons/AddonSurfaces';
 import './shell.css';
 
 export function Rail() {
   const destination = useShell((s) => s.destination);
   const selection = useShell((s) => s.selection);
+  const allViews = useAddonCatalog((s) => s.views);
+  const addonTabs = useMemo(() => allViews.filter((v) => v.location === 'tab'), [allViews]);
   const profile = useEngine((s) => s.profile);
   const selfId = useEngine((s) => s.selfConversationId);
   const canStartTransfer = useEngine((s) => s.canStartTransfer);
@@ -95,6 +99,19 @@ export function Rail() {
           label={contactsLabel(contacts.pendingRequestCount, contacts.groupInviteUnread)}
           badge={contacts.pendingRequestCount + contacts.groupInviteUnread} selected={isContacts(destination)} onClick={() => shell.setDestination('friends')} />
       </div>
+      {addonTabs.length > 0 && (
+        <div className="rail-group rail-addons">
+          {addonTabs.map((v) => (
+            <RailItem
+              key={`${v.addonId}:${v.id}`}
+              icon={addonIcon(v.icon)}
+              label={`${v.title} · ${v.addonName}`}
+              selected={destination === `addon:${v.addonId}:${v.id}`}
+              onClick={() => shell.setDestination(`addon:${v.addonId}:${v.id}`)}
+            />
+          ))}
+        </div>
+      )}
       <div className="rail-spacer" data-tauri-drag-region />
       <div className="rail-group">
         {selfId && (

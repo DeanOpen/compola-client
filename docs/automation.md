@@ -26,11 +26,8 @@ Actions: send a message (`{{date}} {{time}} {{weekday}} {{datetime}}` filled in)
 Jobs run while Compola is open; missed runs are not replayed.
 
 ## Add-ons
-`addons/<id>/manifest.json` + `main.js` (or one `.js` with a `/* @compola-addon {…manifest…} */` comment). Each runs in its own Web
-Worker with a `compola` global — see the "Viết add-on" example in Settings and `src-tauri/addons/*` (built-ins, installed
-disabled): **Trả lời tự động**, **Cảnh báo từ khoá**, **Tóm tắt hằng ngày**. Permissions: `messages:read`, `messages:send`,
-`schedules`, `mcp`, `network`, `notifications`. Without `network`, fetch/XHR/WebSocket/importScripts are removed (best effort,
-not a sandbox: install only add-ons you trust).
+Moved to `docs/addons.md`: zip packages, the QuickJS sandbox in the Rust core, the `compola.*` API, HTML views (tabs,
+inspector, composer, settings, modals), notes, suggestions, quick replies, AI provider and limits.
 
 ## Search / RAG
 The conversation list's search field (⌘F) lists matching conversations, then **Tin nhắn**: message hits from the index

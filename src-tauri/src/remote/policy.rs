@@ -882,6 +882,32 @@ pub fn check_call(access: &Access, mirror: &Mirror, cmd: &str, args: &Value) -> 
         // Results filtered by `filter_result`.
         "automation_search_status" | "automation_conversations" => Ok(CallKind::Read),
         "automation_messages" | "automation_search" => scoped_conversation("conversationId"),
+        // Add-ons (src-tauri/src/automation/addons): what they show about a conversation follows the conversation's
+        // access; views and actions without a conversation may show anything, so they need every conversation.
+        "addons_views" | "addons_view_document" | "addons_quick_replies" | "addons_note_counts" => Ok(CallKind::Read),
+        "addons_workspace" => match args.get("conversationId").and_then(Value::as_str).filter(|c| !c.is_empty()) {
+            Some(c) if mirror.sees(access, c) => Ok(CallKind::Read),
+            _ => Err(DENIED_CONVERSATION.into()),
+        },
+        "addons_note_add" | "addons_note_update" | "addons_note_delete" | "addons_suggestion_resolve" | "addons_action_run" | "addons_view_call" => {
+            if !access.can_write() {
+                return Err(DENIED_VIEWER.into());
+            }
+            match args.get("conversationId").and_then(Value::as_str).filter(|c| !c.is_empty()) {
+                Some(c) if mirror.sees(access, c) => Ok(CallKind::Write),
+                Some(_) => Err(DENIED_CONVERSATION.into()),
+                None if matches!(cmd, "addons_action_run" | "addons_view_call") && access.sees_all() => Ok(CallKind::Write),
+                None => Err(DENIED_ACCOUNT_WIDE.into()),
+            }
+        }
+        // Installing, configuring or removing add-ons runs code on the server: admins only.
+        c if c.starts_with("addons_") => {
+            if access.is_admin() {
+                Ok(CallKind::Write)
+            } else {
+                Err(DENIED_HOST_SETTINGS.into())
+            }
+        }
         _ if access.is_admin() => Ok(CallKind::Write),
         _ if access.scope.all && access.can_write() => Ok(CallKind::Write),
         _ => Err(DENIED_UNKNOWN.into()),
@@ -906,6 +932,15 @@ pub fn filter_event(access: &Access, mirror: &Mirror, event: &str, payload: &Val
                 mirror.unread_badge(&access.scope).map(Value::from)
             }
         }
+        "compola://addons" => match payload.get("conversationId").and_then(Value::as_str).filter(|c| !c.is_empty()) {
+            Some(c) => mirror.visible(&access.scope, c).then(|| payload.clone()),
+            // Status / lists changed: harmless. Toasts and view messages with no conversation: every-conversation users.
+            None => match payload.get("kind").and_then(Value::as_str) {
+                Some("status" | "quickReplies" | "actions" | "notes" | "suggestions" | "panels") => Some(payload.clone()),
+                _ if access.scope.all => Some(payload.clone()),
+                _ => None,
+            },
+        },
         "compola://remote-notification" => {
             let tag = id_of(payload.get("tag")).unwrap_or_default();
             mirror.visible(&access.scope, &tag).then(|| payload.clone())
@@ -1170,6 +1205,10 @@ pub fn filter_result(access: &Access, mirror: &Mirror, cmd: &str, args: &Value, 
         _ if scope.all => result,
         "automation_conversations" => by_conversation(result, "id"),
         "automation_messages" => by_conversation(result, "conversationId"),
+        "addons_note_counts" => match result {
+            Value::Object(map) => Value::Object(map.into_iter().filter(|(id, _)| vis(id)).collect()),
+            _ => Value::Object(Map::new()),
+        },
         "automation_search" => {
             let mut result = result;
             if let Some(o) = result.as_object_mut() {
@@ -1841,6 +1880,42 @@ mod tests {
         assert_eq!(events.len(), 3);
         assert!(!out.to_string().contains("Bí mật"));
         assert_eq!(filter_result(&all_viewer(), &m, "engine_replay", &json!({}), replay.clone()), replay);
+    }
+
+    #[test]
+    fn addons_follow_conversation_access() {
+        let m = mirror();
+        let a = scoped_agent();
+        let ok = |acc: &Access, cmd: &str, args: Value| check_call(acc, &m, cmd, &args).is_ok();
+        // Workspace of a conversation in scope, not of one outside it.
+        assert!(ok(&a, "addons_workspace", json!({ "conversationId": AN })));
+        assert!(!ok(&a, "addons_workspace", json!({ "conversationId": BINH })));
+        assert!(!ok(&a, "addons_workspace", json!({})));
+        assert!(ok(&a, "addons_note_add", json!({ "conversationId": AN, "text": "x" })));
+        assert!(!ok(&a, "addons_note_delete", json!({ "conversationId": BINH, "id": "n" })));
+        // Views and actions without a conversation need every conversation.
+        assert!(ok(&a, "addons_view_call", json!({ "conversationId": AN, "addonId": "x", "name": "n" })));
+        assert!(!ok(&a, "addons_view_call", json!({ "addonId": "x", "name": "n" })));
+        assert!(ok(&all_agent(), "addons_view_call", json!({ "addonId": "x", "name": "n" })));
+        assert!(ok(&a, "addons_views", json!({})) && ok(&a, "addons_view_document", json!({ "addonId": "x", "viewId": "v" })));
+        // Viewers read but do not write.
+        let mut v = scoped_agent();
+        v.role = Role::Viewer;
+        assert!(ok(&v, "addons_workspace", json!({ "conversationId": AN })));
+        assert!(!ok(&v, "addons_note_add", json!({ "conversationId": AN, "text": "x" })));
+        // Managing add-ons runs code on the server: admins only, even with every conversation.
+        for cmd in ["addons_install", "addons_set_enabled", "addons_remove", "addons_ai_set", "addons_logs"] {
+            assert!(!ok(&all_agent(), cmd, json!({})), "{cmd}");
+            assert!(ok(&admin(), cmd, json!({})), "{cmd}");
+        }
+        // Events and note counts.
+        let ev = |c: &str| json!({ "kind": "notes", "conversationId": c });
+        assert!(filter_event(&a, &m, "compola://addons", &ev(AN)).is_some());
+        assert!(filter_event(&a, &m, "compola://addons", &ev(BINH)).is_none());
+        assert!(filter_event(&a, &m, "compola://addons", &json!({ "kind": "toast", "text": "x" })).is_none());
+        assert!(filter_event(&a, &m, "compola://addons", &json!({ "kind": "status", "addonId": "x" })).is_some());
+        let counts = json!({ AN: 2, BINH: 5 });
+        assert_eq!(filter_result(&a, &m, "addons_note_counts", &json!({}), counts), json!({ AN: 2 }));
     }
 
     #[test]

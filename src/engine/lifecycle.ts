@@ -116,11 +116,10 @@ export const startEngine = (): Promise<void> => {
         console.warn('[remote] wait for the connection failed', e);
       }
       watchRemoteResync();
-    } else {
-      // Add-ons run in workers next to the UI (they get their events from Rust, not from this page's state). A joined
-      // app runs none: they act on the account, which lives on the host.
-      void startAddonRuntime().catch((e) => console.warn('[addons] runtime failed to start', e));
     }
+    // Add-ons run on the host (src-tauri/src/automation/addons); every UI — the host's, a joined app, the web client —
+    // shows what they contribute (notes, suggestions, views) for the conversations it may see.
+    void startAddonRuntime().catch((e) => console.warn('[addons] client failed to start', e));
     await catchUp();
     // Another account became active (docs/multi-account.md §6): its stores were swapped in; catch up the same way.
     setAccountResync(catchUp);

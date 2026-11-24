@@ -14,6 +14,7 @@ Rust + Tauri 2 · React 19 · macOS 11+ (Apple silicon and Intel) · port of `za
 - [How it works](#how-it-works)
 - [Repository layout](#repository-layout)
 - [Getting started](#getting-started)
+- [Add-ons](#add-ons)
 - [Compola Server](#compola-server)
 - [Testing](#testing)
 - [Building the app](#building-the-app)
@@ -45,6 +46,8 @@ Rust + Tauri 2 · React 19 · macOS 11+ (Apple silicon and Intel) · port of `za
 
 **Automation**
 - An MCP server so AI apps can read and act on Compola, scheduled jobs (cron) and add-ons (`docs/automation.md`).
+- Add-ons installed from a `.zip`: AI replies, daily customer summaries as notes, quick replies, and their own HTML
+  tabs, panels and dialogs, each in a sandbox with limits ([Add-ons](#add-ons), `docs/addons.md`).
 
 ## How it works
 
@@ -124,6 +127,30 @@ npm run dev:admin              # http://localhost:1430/admin/?mock=1  (sign in a
 ```
 
 The UI falls back to its mock backend whenever it isn't running inside Tauri.
+
+## Add-ons
+
+Add-ons extend Compola with code and UI. Install a `.zip` in *Settings › Nâng cao › Add-on › Cài từ tệp .zip…*. You see
+the permissions it asks for before it installs. Built in (off until you enable them): **Trả lời bằng AI** (reply
+suggestions, or auto replies with human handoff), **Tóm tắt khách hàng hằng ngày** (an AI summary note on every
+conversation of the day) and **Tin nhắn nhanh** (`/shortcut` quick replies). The AI provider (Claude or an
+OpenAI-compatible server such as Ollama) is set once in the same page.
+
+Each add-on runs in the Compola core in its own QuickJS sandbox, with limits on memory, CPU time, message rate and AI
+usage. It restarts on errors and stops after repeated crashes. It can:
+- write **notes** on a conversation and suggest **replies** above the message box;
+- show **its own HTML UI** in a sidebar tab, a card in the conversation's info panel, a strip above the message box, its
+  settings page, or a dialog (a sandboxed iframe that talks only to its add-on);
+- add quick replies, actions and panels, use AI, schedules, MCP servers and allow-listed HTTP.
+
+| Conversation info panel: notes, actions, a panel and an HTML view | Reply suggestion and `/` quick replies |
+|---|---|
+| ![Info panel](docs/addons/inspector.png) | ![Quick replies](docs/addons/quick-replies.png) |
+| **An add-on's tab (HTML)** | **An add-on's dialog (HTML)** |
+| ![Tab](docs/addons/tab-view.png) | ![Dialog](docs/addons/modal-view.png) |
+
+Write your own: `docs/addons.md` (manifest, API, views, permissions), example `examples/addons/crm-demo`, packed with
+`scripts/pack-addon.sh examples/addons/crm-demo`.
 
 ## Compola Server
 
@@ -292,7 +319,8 @@ Details, including TLS, ingress, image tags and the host's public-address settin
 | `docs/compola-server.md` | Compola Server: concepts, HTTP API, policy, activity tracking, web client |
 | `docs/multi-account.md` | Several Zalo accounts in one Compola: account model, isolation, UI and server hooks |
 | `docs/media.md` | The `compola-media` scheme: how the UI loads Zalo media |
-| `docs/automation.md` | MCP server, scheduled jobs and add-ons |
+| `docs/automation.md` | MCP server, scheduled jobs, search |
+| `docs/addons.md` | Add-ons: packages, sandbox, API, HTML views, built-ins, AI provider |
 | `docs/zalo-pc-style.md` | UI style decisions (Zalo PC look) |
 | `docs/design-refs/` | Mobbin references behind each screen, including the admin console |
 

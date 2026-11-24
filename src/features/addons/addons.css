@@ -1,0 +1,371 @@
+/* Add-ons in the app: HTML views, the inspector's notes / panels / actions, the composer's suggestions and quick replies. */
+
+/* Views */
+.addon-frame {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color-scheme: normal;
+}
+.addon-frame.is-fill {
+  height: 100%;
+}
+.addon-frame-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  height: 100%;
+  color: var(--text-secondary);
+}
+.addon-frame-problem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  color: var(--danger);
+  font-size: 12px;
+}
+.addon-inline-frame {
+  padding: 0 16px 10px;
+}
+.addon-inline-frame.is-composer {
+  padding: 0;
+}
+
+/* A tab page takes the list and chat columns. */
+.shell.has-addon-tab .shell-content {
+  display: none;
+}
+.addon-tab-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.addon-tab-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  background: var(--content);
+}
+.addon-modal-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.addon-modal-body > * {
+  flex: 1;
+  min-height: 0;
+}
+
+/* Inspector */
+.addon-empty {
+  padding: 4px 16px 12px;
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+.addon-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 16px 12px;
+}
+.addon-actions.is-composer {
+  padding: 0;
+}
+.addon-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+}
+.addon-action:hover {
+  background: var(--hover);
+}
+.addon-action svg {
+  flex: none;
+  color: var(--accent);
+}
+
+.addon-note-compose {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 16px 10px;
+}
+.addon-note-input {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  min-height: 44px;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  background: var(--content);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+.addon-note-input:focus {
+  outline: 2px solid var(--accent-soft);
+  border-color: var(--accent);
+}
+.addon-note-save {
+  align-self: flex-end;
+}
+.addon-row-end {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.addon-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 16px 12px;
+}
+.addon-note {
+  padding: 8px 10px;
+  border-radius: var(--radius-m);
+  background: var(--subtle);
+  border: 1px solid transparent;
+}
+.addon-note.is-pinned {
+  border-color: var(--accent-soft);
+  background: var(--accent-faint);
+}
+.addon-note-head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.addon-note-author {
+  font-weight: 600;
+  color: var(--text);
+  min-width: 0;
+}
+.addon-note-time {
+  flex: none;
+}
+.addon-note-tools {
+  display: inline-flex;
+  margin-left: auto;
+  opacity: 0;
+  transition: opacity var(--motion-fast);
+}
+.addon-note:hover .addon-note-tools,
+.addon-note:focus-within .addon-note-tools {
+  opacity: 1;
+}
+.addon-note-tools .icon-button {
+  width: 22px;
+  height: 22px;
+}
+.addon-note-tools .icon-button.is-danger {
+  color: var(--danger);
+}
+.addon-note-text {
+  margin-top: 4px;
+  font-size: 13px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.addon-note-text.is-clamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  cursor: pointer;
+}
+.addon-more {
+  align-self: flex-start;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+}
+.addon-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+.addon-badge {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 11px;
+}
+
+/* Panels */
+.addon-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 16px 12px;
+  font-size: 13px;
+}
+.addon-panel-heading {
+  font-weight: 600;
+}
+.addon-panel-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.addon-panel-text.is-muted {
+  color: var(--text-secondary);
+}
+.addon-panel-list {
+  margin: 0;
+  padding-left: 18px;
+}
+.addon-kv {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.addon-kv-row {
+  display: flex;
+  gap: 8px;
+}
+.addon-kv-row dt {
+  flex: none;
+  width: 40%;
+  color: var(--text-secondary);
+}
+.addon-kv-row dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.addon-progress-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.addon-progress-track {
+  height: 6px;
+  margin-top: 3px;
+  border-radius: 3px;
+  background: var(--fill);
+  overflow: hidden;
+}
+.addon-progress-bar {
+  height: 100%;
+  background: var(--accent);
+}
+.addon-panel-button {
+  align-self: flex-start;
+}
+.addon-divider {
+  width: 100%;
+  border: 0;
+  border-top: 1px solid var(--separator);
+  margin: 2px 0;
+}
+
+/* Composer */
+.addon-composer-bar {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 12px 0;
+}
+.addon-suggestion {
+  padding: 8px 10px;
+  border: 1px solid var(--accent-soft);
+  border-radius: var(--radius-l);
+  background: var(--accent-faint);
+}
+.addon-suggestion-head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+}
+.addon-suggestion-from {
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+.addon-suggestion-head .icon-button {
+  width: 22px;
+  height: 22px;
+}
+.addon-suggestion-text {
+  margin: 4px 0 8px;
+  max-height: 120px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+.addon-suggestion .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.addon-quick-replies {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: calc(100% + 4px);
+  z-index: 30;
+  max-height: 280px;
+  overflow: auto;
+  padding: 4px;
+  border-radius: var(--radius-l);
+}
+.addon-quick-head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px 6px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.addon-quick-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--radius-m);
+  background: none;
+  color: var(--text);
+  text-align: left;
+  font-size: 13px;
+  cursor: pointer;
+}
+.addon-quick-row.is-selected {
+  background: var(--accent-selected, var(--selected));
+}
+.addon-quick-shortcut {
+  flex: none;
+  font-weight: 600;
+  color: var(--accent);
+}
+.addon-quick-text {
+  min-width: 0;
+  color: var(--text-secondary);
+}

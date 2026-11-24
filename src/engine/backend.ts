@@ -23,6 +23,8 @@ export type EngineEvent =
   | 'compola://automation'
   /** Compola Server (src/engine/remote.ts): `{kind: changed|connection|joinProgress|access, …}`. */
   | 'compola://remote'
+  /** Add-ons (src/engine/addons.ts): notes, suggestions, panels, views, toasts changed. */
+  | 'compola://addons'
   /** Multi-account (src/engine/accounts.ts): `{accounts:[…], activeId}` — PROVISIONAL until docs/multi-account.md. */
   | 'compola://accounts';
 
@@ -84,7 +86,17 @@ const joinedAccountCommands = new Set(['account_add', 'account_remove', 'account
 export const joinedAccountsRefusal = 'Quản lý tài khoản Zalo trong Quản trị máy chủ.';
 
 /** Only make sense on the machine signed in to Zalo. */
-const joinedRefused = new Set(['screen_capture_start', 'call_show_window', 'engine_show_renderer', 'engine_switch_to_sqlite', 'engine_eval']);
+const joinedRefused = new Set([
+  'screen_capture_start',
+  'call_show_window',
+  'engine_show_renderer',
+  'engine_switch_to_sqlite',
+  'engine_eval',
+  // Add-on packages are files on the machine that runs them (the host).
+  'addons_pick',
+  'addons_inspect',
+  'addons_install',
+]);
 
 /** The automation commands the host serves to joined apps (with their access applied). */
 const joinedHostAutomation = new Set(['automation_search', 'automation_search_status', 'automation_conversations', 'automation_messages']);

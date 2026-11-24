@@ -1,0 +1,22 @@
+{
+  "id": "crm-demo",
+  "name": "CRM mẫu",
+  "version": "1.0.0",
+  "description": "Ví dụ add-on có giao diện HTML: tab \"Khách hàng\" ở thanh bên, hồ sơ khách trong bảng thông tin hội thoại (giai đoạn, nhãn, đơn hàng) và hộp thoại tạo đơn. Mỗi đơn được lưu thành ghi chú của hội thoại.",
+  "author": "Compola",
+  "main": "main.js",
+  "permissions": ["messages:read", "notes", "ui"],
+  "settings": [
+    { "key": "stages", "label": "Các giai đoạn (cách nhau bởi dấu phẩy)", "type": "text", "default": "Mới, Đang tư vấn, Đã chốt, Chăm sóc lại" }
+  ],
+  "contributes": {
+    "views": [
+      { "id": "dashboard", "title": "Khách hàng", "location": "tab", "entry": "ui/dashboard.html", "icon": "users" },
+      { "id": "card", "title": "Hồ sơ khách", "location": "inspector", "entry": "ui/card.html", "height": 420 },
+      { "id": "order", "title": "Tạo đơn hàng", "location": "modal", "entry": "ui/order.html", "width": 460, "height": 480 }
+    ],
+    "actions": [
+      { "id": "new-order", "title": "Tạo đơn", "context": "conversation", "view": "order" }
+    ]
+  }
+}

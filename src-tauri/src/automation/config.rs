@@ -118,9 +118,64 @@ pub struct AddonState {
     /// Values for the manifest's `settings` fields.
     #[serde(default)]
     pub settings: serde_json::Map<String, Value>,
-    /// The add-on's own key/value storage (`compola.storage`).
-    #[serde(default)]
+    /// Before add-on storage moved to `addons-data/<id>/storage.json` (`compola.storage`): read once, then emptied.
+    #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
     pub storage: serde_json::Map<String, Value>,
+    /// What the user allows this add-on to do (rate limits); the manifest cannot raise them.
+    #[serde(default)]
+    pub limits: AddonLimits,
+}
+
+/// Per add-on guard rails, set by the user (Settings › Add-on › an add-on › Giới hạn).
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AddonLimits {
+    /// Messages the add-on may send per minute (all conversations together).
+    pub send_per_minute: u32,
+    /// Messages per conversation per hour (stops reply loops with another bot).
+    pub send_per_conversation_hour: u32,
+    /// AI requests per hour.
+    pub ai_per_hour: u32,
+    /// HTTP requests per minute (`network`).
+    pub fetch_per_minute: u32,
+}
+
+impl Default for AddonLimits {
+    fn default() -> Self {
+        Self { send_per_minute: 20, send_per_conversation_hour: 30, ai_per_hour: 300, fetch_per_minute: 120 }
+    }
+}
+
+/// The AI provider add-ons use through `compola.ai` (Settings › Add-on › AI). One key for every add-on: add-ons never
+/// see it.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AiConfig {
+    pub enabled: bool,
+    /// `anthropic` (Claude API) or `openai` (any OpenAI-compatible `/chat/completions`: Ollama, LM Studio, vLLM…).
+    pub provider: String,
+    /// Empty: the provider's default (`https://api.anthropic.com`, `http://127.0.0.1:11434/v1`).
+    pub url: String,
+    pub api_key: String,
+    pub model: String,
+    /// Claude `output_config.effort`: low | medium | high | xhigh | max (empty: the model's default).
+    pub effort: String,
+    /// Upper bound of `maxTokens` an add-on may ask for.
+    pub max_tokens: u32,
+}
+
+impl Default for AiConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            provider: "anthropic".into(),
+            url: String::new(),
+            api_key: String::new(),
+            model: "claude-opus-5-5".into(),
+            effort: "medium".into(),
+            max_tokens: 16000,
+        }
+    }
 }
 
 /// Message search (`search.rs`): keyword search is always on; semantic search needs an embeddings provider.
@@ -153,6 +208,8 @@ pub struct Config {
     pub addons: BTreeMap<String, AddonState>,
     /// Built-in add-ons already copied into the add-ons folder (so a removed one is not reinstalled).
     pub seeded_addons: Vec<String>,
+    /// `compola.ai` for add-ons.
+    pub ai: AiConfig,
 }
 
 pub fn path() -> PathBuf {

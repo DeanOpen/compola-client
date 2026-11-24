@@ -1,0 +1,31 @@
+{
+  "id": "ai-reply",
+  "name": "Trả lời bằng AI",
+  "version": "1.0.0",
+  "description": "AI soạn câu trả lời cho tin nhắn đến dựa trên lịch sử trò chuyện và thông tin công ty bạn nhập. Chế độ gợi ý: nhân viên bấm để gửi/sửa. Chế độ tự động: tự gửi khi AI chắc chắn, còn lại để nhân viên xử lý. Cần bật AI trong Cài đặt › Add-on.",
+  "author": "Compola",
+  "main": "main.js",
+  "permissions": ["messages:read", "messages:send", "ui", "ai", "notes", "notifications"],
+  "settings": [
+    { "key": "mode", "label": "Chế độ", "type": "select", "default": "suggest", "options": [
+      { "value": "suggest", "label": "Gợi ý — nhân viên duyệt trước khi gửi" },
+      { "value": "auto", "label": "Tự động — tự gửi khi AI chắc chắn" }
+    ] },
+    { "key": "instructions", "label": "Vai trò và cách trả lời", "type": "textarea", "default": "Bạn là nhân viên chăm sóc khách hàng, lịch sự, ngắn gọn, xưng \"em\" và gọi khách là \"anh/chị\". Chỉ trả lời dựa trên thông tin được cung cấp; không bịa giá, chính sách hay cam kết." },
+    { "key": "knowledge", "label": "Thông tin công ty / câu hỏi thường gặp", "type": "textarea", "default": "" },
+    { "key": "onlyDirect", "label": "Chỉ trả lời tin nhắn 1-1 (bỏ qua nhóm)", "type": "boolean", "default": true },
+    { "key": "conversations", "label": "Chỉ các hội thoại này (để trống = tất cả)", "type": "conversations", "default": [] },
+    { "key": "activeFrom", "label": "Tự động từ (HH:MM, trống = cả ngày)", "type": "time", "default": "" },
+    { "key": "activeTo", "label": "Tự động đến (HH:MM)", "type": "time", "default": "" },
+    { "key": "delaySeconds", "label": "Chờ khách nhắn xong (giây)", "type": "number", "default": 15 },
+    { "key": "handoffMinutes", "label": "Không can thiệp khi nhân viên vừa trả lời trong (phút)", "type": "number", "default": 30 },
+    { "key": "historyMessages", "label": "Số tin nhắn gần nhất gửi kèm cho AI", "type": "number", "default": 30 },
+    { "key": "escalateKeywords", "label": "Từ khoá cần người thật (cách nhau bởi dấu phẩy)", "type": "text", "default": "gặp nhân viên, khiếu nại, hoàn tiền, huỷ đơn" }
+  ],
+  "contributes": {
+    "actions": [
+      { "id": "suggest", "title": "AI gợi ý trả lời", "context": "conversation", "description": "Soạn một câu trả lời cho tin nhắn mới nhất" }
+    ]
+  },
+  "limits": { "memoryMb": 64, "timeoutMs": 5000 }
+}

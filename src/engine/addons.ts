@@ -1,300 +1,338 @@
-// Add-on runtime: each enabled add-on (src-tauri/src/automation/addons.rs) runs in its own Web Worker with a global
-// `compola` API (WORKER_PRELUDE). A worker has no access to Tauri, the DOM or the official renderer: everything goes
-// through the RPCs below, which check the permissions the add-on's manifest declares. Without the `network` permission
-// fetch / XMLHttpRequest / WebSocket / importScripts are removed from the worker (a best effort, not a security
-// boundary — install only add-ons you trust).
-//
-// Events delivered to add-ons (`compola.on(name, fn)`):
-//   ready     after the script ran
-//   message   {id, conversationId, conversationName, isGroup, senderName, fromMe, text, date} — any conversation
-//   schedule  payload of one of the add-on's schedules that fired
-//   settings  the user changed the add-on's settings (`compola.settings` already updated)
+// Add-ons in the UI. They run in the Rust core (src-tauri/src/automation/addons: one sandboxed QuickJS runtime each);
+// this module is their client: the conversation workspace (notes, reply suggestions, panels, actions), quick replies,
+// HTML views (tabs, inspector, composer, settings, modals — `features/addons/AddonFrame.tsx`) and the
+// `compola://addons` event. Docs: docs/addons.md.
 
 import { create } from 'zustand';
-import { backend, usesTauri } from './backend';
-import { messageSearch } from './search';
-import { addonSettings, automation, refreshAutomation, useAutomation, type Addon, type Job } from './automation';
+import { activeAccountId } from './activeAccount';
+import { backend } from './backend';
+import { refreshAutomation } from './automation';
+import { setEngine } from './store';
+import { showToast } from './toast';
 
-const WORKER_PRELUDE = String.raw`
-'use strict';
-const __pending = new Map();
-let __seq = 0;
-const __post = (m) => self.postMessage(m);
-const __rpc = (method, ...args) => new Promise((resolve, reject) => {
-  const id = ++__seq;
-  __pending.set(id, { resolve, reject });
-  __post({ type: 'rpc', id, method, args });
-});
-const __handlers = Object.create(null);
-const __tools = new Map();
-let __storage = {};
-const __emit = async (name, data) => {
-  for (const fn of __handlers[name] || []) {
-    try { await fn(data); } catch (e) { compola.log('lỗi trong "' + name + '": ' + ((e && e.stack) || e)); }
-  }
-};
-const compola = {
-  manifest: null,
-  settings: {},
-  on(name, fn) { (__handlers[name] = __handlers[name] || []).push(fn); },
-  log: (...parts) => __post({ type: 'log', text: parts.map((p) => (typeof p === 'string' ? p : JSON.stringify(p))).join(' ') }),
-  sendText: (conversationId, text) => __rpc('sendText', String(conversationId), String(text)),
-  conversations: (opts = {}) => __rpc('conversations', opts.query ?? null, opts.limit ?? 50),
-  messages: (conversationId = null, limit = 50) => __rpc('messages', conversationId, limit),
-  search: (query, opts = {}) => __rpc('search', String(query), opts.conversationId ?? null, opts.limit ?? 10, opts.context ?? 2),
-  notify: (title, body = '') => __rpc('notify', String(title), String(body)),
-  storage: {
-    get: (key) => (key in __storage ? JSON.parse(JSON.stringify(__storage[key])) : undefined),
-    all: () => JSON.parse(JSON.stringify(__storage)),
-    set: (key, value) => {
-      if (value === undefined || value === null) delete __storage[key]; else __storage[key] = JSON.parse(JSON.stringify(value));
-      return __rpc('storageSet', String(key), value ?? null);
-    },
-  },
-  schedules: {
-    list: () => __rpc('schedulesList'),
-    save: (job) => __rpc('scheduleSave', job),
-    remove: (id) => __rpc('scheduleRemove', id),
-    runNow: (id) => __rpc('scheduleRun', id),
-  },
-  mcp: {
-    servers: () => __rpc('mcpServers'),
-    tools: (serverId) => __rpc('mcpTools', serverId),
-    call: (serverId, tool, args = {}) => __rpc('mcpCall', serverId, tool, args),
-  },
-  tools: {
-    register(def, handler) {
-      if (!def || !def.name || typeof handler !== 'function') throw new Error('tools.register(def, handler): def.name and handler are required');
-      __tools.set(def.name, { def, handler });
-      __post({ type: 'tools', tools: [...__tools.values()].map((t) => t.def) });
-    },
-  },
-};
-self.compola = compola;
-self.onmessage = async (e) => {
-  const m = e.data || {};
-  if (m.type === 'rpcResult') {
-    const p = __pending.get(m.id);
-    if (!p) return;
-    __pending.delete(m.id);
-    if (m.ok) p.resolve(m.value); else p.reject(new Error(m.error));
-  } else if (m.type === 'init') {
-    compola.manifest = m.manifest;
-    compola.settings = m.settings || {};
-    __storage = m.storage || {};
-    if (!(m.manifest.permissions || []).includes('network')) {
-      for (const k of ['fetch', 'XMLHttpRequest', 'WebSocket', 'EventSource', 'importScripts']) {
-        try { Object.defineProperty(self, k, { value: undefined, configurable: false, writable: false }); } catch {}
-      }
-    }
-    try { __addonMain(); } catch (err) { compola.log('lỗi khi chạy: ' + ((err && err.stack) || err)); }
-    await __emit('ready');
-  } else if (m.type === 'settings') {
-    compola.settings = m.settings || {};
-    await __emit('settings', compola.settings);
-  } else if (m.type === 'event') {
-    await __emit(m.name, m.data);
-  } else if (m.type === 'toolCall') {
-    const t = __tools.get(m.tool);
-    try {
-      if (!t) throw new Error('unknown tool ' + m.tool);
-      const result = await t.handler(m.args || {});
-      __post({ type: 'toolResult', requestId: m.requestId, ok: true, result: result === undefined ? null : result });
-    } catch (err) {
-      __post({ type: 'toolResult', requestId: m.requestId, ok: false, result: String((err && err.message) || err) });
-    }
-  }
-};
-`;
-
-interface Running {
+export interface AddonNote {
   id: string;
-  worker: Worker;
-  url: string;
-  source: string;
-  permissions: Set<string>;
-  settingsKey: string;
+  account: string;
+  conversationId: string;
+  messageId: string | null;
+  authorKind: 'addon' | 'user';
+  authorId: string;
+  authorName: string;
+  text: string;
+  pinned: boolean;
+  tags: string[];
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface AddonSuggestion {
+  id: string;
+  addonId: string;
+  addonName: string;
+  account: string;
+  conversationId: string;
+  title: string;
+  text: string;
+  createdAt: number;
+  expiresAt: number;
+}
+
+export type PanelBlock =
+  | { type: 'text'; text: string; muted?: boolean }
+  | { type: 'heading'; text: string }
+  | { type: 'kv'; items: { label: string; value: string }[] }
+  | { type: 'list'; items: string[]; ordered?: boolean }
+  | { type: 'badges'; items: string[] }
+  | { type: 'button'; label: string; action: string; payload: unknown; style: 'primary' | 'default' }
+  | { type: 'progress'; label: string; value: number }
+  | { type: 'divider' };
+
+export interface AddonPanel {
+  addonId: string;
+  addonName: string;
+  conversationId: string | null;
+  title: string;
+  blocks: PanelBlock[];
+  updatedAt: number;
+}
+
+export interface AddonAction {
+  id: string;
+  title: string;
+  context: 'conversation' | 'message' | 'composer';
+  description: string;
+  addonId: string;
+  addonName: string;
+  /** Opens this view (a `modal` view) instead of sending an `action` event. */
+  view?: string;
+}
+
+export type ViewLocation = 'tab' | 'inspector' | 'composer' | 'settings' | 'modal';
+
+export interface AddonViewDef {
+  id: string;
+  title: string;
+  location: ViewLocation;
+  entry: string;
+  icon: string;
+  height: number | null;
+  width: number | null;
+  addonId: string;
+  addonName: string;
+}
+
+export interface QuickReply {
+  addonId: string;
+  shortcut: string;
+  title: string;
+  text: string;
+}
+
+export interface Workspace {
+  notes: AddonNote[];
+  suggestions: AddonSuggestion[];
+  panels: AddonPanel[];
+  actions: AddonAction[];
+  views: AddonViewDef[];
+}
+
+export interface AddonPreview {
+  manifest: { id: string; name: string; version: string; description: string; author: string; permissions: string[]; hosts?: string[] };
+  warnings: string[];
+  files: number;
+  bytes: number;
+  installedVersion: string | null;
+  newPermissions: string[];
+  downgrade: boolean;
+  replacesBuiltin: boolean;
 }
 
 export interface AddonLogLine {
   at: number;
+  level: string;
   text: string;
 }
 
-/** The latest lines each add-on logged (newest last), for the Add-on settings page. */
-export const useAddonLogs = create<Record<string, AddonLogLine[]>>()(() => ({}));
+const call = async <T>(command: string, args?: Record<string, unknown>) => (await backend()).invoke<T>(command, args);
+/** The account on screen (the host resolves `null` to its active account). */
+const acc = () => activeAccountId() ?? undefined;
 
-const addLog = (id: string, text: string) => {
-  if (import.meta.env.DEV) console.debug(`[addon ${id}]`, text);
-  useAddonLogs.setState((s) => ({ ...s, [id]: [...(s[id] ?? []), { at: Date.now(), text: text.slice(0, 1000) }].slice(-100) }));
+export const addons = {
+  pick: (kind: 'zip' | 'js' | 'folder') => call<string | null>('addons_pick', { kind }),
+  inspect: (path: string) => call<AddonPreview>('addons_inspect', { path }),
+  install: (path: string) => call<string>('addons_install', { path }),
+  setEnabled: (id: string, enabled: boolean) => call<void>('addons_set_enabled', { id, enabled }),
+  setSettings: (id: string, settings: Record<string, unknown>) => call<void>('addons_set_settings', { id, settings }),
+  setLimits: (id: string, limits: AddonLimits) => call<void>('addons_set_limits', { id, limits }),
+  remove: (id: string) => call<void>('addons_remove', { id }),
+  restart: (id: string) => call<void>('addons_restart', { id }),
+  rollback: (id: string) => call<void>('addons_rollback', { id }),
+  logs: (id: string) => call<AddonLogLine[]>('addons_logs', { id }),
+  clearLogs: (id: string) => call<void>('addons_clear_logs', { id }),
+  setAi: (config: AiConfig) => call<AiConfig>('addons_ai_set', { config }),
+  testAi: () => call<{ text: string; model: string }>('addons_ai_test'),
+
+  workspace: (conversationId: string) => call<Workspace>('addons_workspace', { account: acc(), conversationId }),
+  quickReplies: () => call<QuickReply[]>('addons_quick_replies', { account: acc() }),
+  views: () => call<AddonViewDef[]>('addons_views', { account: acc() }),
+  viewDocument: (addonId: string, viewId: string) => call<string>('addons_view_document', { account: acc(), addonId, viewId }),
+  viewCall: (addonId: string, viewId: string, name: string, data: unknown, conversationId: string | null, params: unknown) =>
+    call<unknown>('addons_view_call', { account: acc(), addonId, viewId, name, data: data ?? null, conversationId, params: params ?? null }),
+  addNote: (conversationId: string, text: string, messageId?: string) => call<AddonNote>('addons_note_add', { account: acc(), conversationId, text, messageId: messageId ?? null }),
+  updateNote: (conversationId: string, id: string, patch: Partial<Pick<AddonNote, 'text' | 'pinned' | 'tags'>>) =>
+    call<AddonNote>('addons_note_update', { account: acc(), conversationId, id, patch }),
+  deleteNote: (conversationId: string, id: string) => call<void>('addons_note_delete', { account: acc(), conversationId, id }),
+  resolveSuggestion: (conversationId: string, id: string, outcome: 'used' | 'sent' | 'dismissed') =>
+    call<void>('addons_suggestion_resolve', { account: acc(), conversationId, id, outcome }),
+  runAction: (a: { addonId: string; actionId: string; conversationId?: string | null; messageId?: string | null; text?: string | null; payload?: unknown }) =>
+    call<void>('addons_action_run', {
+      account: acc(),
+      addonId: a.addonId,
+      actionId: a.actionId,
+      conversationId: a.conversationId ?? null,
+      messageId: a.messageId ?? null,
+      text: a.text ?? null,
+      payload: a.payload ?? null,
+    }),
 };
 
-const running = new Map<string, Running>();
+export interface AddonLimits {
+  sendPerMinute: number;
+  sendPerConversationHour: number;
+  aiPerHour: number;
+  fetchPerMinute: number;
+}
 
-const ownJobs = (id: string, jobs: Job[]) => jobs.filter((j) => j.action.kind === 'addon' && j.action.addonId === id);
+export interface AiConfig {
+  enabled: boolean;
+  provider: 'anthropic' | 'openai';
+  url: string;
+  apiKey: string;
+  model: string;
+  effort: string;
+  maxTokens: number;
+  /** Read only: a key is stored (the key itself never comes back). */
+  hasKey?: boolean;
+}
 
-const need = (r: Running, permission: string) => {
-  if (!r.permissions.has(permission)) throw new Error(`add-on chưa khai báo quyền "${permission}"`);
-};
+export const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
-const notify = async (title: string, body: string) => {
-  const { isPermissionGranted, requestPermission, sendNotification } = await import('@tauri-apps/plugin-notification');
-  let granted = await isPermissionGranted();
-  if (!granted) granted = (await requestPermission()) === 'granted';
-  if (granted) sendNotification({ title, body });
-};
+// ---- stores ----
 
-const rpc = async (r: Running, method: string, args: unknown[]): Promise<unknown> => {
-  const [a, b, c] = args;
-  switch (method) {
-    case 'sendText':
-      need(r, 'messages:send');
-      return automation.sendText(String(a), String(b));
-    case 'conversations':
-      need(r, 'messages:read');
-      return automation.conversations((a as string | null) ?? undefined, Number(b) || 50);
-    case 'messages':
-      need(r, 'messages:read');
-      return automation.messages((a as string | null) ?? null, Number(b) || 50);
-    case 'search':
-      need(r, 'messages:read');
-      return messageSearch.search(String(a), { conversationId: (b as string | null) ?? null, limit: Number(c) || 10, context: Number(args[3]) || 0 });
-    case 'notify':
-      need(r, 'notifications');
-      return notify(String(a), String(b ?? ''));
-    case 'storageSet':
-      return automation.setAddonStorage(r.id, String(a), b);
-    case 'schedulesList': {
-      need(r, 'schedules');
-      return ownJobs(r.id, (await automation.state()).jobs);
-    }
-    case 'scheduleSave': {
-      need(r, 'schedules');
-      const spec = (a ?? {}) as { id?: string; name?: string; cron?: string; at?: number | string; payload?: unknown; enabled?: boolean };
-      if (spec.id && !ownJobs(r.id, (await automation.state()).jobs).some((j) => j.id === spec.id)) throw new Error('không phải lịch của add-on này');
-      const at = typeof spec.at === 'string' ? Date.parse(spec.at) : spec.at;
-      if (!spec.cron && !(typeof at === 'number' && Number.isFinite(at))) throw new Error('cần `cron` hoặc `at`');
-      return automation.saveJob({
-        id: spec.id ?? '',
-        name: spec.name ?? '',
-        enabled: spec.enabled ?? true,
-        schedule: spec.cron ? { kind: 'cron', expr: spec.cron } : { kind: 'once', at: at as number },
-        action: { kind: 'addon', addonId: r.id, payload: spec.payload ?? null },
-        createdBy: `addon:${r.id}`,
-        lastRun: null,
-        lastStatus: null,
-        lastOk: null,
-      });
-    }
-    case 'scheduleRemove':
-    case 'scheduleRun': {
-      need(r, 'schedules');
-      if (!ownJobs(r.id, (await automation.state()).jobs).some((j) => j.id === a)) throw new Error('không phải lịch của add-on này');
-      return method === 'scheduleRemove' ? automation.deleteJob(String(a)) : automation.runJob(String(a));
-    }
-    case 'mcpServers':
-      need(r, 'mcp');
-      return (await automation.state()).clients.filter((x) => x.enabled).map((x) => ({ id: x.id, name: x.name, transport: x.transport }));
-    case 'mcpTools':
-      need(r, 'mcp');
-      return (await automation.clientTools(String(a))).tools;
-    case 'mcpCall':
-      need(r, 'mcp');
-      return automation.clientCall(String(a), String(b), c ?? {});
-    default:
-      throw new Error(`unknown API ${method}`);
+/** Views and quick replies of the running add-ons (app-wide). */
+export const useAddonCatalog = create<{ views: AddonViewDef[]; quickReplies: QuickReply[]; loaded: boolean }>()(() => ({
+  views: [],
+  quickReplies: [],
+  loaded: false,
+}));
+
+/** Workspace per conversation id (only the ones on screen are kept fresh). */
+export const useWorkspaces = create<Record<string, Workspace | undefined>>()(() => ({}));
+
+const watched = new Map<string, number>();
+
+export const refreshWorkspace = async (conversationId: string) => {
+  try {
+    const w = await addons.workspace(conversationId);
+    useWorkspaces.setState({ [conversationId]: w });
+  } catch {
+    // Joined users without access, mock mode…: no add-on content.
+    useWorkspaces.setState({ [conversationId]: { notes: [], suggestions: [], panels: [], actions: [], views: [] } });
   }
 };
 
-const start = (addon: Addon) => {
-  const id = addon.manifest.id;
-  // The add-on's code runs inside a function so its top-level declarations stay its own.
-  const blob = new Blob([WORKER_PRELUDE, '\nfunction __addonMain() {\n', addon.source, '\n}\n'], { type: 'text/javascript' });
-  const url = URL.createObjectURL(blob);
-  const worker = new Worker(url, { name: `addon:${id}` });
-  const settings = addonSettings(addon);
-  const r: Running = { id, worker, url, source: addon.source, permissions: new Set(addon.manifest.permissions), settingsKey: JSON.stringify(settings) };
-  worker.onmessage = (e: MessageEvent) => {
-    const m = e.data ?? {};
-    if (m.type === 'log') addLog(id, String(m.text));
-    else if (m.type === 'tools') void automation.registerAddonTools(id, Array.isArray(m.tools) ? m.tools : []).catch(() => {});
-    else if (m.type === 'toolResult') void automation.addonToolReply(String(m.requestId), !!m.ok, m.result).catch(() => {});
-    else if (m.type === 'rpc')
-      rpc(r, String(m.method), Array.isArray(m.args) ? m.args : []).then(
-        (value) => worker.postMessage({ type: 'rpcResult', id: m.id, ok: true, value: value ?? null }),
-        (err: unknown) => worker.postMessage({ type: 'rpcResult', id: m.id, ok: false, error: err instanceof Error ? err.message : String(err) }),
-      );
+/** Keeps a conversation's workspace loaded while a component shows it. Returns the release function. */
+export const watchWorkspace = (conversationId: string) => {
+  watched.set(conversationId, (watched.get(conversationId) ?? 0) + 1);
+  if (watched.get(conversationId) === 1) void refreshWorkspace(conversationId);
+  return () => {
+    const n = (watched.get(conversationId) ?? 1) - 1;
+    if (n <= 0) watched.delete(conversationId);
+    else watched.set(conversationId, n);
   };
-  worker.onerror = (e) => addLog(id, `lỗi: ${e.message}`);
-  worker.postMessage({ type: 'init', manifest: addon.manifest, settings, storage: addon.storage });
-  running.set(id, r);
-  addLog(id, 'đã khởi động');
 };
 
-const stop = (id: string) => {
-  const r = running.get(id);
-  if (!r) return;
-  r.worker.terminate();
-  URL.revokeObjectURL(r.url);
-  running.delete(id);
-  void automation.registerAddonTools(id, []).catch(() => {});
-  addLog(id, 'đã dừng');
+let catalogTimer: ReturnType<typeof setTimeout> | null = null;
+export const refreshCatalog = () => {
+  if (catalogTimer) return;
+  catalogTimer = setTimeout(() => {
+    catalogTimer = null;
+    void Promise.all([addons.views().catch(() => []), addons.quickReplies().catch(() => [])]).then(([views, quickReplies]) =>
+      useAddonCatalog.setState({ views, quickReplies, loaded: true }),
+    );
+    for (const id of watched.keys()) void refreshWorkspace(id);
+  }, 150);
 };
 
-/** Starts, restarts (new code), updates (new settings) or stops workers to match the stored add-ons. */
-const sync = () => {
-  const state = useAutomation.getState().state;
-  if (!state) return;
-  const wanted = new Map(state.addons.filter((a) => a.enabled).map((a) => [a.manifest.id, a]));
-  for (const id of [...running.keys()]) if (!wanted.has(id)) stop(id);
-  for (const [id, addon] of wanted) {
-    const r = running.get(id);
-    const permissions = [...new Set(addon.manifest.permissions)].sort().join(',');
-    if (r && (r.source !== addon.source || [...r.permissions].sort().join(',') !== permissions)) stop(id);
-    const current = running.get(id);
-    if (!current) {
-      try {
-        start(addon);
-      } catch (e) {
-        addLog(id, `không khởi động được: ${String(e)}`);
-      }
-      continue;
-    }
-    const settings = addonSettings(addon);
-    const key = JSON.stringify(settings);
-    if (key !== current.settingsKey) {
-      current.settingsKey = key;
-      current.worker.postMessage({ type: 'settings', settings });
-    }
+// ---- composer bridge (views and quick replies put text in the message box) ----
+
+export const useComposerInsert = create<{ request: { conversationId: string; text: string; replace: boolean; seq: number } | null }>()(() => ({ request: null }));
+let insertSeq = 0;
+export const insertIntoComposer = (conversationId: string, text: string, replace = false) =>
+  useComposerInsert.setState({ request: { conversationId, text, replace, seq: ++insertSeq } });
+
+/** `{{name}}` (the conversation), `{{date}}`, `{{time}}`, `{{weekday}}`, `{{datetime}}` in a quick reply / suggestion. */
+export const expandTemplate = (text: string, conversationName: string) => {
+  const now = new Date();
+  const weekday = ['Chủ nhật', 'Thứ hai', 'Thứ ba', 'Thứ tư', 'Thứ năm', 'Thứ sáu', 'Thứ bảy'][now.getDay()];
+  const date = now.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const time = now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+  return text
+    .replace(/\{\{\s*name\s*\}\}/g, conversationName)
+    .replace(/\{\{\s*date\s*\}\}/g, date)
+    .replace(/\{\{\s*time\s*\}\}/g, time)
+    .replace(/\{\{\s*datetime\s*\}\}/g, `${time} ${date}`)
+    .replace(/\{\{\s*weekday\s*\}\}/g, weekday);
+};
+
+// ---- modal views ----
+
+export interface OpenModal {
+  key: number;
+  view: AddonViewDef;
+  conversationId: string | null;
+  params: unknown;
+}
+
+export const useAddonModals = create<{ open: OpenModal[] }>()(() => ({ open: [] }));
+let modalSeq = 0;
+
+/** Opens a view: a modal as a dialog, a tab as its page; inline views cannot be opened on their own. */
+export const openAddonView = (addonId: string, viewId: string, conversationId: string | null, params: unknown = null) => {
+  const view = useAddonCatalog.getState().views.find((v) => v.addonId === addonId && v.id === viewId);
+  if (!view) return showToast('Add-on không có giao diện này hoặc đang tắt', null);
+  if (view.location === 'tab') {
+    void import('../shell/shellStore').then(({ shell }) => shell.setDestination(`addon:${addonId}:${viewId}`));
+    return;
+  }
+  useAddonModals.setState((s) => ({ open: [...s.open, { key: ++modalSeq, view, conversationId, params }] }));
+};
+
+export const closeAddonModal = (key: number) => useAddonModals.setState((s) => ({ open: s.open.filter((m) => m.key !== key) }));
+
+export const openConversationFromAddon = (conversationId: string) => setEngine({ navigationRequest: conversationId });
+
+// ---- frames (views on screen), for `compola.views.post` ----
+
+export interface FrameHandle {
+  addonId: string;
+  viewId: string;
+  conversationId: string | null;
+  post: (message: unknown) => void;
+}
+
+const frames = new Set<FrameHandle>();
+export const registerFrame = (f: FrameHandle) => {
+  frames.add(f);
+  return () => frames.delete(f);
+};
+
+const deliverViewMessage = (e: { addonId?: string; viewId?: string | null; conversationId?: string | null; name?: string; data?: unknown }) => {
+  for (const f of frames) {
+    if (f.addonId !== e.addonId) continue;
+    if (e.viewId && f.viewId !== e.viewId) continue;
+    if (e.conversationId && f.conversationId && f.conversationId !== e.conversationId) continue;
+    f.post({ __compola: 1, type: 'message', name: e.name, data: e.data ?? null });
   }
 };
 
-const deliver = (id: string, message: unknown) => running.get(id)?.worker.postMessage(message);
+// ---- events ----
 
 let started = false;
 
+/** Listens to `compola://addons` (call once the engine runs; on the host, a joined app and the web client). */
 export const startAddonRuntime = async () => {
-  if (started || !usesTauri) return;
+  if (started) return;
   started = true;
-  useAutomation.subscribe(sync);
   const b = await backend();
-  await b.listen('compola://automation', (payload) => {
-    const e = (payload ?? {}) as { kind?: string; [k: string]: unknown };
+  await b.listen('compola://addons', (payload) => {
+    const e = (payload ?? {}) as { kind?: string; conversationId?: string | null; [k: string]: unknown };
     switch (e.kind) {
-      case 'changed':
+      case 'status':
+        refreshCatalog();
         void refreshAutomation();
         break;
-      case 'message':
-        for (const r of running.values()) if (r.permissions.has('messages:read')) r.worker.postMessage({ type: 'event', name: 'message', data: e.message });
+      case 'actions':
+      case 'quickReplies':
+        refreshCatalog();
         break;
-      case 'schedule':
-        deliver(String(e.addonId), { type: 'event', name: 'schedule', data: e.payload });
+      case 'notes':
+      case 'suggestions':
+      case 'panels':
+        if (e.conversationId) {
+          if (watched.has(e.conversationId)) void refreshWorkspace(e.conversationId);
+        } else for (const id of watched.keys()) void refreshWorkspace(id);
         break;
-      case 'toolCall':
-        if (running.has(String(e.addonId))) deliver(String(e.addonId), { type: 'toolCall', requestId: e.requestId, tool: e.tool, args: e.arguments });
-        else void automation.addonToolReply(String(e.requestId), false, 'add-on không chạy');
+      case 'toast':
+        showToast(`${String(e.addonName ?? 'Add-on')}: ${String(e.text ?? '')}`, (e.conversationId as string | null) ?? null);
+        break;
+      case 'openView':
+        openAddonView(String(e.addonId), String(e.viewId), (e.conversationId as string | null) ?? null, e.params ?? null);
+        break;
+      case 'viewMessage':
+        deliverViewMessage(e as Parameters<typeof deliverViewMessage>[0]);
         break;
     }
   });
-  await refreshAutomation();
+  refreshCatalog();
 };

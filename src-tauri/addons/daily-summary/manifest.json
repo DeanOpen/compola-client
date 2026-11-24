@@ -1,0 +1,27 @@
+{
+  "id": "daily-summary",
+  "name": "Tóm tắt khách hàng hằng ngày",
+  "version": "1.0.0",
+  "description": "Mỗi ngày (theo lịch) tóm tắt cuộc trò chuyện với từng khách có tin nhắn trong ngày và lưu thành ghi chú của hội thoại đó (xem ở bảng thông tin bên phải). Có thể gửi báo cáo tổng vào một hội thoại. Dùng AI khi đã bật; không có AI thì ghi lại các tin chính.",
+  "author": "Compola",
+  "main": "main.js",
+  "permissions": ["messages:read", "messages:send", "notes", "ai", "schedules", "ui"],
+  "settings": [
+    { "key": "cron", "label": "Lịch (cron)", "type": "cron", "default": "0 18 * * *" },
+    { "key": "scope", "label": "Hội thoại", "type": "select", "default": "direct", "options": [
+      { "value": "direct", "label": "Chỉ chat 1-1" },
+      { "value": "all", "label": "Cả nhóm" }
+    ] },
+    { "key": "conversations", "label": "Chỉ các hội thoại này (để trống = mọi hội thoại có tin trong ngày)", "type": "conversations", "default": [] },
+    { "key": "minMessages", "label": "Bỏ qua hội thoại có ít hơn (tin)", "type": "number", "default": 3 },
+    { "key": "focus", "label": "AI tóm tắt những gì", "type": "textarea", "default": "Nhu cầu và câu hỏi của khách, sản phẩm/giá đã trao đổi, cam kết của hai bên, việc cần làm tiếp theo, mức độ hài lòng." },
+    { "key": "pin", "label": "Ghim ghi chú tóm tắt", "type": "boolean", "default": false },
+    { "key": "reportTo", "label": "Gửi báo cáo tổng vào hội thoại (tuỳ chọn)", "type": "conversation", "default": "" }
+  ],
+  "contributes": {
+    "actions": [
+      { "id": "summarize", "title": "Tóm tắt hôm nay", "context": "conversation", "description": "Tóm tắt cuộc trò chuyện hôm nay và lưu thành ghi chú" }
+    ]
+  },
+  "limits": { "memoryMb": 96, "timeoutMs": 5000 }
+}

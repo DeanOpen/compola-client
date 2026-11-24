@@ -215,6 +215,11 @@ impl Mirror {
         list
     }
 
+    /// This account has seen the conversation (in its list or as an opened chat).
+    pub fn knows(&self, id: &str) -> bool {
+        self.conversations.contains_key(id) || self.chats.contains_key(id)
+    }
+
     pub fn conversation(&self, id: &str) -> Option<Conversation> {
         self.conversations.get(id).cloned()
     }

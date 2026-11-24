@@ -31,7 +31,8 @@ pub const DEFAULT_PORT: u16 = 39218;
 /// `{kind: "access", access}`.
 pub const EVENT: &str = "compola://remote";
 /// The engine events a joined app's UI receives (filtered per user).
-const FORWARDED: &[&str] = &["compola://phase", "compola://state", "compola://badge", "compola://page"];
+/// `compola://addons`: notes, suggestions, panels, views of add-ons (filtered per user by `policy::filter_event`).
+const FORWARDED: &[&str] = &["compola://phase", "compola://state", "compola://badge", "compola://page", "compola://addons"];
 /// A notification the host's renderer created (`notifications::deliver_remote` on the joined app).
 const NOTIFICATION_EVENT: &str = "compola://remote-notification";
 /// Notification images larger than this are not sent along.

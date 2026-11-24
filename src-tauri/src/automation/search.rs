@@ -274,6 +274,29 @@ impl Index {
         rowids.iter().filter_map(|id| st.query_row([id], |r| Ok((*id, row_message(r)?))).ok()).collect()
     }
 
+    /// A conversation's messages with `since <= date < until`: the newest `limit`, oldest first (`compola.history`).
+    pub fn range(&self, conversation: &str, since: i64, until: i64, limit: usize) -> Vec<Message> {
+        let conn = self.conn.lock();
+        let mut rows: Vec<Message> = conn
+            .prepare_cached(&format!("SELECT {COLUMNS} FROM messages WHERE conv_id = ?1 AND date >= ?2 AND date < ?3 ORDER BY date DESC LIMIT ?4"))
+            .and_then(|mut st| st.query_map(params![conversation, since, until, limit as i64], row_message)?.collect())
+            .unwrap_or_default();
+        rows.reverse();
+        rows
+    }
+
+    /// Conversations with a message since `since`, newest activity first: (id, name, is_group, count, last date).
+    pub fn active_since(&self, since: i64, limit: usize) -> Vec<(String, String, bool, i64, i64)> {
+        let conn = self.conn.lock();
+        conn.prepare_cached(
+            "SELECT conv_id, MAX(conv_name), MAX(is_group), COUNT(*), MAX(date) FROM messages WHERE date >= ?1 GROUP BY conv_id ORDER BY MAX(date) DESC LIMIT ?2",
+        )
+        .and_then(|mut st| {
+            st.query_map(params![since, limit as i64], |r| Ok((r.get(0)?, r.get(1)?, r.get::<_, i64>(2)? != 0, r.get(3)?, r.get(4)?)))?.collect()
+        })
+        .unwrap_or_default()
+    }
+
     /// `before` messages before and `after` after `m` in its conversation (oldest first, `m` included).
     pub fn context(&self, m: &Message, before: usize, after: usize) -> Vec<Message> {
         let conn = self.conn.lock();

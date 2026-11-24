@@ -227,13 +227,30 @@ pub fn run() {
             automation::automation_delete_job,
             automation::automation_run_job,
             automation::automation_cron_preview,
-            automation::automation_addon_install,
-            automation::automation_addon_set_enabled,
-            automation::automation_addon_set_settings,
-            automation::automation_addon_storage_set,
-            automation::automation_addon_remove,
-            automation::automation_addon_register_tools,
-            automation::automation_addon_tool_reply,
+            automation::addons::commands::addons_pick,
+            automation::addons::commands::addons_inspect,
+            automation::addons::commands::addons_install,
+            automation::addons::commands::addons_set_enabled,
+            automation::addons::commands::addons_set_settings,
+            automation::addons::commands::addons_set_limits,
+            automation::addons::commands::addons_remove,
+            automation::addons::commands::addons_restart,
+            automation::addons::commands::addons_rollback,
+            automation::addons::commands::addons_logs,
+            automation::addons::commands::addons_clear_logs,
+            automation::addons::commands::addons_ai_set,
+            automation::addons::commands::addons_ai_test,
+            automation::addons::commands::addons_workspace,
+            automation::addons::commands::addons_quick_replies,
+            automation::addons::commands::addons_note_counts,
+            automation::addons::commands::addons_note_add,
+            automation::addons::commands::addons_note_update,
+            automation::addons::commands::addons_note_delete,
+            automation::addons::commands::addons_suggestion_resolve,
+            automation::addons::commands::addons_action_run,
+            automation::addons::commands::addons_views,
+            automation::addons::commands::addons_view_document,
+            automation::addons::commands::addons_view_call,
             automation::automation_conversations,
             automation::automation_messages,
             automation::automation_send_text,
@@ -273,6 +290,10 @@ pub fn run() {
                 net::fingerprint::FingerprintProxy::shared().shutdown();
                 calls::shutdown(app);
                 screen_capture::shutdown(app);
+                // Add-ons get their `unload` and their storage is written before the process ends.
+                if let Some(a) = app.try_state::<std::sync::Arc<automation::Automation>>() {
+                    a.addons.shutdown();
+                }
             }
         });
 }

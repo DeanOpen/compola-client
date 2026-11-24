@@ -1,0 +1,15 @@
+body { padding: 2px 0 8px; }
+.row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+.label { color: var(--c-muted); font-size: 12px; min-width: 72px; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.chip { padding: 1px 8px; border-radius: 999px; background: var(--c-surface); border: 1px solid var(--c-border); font-size: 12px; }
+.chip.on { background: var(--c-accent); border-color: var(--c-accent); color: var(--c-accent-fg); }
+.muted { color: var(--c-muted); font-size: 12px; }
+.err { color: var(--c-danger); font-size: 12px; }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--c-border); font-size: 13px; }
+th { color: var(--c-muted); font-weight: 500; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+.card { padding: 12px; border-radius: 10px; background: var(--c-surface); }
+.card b { display: block; font-size: 22px; margin-top: 4px; }
+input, select { width: 100%; }

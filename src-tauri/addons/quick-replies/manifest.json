@@ -1,0 +1,12 @@
+{
+  "id": "quick-replies",
+  "name": "Tin nhắn nhanh",
+  "version": "1.0.0",
+  "description": "Mẫu trả lời dùng chung: gõ / trong ô soạn tin (ví dụ /chao) hoặc bấm ⚡ để chèn. Mỗi dòng một mẫu: /lệnh | nội dung. Dùng {{name}} cho tên hội thoại, {{date}} {{time}} cho ngày giờ, \\n để xuống dòng.",
+  "author": "Compola",
+  "main": "main.js",
+  "permissions": ["ui"],
+  "settings": [
+    { "key": "replies", "label": "Mẫu (mỗi dòng: /lệnh | nội dung)", "type": "textarea", "default": "/chao | Xin chào {{name}}, em có thể hỗ trợ gì cho anh/chị ạ?\n/cam-on | Cảm ơn anh/chị đã liên hệ. Chúc anh/chị một ngày tốt lành!\n/doi | Anh/chị vui lòng chờ em kiểm tra trong giây lát ạ.\n/gio | Bên em làm việc từ 8:00 đến 17:30, thứ hai đến thứ bảy." }
+  ]
+}

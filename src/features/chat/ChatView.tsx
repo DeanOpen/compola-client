@@ -25,6 +25,8 @@ import { Alert } from '../../ui/Overlays';
 import { Spinner } from '../../ui/Spinner';
 import { ToastView } from '../../ui/Toast';
 import { Composer } from './composer/Composer';
+import { AddonComposerBar } from '../addons/AddonSurfaces';
+import { useComposerInsert } from '../../engine/addons';
 import { MessageActionPresenter } from './MessageActionPresenter';
 import { MessageList } from './MessageList';
 import { PinnedBar } from './PinnedBar';
@@ -87,6 +89,17 @@ export function ChatView({ conversation }: { conversation: ConversationSummary }
   const selfId = useEngine((s) => s.selfConversationId);
   const draftRef = useRef(draft);
   draftRef.current = draft;
+  // Add-ons put text in the message box (a view's `compola.insertText`, a quick reply, "Sửa trước khi gửi").
+  const insertRequest = useComposerInsert((s) => s.request);
+  useEffect(() => {
+    if (!insertRequest || insertRequest.conversationId !== conversation.id || readOnly) return;
+    useComposerInsert.setState({ request: null });
+    setDraft((d) => {
+      const text = insertRequest.replace || !d.text.trim() ? insertRequest.text : `${d.text}${/\s$/.test(d.text) ? '' : ' '}${insertRequest.text}`;
+      return { ...d, text, mentions: insertRequest.replace ? [] : d.mentions, styles: [] };
+    });
+    setFocusTick((t) => t + 1);
+  }, [insertRequest?.seq]);
   const lastMarkedId = useRef<string | null>(null);
 
   const last = loaded?.[loaded.length - 1];
@@ -226,6 +239,17 @@ export function ChatView({ conversation }: { conversation: ConversationSummary }
             <span>Bạn chỉ có quyền xem cuộc trò chuyện này</span>
           </div>
         ) : (
+          <>
+          <AddonComposerBar
+            conversationId={id}
+            conversationName={conversation.name}
+            isGroup={conversation.isGroup}
+            draftText={draft.text}
+            onReplaceDraft={(text) => {
+              setDraft((d) => ({ ...d, text, mentions: [], styles: [] }));
+              setFocusTick((t) => t + 1);
+            }}
+          />
           <Composer
             name={conversation.name}
             conversationId={id}
@@ -238,6 +262,7 @@ export function ChatView({ conversation }: { conversation: ConversationSummary }
             onSendLike={sendLike}
             onPasteFiles={() => void clipboardFiles().then((paths) => paths.length && setPendingPaste(paths))}
           />
+          </>
         )}
       </div>
       {dropping && (

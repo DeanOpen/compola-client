@@ -21,7 +21,17 @@ export type Destination =
   | 'requests'
   | 'addFriend'
   | 'groupInvites'
-  | `label:${string}`;
+  | `label:${string}`
+  /** An add-on's `tab` view: `addon:<addonId>:<viewId>`. */
+  | `addon:${string}`;
+
+export const isAddonTab = (d: Destination): d is `addon:${string}` => d.startsWith('addon:');
+/** `[addonId, viewId]` of an add-on tab. */
+export const addonTabOf = (d: Destination): [string, string] | null => {
+  if (!isAddonTab(d)) return null;
+  const [, addonId, ...rest] = d.split(':');
+  return addonId && rest.length ? [addonId, rest.join(':')] : null;
+};
 
 export const isLabel = (d: Destination): d is `label:${string}` => d.startsWith('label:');
 export const labelIdOf = (d: Destination): string | null => (isLabel(d) ? d.slice(6) : null);

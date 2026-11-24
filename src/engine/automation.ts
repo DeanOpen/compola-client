@@ -56,8 +56,12 @@ export interface RunLog {
 export interface AddonSetting {
   key: string;
   label: string;
-  type: 'text' | 'textarea' | 'number' | 'boolean' | 'conversation' | 'cron';
+  type: 'text' | 'textarea' | 'number' | 'boolean' | 'select' | 'secret' | 'time' | 'conversation' | 'conversations' | 'cron';
   default?: unknown;
+  /** `select`: the choices. */
+  options?: { value: string; label: string }[];
+  /** Shown under the field. */
+  description?: string;
 }
 
 export interface AddonManifest {
@@ -68,18 +72,47 @@ export interface AddonManifest {
   author: string;
   main: string;
   permissions: string[];
+  hosts?: string[];
+  homepage?: string;
   settings: AddonSetting[];
+  contributes?: { actions?: unknown[]; quickReplies?: unknown[]; views?: { id: string; title: string; location: string; entry: string }[] };
+  limits?: { memoryMb?: number; timeoutMs?: number };
+}
+
+export type AddonStatus =
+  | { state: 'stopped' }
+  | { state: 'running'; since: number }
+  | { state: 'restarting'; at: number; attempt: number; reason: string }
+  | { state: 'faulted'; reason: string };
+
+export interface AddonStats {
+  events?: number;
+  calls?: number;
+  errors?: number;
+  busyMs?: number;
+  memory?: number;
+  inFlight?: number;
+  dropped?: number;
+  backlog?: number;
+  aiRequests?: number;
+  aiInputTokens?: number;
+  aiOutputTokens?: number;
+  subscriptions?: string[];
 }
 
 export interface Addon {
   manifest: AddonManifest;
-  source: string;
+  digest: string;
   path: string;
   builtin: boolean;
+  hasBackup: boolean;
   enabled: boolean;
+  /** The user's values over the manifest defaults. */
   settings: Record<string, unknown>;
-  storage: Record<string, unknown>;
+  limits: import('./addons').AddonLimits;
   tools: { name: string; description?: string }[];
+  status: AddonStatus;
+  stats: AddonStats;
 }
 
 export interface AutomationState {
@@ -92,6 +125,7 @@ export interface AutomationState {
   addons: Addon[];
   addonDir: string;
   permissions: string[];
+  ai: import('./addons').AiConfig;
 }
 
 export interface MirrorConversation {
@@ -139,14 +173,6 @@ export const automation = {
   deleteJob: (id: string) => call<boolean>('automation_delete_job', { id }),
   runJob: (id: string) => call<RunLog>('automation_run_job', { id }),
   cronPreview: (expr: string, count = 5) => call<number[]>('automation_cron_preview', { expr, count }),
-  installAddon: (folder: boolean, path?: string) => call<string | null>('automation_addon_install', { folder, path: path ?? null }),
-  setAddonEnabled: (id: string, enabled: boolean) => call<void>('automation_addon_set_enabled', { id, enabled }),
-  setAddonSettings: (id: string, settings: Record<string, unknown>) => call<void>('automation_addon_set_settings', { id, settings }),
-  setAddonStorage: (id: string, key: string, value: unknown) => call<void>('automation_addon_storage_set', { id, key, value: value ?? null }),
-  removeAddon: (id: string) => call<void>('automation_addon_remove', { id }),
-  registerAddonTools: (id: string, tools: unknown[]) => call<void>('automation_addon_register_tools', { id, tools }),
-  addonToolReply: (requestId: string, ok: boolean, result: unknown) =>
-    call<void>('automation_addon_tool_reply', { requestId, ok, result: result ?? null }),
   conversations: (query?: string, limit = 50) => call<MirrorConversation[]>('automation_conversations', { query: query ?? null, limit }),
   messages: (conversationId: string | null, limit = 50) => call<MirrorMessage[]>('automation_messages', { conversationId, limit }),
   sendText: (conversationId: string, text: string) => call<void>('automation_send_text', { conversationId, text }),
@@ -168,10 +194,10 @@ export const refreshAutomation = () => {
   return refreshing;
 };
 
-/** Merges an add-on's settings with its manifest defaults. */
+/** Merges an add-on's settings with its manifest defaults (the host already sends them merged). */
 export const addonSettings = (addon: Pick<Addon, 'manifest' | 'settings'>): Record<string, unknown> => {
   const out: Record<string, unknown> = {};
-  for (const s of addon.manifest.settings ?? []) out[s.key] = s.default ?? (s.type === 'boolean' ? false : '');
+  for (const s of addon.manifest.settings ?? []) out[s.key] = s.default ?? (s.type === 'boolean' ? false : s.type === 'conversations' ? [] : '');
   return { ...out, ...addon.settings };
 };
 
@@ -182,6 +208,9 @@ export const permissionTitles: Record<string, string> = {
   mcp: 'Dùng máy chủ MCP',
   network: 'Truy cập mạng',
   notifications: 'Hiện thông báo',
+  notes: 'Ghi chú hội thoại',
+  ui: 'Giao diện trong ứng dụng',
+  ai: 'Dùng AI',
 };
 
 export const describeSchedule = (s: Schedule): string => (s.kind === 'cron' ? `cron ${s.expr}` : `một lần · ${formatTime(s.at)}`);

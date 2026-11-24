@@ -27,6 +27,8 @@ import { openContactProfile } from '../contacts/hosts';
 import { showToast } from '../../engine/toast';
 import { muteMenuWithUndo } from '../conversationActions/menu';
 import { menuPlan, pinConversation, requestDeleteConversation, setConversationPrompt, unpinConversation } from '../../engine/conversationActions';
+import { AddonInspectorSections } from '../addons/AddonSurfaces';
+import { useIsViewer } from '../../engine/remote';
 import './inspector.css';
 
 const listLimit = 5;
@@ -56,6 +58,7 @@ function ChatInspector({ conversation }: { conversation: ConversationSummary }) 
   const id = conversation.id;
   const loaded = useEngine((s) => s.messages[id]);
   const selfId = useEngine((s) => s.selfConversationId);
+  const readOnly = useIsViewer();
 
   const shared = useMemo(() => sharedContent(loaded ?? []), [loaded]);
   const actionsState = useEngine((s) => s.conversationActions);
@@ -101,6 +104,8 @@ function ChatInspector({ conversation }: { conversation: ConversationSummary }) 
           </Section>
         </>
       )}
+
+      <AddonInspectorSections conversationId={id} conversationName={conversation.name} isGroup={conversation.isGroup} readOnly={readOnly} />
 
       <MediaStrip conversationId={id} />
 
