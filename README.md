@@ -215,7 +215,7 @@ Notarization credentials, first match wins:
 | Workflow | When | What |
 |---|---|---|
 | `ci.yml` | every push to `main` and every pull request | type check, UI + admin console + web client builds, `cargo test --lib` on macOS, Helm lint and a gateway image build |
-| `release.yml` | a `v*` tag (or run it by hand with a tag) | universal `Compola.app`, ad-hoc signed; a GitHub Release with the DMG, a zip of the app and `SHA256SUMS.txt` |
+| `release.yml` | a `v*` tag (or run it by hand with a tag); every push to `main` refreshes the `edge` pre-release | macOS (universal DMG + zip), Windows (NSIS + MSI), Linux (deb, rpm, AppImage), signed update bundles and `latest.json` for auto-update, `SHA256SUMS.txt` |
 | `docker.yml` | `main` and `v*` tags | the gateway image for `linux/amd64` + `linux/arm64` on `ghcr.io/<owner>/compola-gateway` |
 
 To cut a release:
@@ -224,10 +224,35 @@ To cut a release:
 git tag v0.2.0 && git push origin v0.2.0
 ```
 
-The version in `tauri.conf.json` is taken from the tag. Release builds are **ad-hoc signed** (no Apple Developer ID),
-so macOS asks users to confirm the first launch: right-click `Compola.app` › *Open*, or *System Settings › Privacy &
-Security › Open Anyway*. For a signed and notarized build, use `scripts/release.sh` (below) on a Mac with your
-Developer ID.
+The version in `tauri.conf.json` is taken from the tag. Installed apps update themselves from the latest release
+(`tauri-plugin-updater`, `src-tauri/src/updater.rs`): update bundles are signed with the `TAURI_SIGNING_PRIVATE_KEY`
+secret and checked against `plugins.updater.pubkey`.
+
+### Signing macOS releases
+
+Without Apple secrets the macOS build is **ad-hoc signed**: macOS asks users to confirm the first launch (right-click
+`Compola.app` › *Open*). With them, `release.yml` runs `scripts/release.sh`: Developer ID signed, notarized and stapled
+app and DMG, and the update bundle made from the stapled app. Repository secrets (*Settings › Secrets and variables ›
+Actions*):
+
+| Secret | What |
+|---|---|
+| `APPLE_CERTIFICATE` | Your **Developer ID Application** certificate with its private key, exported from Keychain Access as `.p12`, base64: `base64 -i DeveloperID.p12 \| pbcopy` |
+| `APPLE_CERTIFICATE_PASSWORD` | The password chosen when exporting the `.p12` |
+| `APPLE_SIGNING_IDENTITY` | Optional: the full identity name, when the `.p12` holds more than one |
+
+Notarization, either an App Store Connect API key (recommended):
+
+| Secret | What |
+|---|---|
+| `APPLE_API_KEY` | Key ID (App Store Connect › Users and Access › Integrations › Team Keys, role *Developer*) |
+| `APPLE_API_ISSUER` | Issuer ID (same page) |
+| `APPLE_API_KEY_P8` | Contents of the downloaded `AuthKey_<KEYID>.p8` |
+
+or an Apple ID: `APPLE_ID`, `APPLE_PASSWORD` (an app-specific password from account.apple.com) and `APPLE_TEAM_ID`.
+
+The certificate needs a paid Apple Developer Program membership; only the Account Holder can create a Developer ID
+Application certificate (developer.apple.com › Certificates › + › *Developer ID Application*, G2 Sub-CA).
 
 ## Deploying the gateway (Docker, Kubernetes)
 

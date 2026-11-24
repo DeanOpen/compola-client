@@ -1,6 +1,8 @@
 #!/bin/zsh
 # Distributable Compola: Developer ID signed, hardened runtime, notarized and stapled (port of the Swift repo's
 # scripts/release.sh). Produces src-tauri/target/dist/Compola-<version>.dmg (drag-to-Applications) and …/Compola-<version>.zip.
+# With TAURI_SIGNING_PRIVATE_KEY (+ _PASSWORD) set, also the auto-update bundle made from the stapled app:
+# …/Compola-<version>.app.tar.gz and its .sig (see .github/workflows/release.yml).
 #
 #   APPLE_SIGNING_IDENTITY="Developer ID Application: Name (TEAMID)" scripts/release.sh
 #   COMPOLA_VERSION=0.2.0 scripts/release.sh            # overrides tauri.conf.json's version
@@ -89,9 +91,18 @@ xcrun stapler staple "$APP"
 rm -f "$ZIP"
 ditto -c -k --keepParent "$APP" "$ZIP"   # re-zip the stapled app
 
+# The auto-update bundle (what `createUpdaterArtifacts` makes: a tar.gz holding Compola.app), from the stapled app.
+if [[ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" ]]; then
+  UPDATE="$DIST/Compola-$VERSION.app.tar.gz"
+  echo "==> Creating $UPDATE"
+  COPYFILE_DISABLE=1 tar --no-mac-metadata -czf "$UPDATE" -C "$(dirname "$APP")" "$(basename "$APP")"
+  npx tauri signer sign "$UPDATE" >/dev/null
+  [[ -s "$UPDATE.sig" ]] || { echo "error: $UPDATE was not signed" >&2; exit 1; }
+fi
+
 # 2. A drag-to-Applications DMG, signed, notarized and stapled too.
 echo "==> Creating $DMG"
-scripts/make-dmg.sh "$APP" "$DMG"
+COMPOLA_DMG_NOTARIZED=1 scripts/make-dmg.sh "$APP" "$DMG"
 codesign --force --timestamp --sign "$IDENTITY" "$DMG"
 notarize "$DMG"
 xcrun stapler staple "$DMG"

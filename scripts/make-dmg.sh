@@ -3,6 +3,7 @@
 # (no Finder scripting, so it looks the same on CI as locally).
 #
 #   scripts/make-dmg.sh <path/to/Compola.app> <out.dmg> [volume name]
+#   COMPOLA_DMG_NOTARIZED=1 scripts/make-dmg.sh …   # background without the first-launch "right-click → Open" hint
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -20,5 +21,5 @@ fi
 
 mkdir -p "$(dirname "$OUT")"
 rm -f "$OUT"
-"$VENV/bin/dmgbuild" -s scripts/dmg/settings.py -D assets="$PWD/scripts/dmg" -D app="$(cd "$(dirname "$APP")" && pwd)/$(basename "$APP")" "$VOLUME" "$OUT"
+"$VENV/bin/dmgbuild" -s scripts/dmg/settings.py -D assets="$PWD/scripts/dmg" -D notarized="${COMPOLA_DMG_NOTARIZED:-0}" -D app="$(cd "$(dirname "$APP")" && pwd)/$(basename "$APP")" "$VOLUME" "$OUT"
 echo "Built $OUT"

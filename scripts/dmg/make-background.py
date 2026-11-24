@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Renders the DMG window background (scripts/dmg/background.tiff, 1x + 2x) used by scripts/make-dmg.sh.
+"""Renders the DMG window backgrounds (scripts/dmg/background*.tiff, 1x + 2x) used by scripts/make-dmg.sh:
+`background.tiff` (ad-hoc signed: tells how to open it the first time) and `background-notarized.tiff`.
 
 Needs Pillow and macOS (SF Pro); the TIFF is committed, so this only runs when the artwork changes:
     python3 scripts/dmg/make-background.py
@@ -28,7 +29,7 @@ def font(size: float, weight: str) -> ImageFont.FreeTypeFont:
     return f
 
 
-def render(scale: int) -> Image.Image:
+def render(scale: int, notarized: bool = False) -> Image.Image:
     s = scale
     w, h = W * s, H * s
     # Soft vertical gradient.
@@ -77,6 +78,10 @@ def render(scale: int) -> Image.Image:
 
     # Instructions (Finder draws the icon labels just under the icons, ~y 270).
     main = font(14 * s, "Medium")
+    if notarized:  # Two lines only: lower them a little to keep the block centred.
+        d.text((w / 2, 330 * s), "Kéo Compola vào Applications để cài đặt", font=main, fill=BODY, anchor="mm")
+        d.text((w / 2, 356 * s), "Drag Compola to Applications to install", font=font(11.5 * s, "Regular"), fill=MUTED, anchor="mm")
+        return img.convert("RGB")
     d.text((w / 2, 318 * s), "Kéo Compola vào Applications để cài đặt", font=main, fill=BODY, anchor="mm")
     small = font(11.5 * s, "Regular")
     d.text((w / 2, 342 * s), "Drag Compola to Applications to install", font=small, fill=MUTED, anchor="mm")
@@ -86,12 +91,15 @@ def render(scale: int) -> Image.Image:
 
 
 def main() -> None:
-    with tempfile.TemporaryDirectory() as tmp:
-        one, two = Path(tmp, "background.png"), Path(tmp, "background@2x.png")
-        render(2).resize((W, H), Image.LANCZOS).save(one, dpi=(72, 72))
-        render(2).save(two, dpi=(144, 144))
-        subprocess.run(["tiffutil", "-cathidpicheck", str(one), str(two), "-out", str(HERE / "background.tiff")], check=True)
-    print(f"wrote {HERE / 'background.tiff'}")
+    for name, notarized in (("background", False), ("background-notarized", True)):
+        with tempfile.TemporaryDirectory() as tmp:
+            one, two = Path(tmp, "bg.png"), Path(tmp, "bg@2x.png")
+            image = render(2, notarized)
+            image.resize((W, H), Image.LANCZOS).save(one, dpi=(72, 72))
+            image.save(two, dpi=(144, 144))
+            out = HERE / f"{name}.tiff"
+            subprocess.run(["tiffutil", "-cathidpicheck", str(one), str(two), "-out", str(out)], check=True)
+        print(f"wrote {out}")
 
 
 if __name__ == "__main__":

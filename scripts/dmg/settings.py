@@ -17,7 +17,8 @@ icon = os.path.join(os.path.dirname(app), app_name, "Contents/Resources/icon.icn
 if not os.path.exists(icon):
     icon = None
 
-background = os.path.join(here, "background.tiff")
+# A notarized app opens with a double-click: no "right-click → Open" hint on its background.
+background = os.path.join(here, "background-notarized.tiff" if defines.get("notarized") == "1" else "background.tiff")  # noqa: F821
 show_status_bar = False
 show_tab_view = False
 show_toolbar = False
