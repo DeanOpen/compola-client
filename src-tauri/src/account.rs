@@ -341,11 +341,16 @@ impl Accounts {
     pub fn start(self: &Arc<Self>, app: &AppHandle, run: bool) {
         *self.app.lock() = Some(app.clone());
         let enabled: Vec<String> = self.registry.lock().accounts.iter().filter(|r| r.enabled).map(|r| r.id.clone()).collect();
-        let mut first = run;
-        for id in enabled {
-            let Some(engine) = self.create_engine(&id) else { continue };
-            if first {
-                first = false;
+        // Every engine exists before the first one starts: with the runtime already installed, its start reaches
+        // `runtime_ready` → `boot_waiting` at once, which boots only the engines registered by then. (Starting inside
+        // the loop left every account after the first one at "starting" forever.)
+        let engines: Vec<(String, Arc<Engine>)> =
+            enabled.into_iter().filter_map(|id| self.create_engine(&id).map(|e| (id, e))).collect();
+        if run {
+            // The account on screen first (its QR or session shows up soonest), else the first enabled one.
+            let active = self.active_id();
+            let first = engines.iter().find(|(id, _)| *id == active).or(engines.first());
+            if let Some((_, engine)) = first {
                 engine.start();
             }
         }
