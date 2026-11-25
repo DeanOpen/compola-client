@@ -5,8 +5,9 @@ name: Release
 # to one GitHub Release. The gateway image is published by docker.yml, the Linux server image by server-image.yml.
 #
 # Every push to main also builds all platforms and replaces the rolling `edge` pre-release (version
-# <tauri.conf version>-<run number>), so the newest packages of main are always at /releases/tag/edge. The app's
-# updater reads releases/latest, which never points at a pre-release, so edge builds are not offered as updates.
+# <tauri.conf version>-<run number>), so the newest packages of main are always at /releases/tag/edge. Update
+# channels: a stable build reads releases/latest/download/latest.json (never a pre-release); an edge build (version
+# with a pre-release part) reads releases/download/edge/latest.json, so it follows main (src-tauri/src/updater.rs).
 #
 # Auto-update: every build also produces a signed update bundle (macOS .app.tar.gz, Windows NSIS installer, Linux
 # AppImage) and the release gets a latest.json, which the app polls (tauri.conf.json › plugins.updater). Signing needs
@@ -249,10 +250,13 @@ jobs:
           ls dist-release/* >/dev/null 2>&1 || { echo "no platform built" >&2; exit 1; }
           (cd dist-release && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt)
       - name: Update manifest (latest.json)
-        # Not for edge: the updater only follows releases/latest (never a pre-release).
-        if: env.TAG != 'edge'
+        # Edge builds read the edge release's own manifest (their version comes from the file names).
         run: |
           VERSION="${TAG#v}"
+          if [ "$TAG" = edge ]; then
+            VERSION="$(ls dist-release | grep -E '^Compola-.+-(macos-universal\.app\.tar\.gz|windows-x64-setup\.exe|linux-x86_64\.AppImage)\.sig$' | head -1 | sed -E 's/^Compola-(.+)-(macos-universal|windows-x64-setup|linux-x86_64).*$/\1/')"
+            [ -n "$VERSION" ] || { echo "no signed update bundle in the edge build" >&2; exit 0; }
+          fi
           BASE="https://github.com/${{ github.repository }}/releases/download/$TAG"
           python3 - "$VERSION" "$BASE" <<'PY'
           import json, sys, datetime, pathlib
@@ -270,7 +274,7 @@ jobs:
           }
           manifest = {
               "version": version,
-              "notes": f"Compola {version}: https://github.com/${{ github.repository }}/releases/tag/v{version}",
+              "notes": f"Compola {version}: https://github.com/${{ github.repository }}/releases/tag/" + (f"v{version}" if "-" not in version else "edge"),
               "pub_date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
               "platforms": {k: v for k, v in targets.items() if v},
           }

@@ -26,7 +26,9 @@ export type EngineEvent =
   /** Add-ons (src/engine/addons.ts): notes, suggestions, panels, views, toasts changed. */
   | 'compola://addons'
   /** Multi-account (src/engine/accounts.ts): `{accounts:[…], activeId}` — PROVISIONAL until docs/multi-account.md. */
-  | 'compola://accounts';
+  | 'compola://accounts'
+  /** Compola's own updates (src/engine/updater.ts). */
+  | 'compola://updater';
 
 export interface Backend {
   readonly isMock: boolean;
@@ -67,6 +69,10 @@ const joinedLocal = new Set([
   'ui_set_open_conversation',
   'ui_set_shows_preview',
   'calls_status',
+  // Compola's own updates: this machine's app, not the host's.
+  'updater_status',
+  'updater_check',
+  'updater_install',
 ]);
 
 /** Commands a joined UI runs through their `remote_*` counterpart (same arguments). */

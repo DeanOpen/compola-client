@@ -40,6 +40,7 @@ import logo from '../../assets/compola-logo.svg';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { backend, commands, usesTauri, usesWeb } from '../../engine/backend';
+import { updater, useUpdater, watchUpdater } from '../../engine/updater';
 import { callAdapter, raceTimeout } from '../../engine/call';
 import { logOut } from '../../engine/lifecycle';
 import { obj } from '../../engine/models/json';
@@ -341,7 +342,68 @@ function GeneralSettings({ onTab }: { onTab: (t: SettingsTab) => void }) {
           <span className="st-value nums">{runtime ?? '—'}</span>
         </Row>
       </Section>
+      {!usesWeb && <UpdateSection />}
     </>
+  );
+}
+
+const ago = (ms: number) => {
+  const m = Math.round((Date.now() - ms) / 60000);
+  if (m < 1) return 'vừa xong';
+  if (m < 60) return `${m} phút trước`;
+  const h = Math.round(m / 60);
+  return h < 24 ? `${h} giờ trước` : new Date(ms).toLocaleString('vi-VN');
+};
+
+/** Settings › Cài đặt chung › Cập nhật: the channel, the last check, "Kiểm tra cập nhật" and "Cập nhật ngay". */
+function UpdateSection() {
+  const status = useUpdater((s) => s.status);
+  const [problem, setProblem] = useState<string | null>(null);
+  useEffect(() => {
+    void watchUpdater();
+  }, []);
+  if (!status) return null;
+  const busy = status.checking || status.installing;
+  const run = (p: Promise<unknown>) => {
+    setProblem(null);
+    void p.catch((e) => setProblem(e instanceof Error ? e.message : String(e)));
+  };
+  const state = status.installing
+    ? 'Đang tải và cài bản cập nhật…'
+    : status.checking
+      ? 'Đang kiểm tra…'
+      : status.available
+        ? `Có bản mới: ${status.available}`
+        : status.lastError
+          ? `Không kiểm tra được: ${status.lastError}`
+          : status.lastCheck
+            ? `Đang dùng bản mới nhất · kiểm tra ${ago(status.lastCheck)}`
+            : 'Chưa kiểm tra';
+  return (
+    <Section
+      title="Cập nhật"
+      footer={
+        status.enabled
+          ? `Compola tự kiểm tra mỗi giờ, kể cả khi chưa đăng nhập Zalo. Kênh ${status.channel === 'edge' ? 'edge (bản thử nghiệm từ main)' : 'ổn định'}.`
+          : status.disabledReason ?? 'Tự cập nhật đang tắt.'
+      }
+    >
+      <Row label="Trạng thái" detail={state}>
+        <div className="st-update-actions">
+          {status.available ? (
+            <button className="st-button is-primary" disabled={busy || !status.enabled} onClick={() => run(updater.install())}>
+              Cập nhật ngay
+            </button>
+          ) : (
+            <button className="st-button" disabled={busy || !status.enabled} onClick={() => run(updater.check())}>
+              {status.checking ? 'Đang kiểm tra…' : 'Kiểm tra cập nhật'}
+            </button>
+          )}
+        </div>
+      </Row>
+      {status.available && status.notes && <Row label="Có gì mới" detail={status.notes} />}
+      {problem && <Row label="Lỗi" detail={problem} />}
+    </Section>
   );
 }
 

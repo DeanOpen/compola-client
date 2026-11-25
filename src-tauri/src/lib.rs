@@ -181,6 +181,9 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             logs_reveal,
+            updater::updater_status,
+            updater::updater_check,
+            updater::updater_install,
             ui_log,
             ai_clients::ai_clients_detect,
             ai_clients::ai_clients_install,

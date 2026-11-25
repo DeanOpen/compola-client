@@ -251,9 +251,11 @@ To cut a release:
 git tag v0.2.0 && git push origin v0.2.0
 ```
 
-The version in `tauri.conf.json` is taken from the tag. Installed apps update themselves from the latest release
-(`tauri-plugin-updater`, `src-tauri/src/updater.rs`): update bundles are signed with the `TAURI_SIGNING_PRIVATE_KEY`
-secret and checked against `plugins.updater.pubkey`.
+The version in `tauri.conf.json` is taken from the tag. Installed apps update themselves (`tauri-plugin-updater`,
+`src-tauri/src/updater.rs`): a release build follows the latest `v*` release, an edge build (`0.1.5-21`) follows the
+`edge` pre-release (both publish a `latest.json`). The app checks 20 s after launch and then every hour, signed in to
+Zalo or not; *Settings › Cài đặt chung › Cập nhật* checks and installs on demand. Update bundles are signed with the
+`TAURI_SIGNING_PRIVATE_KEY` secret and checked against `plugins.updater.pubkey`.
 
 ### Signing macOS releases
 
