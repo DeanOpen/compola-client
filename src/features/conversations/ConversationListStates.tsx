@@ -1,7 +1,7 @@
 // Non-list states of the conversation list column (Swift ConversationListStates.swift).
 
 import { Archive, CheckCircle2, EyeOff, MessagesSquare, Search, Tag, UserRoundSearch, type LucideIcon } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { isLabel, type Destination } from '../../shell/shellStore';
 import { ContentUnavailable } from '../../ui/ContentUnavailable';
 import { Spinner } from '../../ui/Spinner';
@@ -40,14 +40,14 @@ export function ListBanner({
   );
 }
 
-/** "Đang đồng bộ hội thoại…" while the list (or the hidden-chat state it depends on) has not arrived: a status line over
+/** "Đang tải hội thoại…" while the list (or the hidden-chat state it depends on) has not arrived: a status line over
  * skeleton rows shaped like the real ones (wave 4, after Contra), so the column does not jump when the list lands. */
 export function ConversationListLoading({ stalled = false }: { stalled?: boolean }) {
   return (
     <div className="conv-loading" aria-busy>
       <div className="conv-loading-status">
         <Spinner size={13} />
-        <span>{stalled ? hiddenStateStalledText : 'Đang đồng bộ hội thoại…'}</span>
+        <span>{stalled ? hiddenStateStalledText : 'Đang tải hội thoại…'}</span>
       </div>
       {[0, 1, 2, 3, 4, 5, 6].map((i) => (
         <div key={i} className="conv-skeleton" aria-hidden style={{ opacity: 1 - i * 0.12 }}>
@@ -58,6 +58,22 @@ export function ConversationListLoading({ stalled = false }: { stalled?: boolean
           </span>
         </div>
       ))}
+    </div>
+  );
+}
+
+/** Over the startup cache (the list saved when the app last ran) while the official client boots: says the list may be
+ * a little behind and that what is clicked or sent runs as soon as Zalo is connected. */
+export function ConnectingStrip() {
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setSlow(true), 20_000);
+    return () => clearTimeout(t);
+  }, []);
+  return (
+    <div className="conv-connecting" role="status">
+      <Spinner size={12} />
+      <span>{slow ? 'Vẫn đang kết nối Zalo. Tin nhắn mới sẽ hiện khi xong.' : 'Đang kết nối Zalo, đang hiện dữ liệu đã lưu'}</span>
     </div>
   );
 }

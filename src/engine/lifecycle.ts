@@ -8,7 +8,7 @@ import { dropComposerConfirms, handleCompose, handleScreenCapture } from './comp
 import { obj, str } from './models/json';
 import { showToast } from './toast';
 import { handleConversationExtras, mergeConversations, resetConversations } from './conversations';
-import { dispatchState, registerStateHandler } from './dispatch';
+import { dispatchState, dropPendingLive, registerStateHandler } from './dispatch';
 import { handleConversationActions, republishConversationActions, resetConversationActions } from './conversationActions';
 import { resetGroupMosaics } from './groupMosaic';
 import { handlePins, resetMessageActions, rewatchPins } from './messageActions';
@@ -28,13 +28,15 @@ registerStateHandler('conversations', mergeConversations);
 const setPhase = (phase: Phase) => {
   const previous = getEngine().phase;
   // Logged out (or signed out by the server): nothing of the previous account may carry over.
-  if (phase.kind === 'login' && previous.kind !== 'login' && previous.kind !== 'starting' && previous.kind !== 'preparing') {
+  // The startup cache of a session that turned out to be signed out is dropped too.
+  if (phase.kind === 'login' && ((previous.kind !== 'login' && previous.kind !== 'starting' && previous.kind !== 'preparing') || getEngine().cached)) {
     resetAccountState();
   }
   setEngine({ phase });
 };
 
 const resetAccountState = () => {
+  dropPendingLive();
   resetStickers();
   resetConversationActions();
   resetGroupMosaics();
@@ -132,6 +134,7 @@ export const startEngine = (): Promise<void> => {
  * (re)loaded, or switched to another account, catches up. Merges are idempotent, so overlap with live events is harmless.
  */
 const catchUp = async () => {
+  dropPendingLive();
   const b = await backend();
   try {
     setPhase(await commands.phase());

@@ -31,7 +31,7 @@ import { appName } from '../setup/SplashView';
 import { labelIdOf, shell, useShell, type Destination } from '../../shell/shellStore';
 import { openContextMenu, openMenuBelow, type MenuItem } from '../../ui/Menu';
 import { ConversationRow, StrangerBoxRow } from './ConversationRow';
-import { ConversationListEmpty, ConversationListLoading, ListBanner } from './ConversationListStates';
+import { ConnectingStrip, ConversationListEmpty, ConversationListLoading, ListBanner } from './ConversationListStates';
 import { MessageSearchSection, useMessageSearch, visibleHits } from './MessageSearchResults';
 import { SearchField } from './SearchField';
 import { unreadCounts, unreadInLabel } from './support';
@@ -49,6 +49,7 @@ export function ConversationListColumn() {
   const selfId = useEngine((s) => s.selfConversationId);
   const typing = useEngine((s) => s.typing);
   const mutedIds = useEngine((s) => s.mutedIds);
+  const cached = useEngine((s) => s.cached);
 
   /** "Cloud của tôi" is the inbox with the self conversation open. */
   const destination: Destination = rawDestination === 'myCloud' ? 'inbox' : rawDestination;
@@ -188,6 +189,7 @@ export function ConversationListColumn() {
       ) : (
         <ListTabs destination={destination} activeLabel={activeLabel} offersLabelFilter={offersLabelFilter} />
       )}
+      {cached && <ConnectingStrip />}
       {loading ? (
         <ConversationListLoading stalled={stalled && !actions.hiddenKnown} />
       ) : destination === 'hidden' && actions.hasHiddenPIN && unlocked === null && !isSearching ? (

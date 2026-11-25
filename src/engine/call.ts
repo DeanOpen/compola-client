@@ -2,6 +2,7 @@
 // Rust `engine_call` command. Replaces every `host.evaluate("window.__zaloX.method(...)")` of the Swift engine.
 
 import { backend, forAccount, usesTauri } from './backend';
+import { getEngine, useEngine } from './store';
 
 /** Adapter objects the renderer exposes (host-scripts/*-adapter.js). */
 export type AdapterTarget =
@@ -32,8 +33,30 @@ export const log = (line: string) => {
  * (engine.rs: `no __zaloX.method`), or when the JS threw.
  */
 export const callAdapter = async <T = unknown>(target: AdapterTarget, method: string, ...args: unknown[]): Promise<T> => {
+  // The account is fixed before waiting: a call queued for one account never goes to another one switched to meanwhile.
+  const params = forAccount({ target, method, args: args.map((a) => (a === undefined ? null : a)) });
+  await whenLive();
   const b = await backend();
-  return b.invoke<T>('engine_call', forAccount({ target, method, args: args.map((a) => (a === undefined ? null : a)) }));
+  return b.invoke<T>('engine_call', params);
+};
+
+/** Longest an adapter call waits for the official client while the window shows the startup cache. */
+const LIVE_WAIT_MS = 120_000;
+
+/** Resolves once the official client is live (at once unless the window shows the startup cache): what is clicked or
+ * sent meanwhile runs as soon as it can, instead of failing against a client that has not booted yet. */
+const whenLive = (): Promise<void> => {
+  if (!getEngine().cached) return Promise.resolve();
+  return new Promise((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      unsubscribe();
+      resolve();
+    };
+    const timer = setTimeout(done, LIVE_WAIT_MS);
+    // The store is swapped on an account switch: stop waiting then too (the call keeps its own account).
+    const unsubscribe = useEngine.subscribe((s, prev) => (!s.cached || s.profile !== prev.profile) && done());
+  });
 };
 
 /** Like `callAdapter` but never throws: `fallback` when anything fails. */

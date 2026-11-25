@@ -97,6 +97,9 @@ export interface EngineState {
   phase: Phase;
   profile: Profile | null;
   badge: number;
+  /** The window shows what the app saved when it last ran (Rust startup cache) while the official client boots;
+   * cleared when the client posts its own conversation list. Adapter calls wait for that (call.ts). */
+  cached: boolean;
 
   // Conversations (ZaloEngine.swift + ZaloEngine+Conversations.swift)
   conversations: ConversationSummary[];
@@ -160,6 +163,7 @@ export const initialConversationActions: ConversationActionsState = {
 /** Everything of a signed-in account; reset on logout so nothing carries over to the next account. */
 const accountState = (): Omit<EngineState, 'phase' | 'badge'> => ({
   profile: null,
+  cached: false,
   conversations: [],
   selfConversationId: null,
   extras: emptyExtras,

@@ -293,6 +293,12 @@ pub fn run() {
         .run(|app, event| {
             // main `stop()`: the native helpers do not outlive the app.
             if let tauri::RunEvent::Exit = event {
+                // What each account showed, so the next launch opens on it at once (engine.rs startup cache).
+                if let Some(a) = app.try_state::<std::sync::Arc<account::Accounts>>() {
+                    for engine in a.engines() {
+                        engine.save_startup_cache();
+                    }
+                }
                 net::fingerprint::FingerprintProxy::shared().shutdown();
                 calls::shutdown(app);
                 screen_capture::shutdown(app);

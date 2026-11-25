@@ -24,6 +24,8 @@ export default function App() {
   const joined = useRemote((s) => s.mode === 'joined');
   const setupPending = usePref('setupPending') && !joined;
   const remoteGate = useRemoteGateActive();
+  // A restored session with a startup cache opens on the main window at once; the official client boots behind it.
+  const cached = useEngine((s) => s.cached);
 
   useEffect(() => {
     if (phase.kind === 'login') {
@@ -57,7 +59,10 @@ export default function App() {
   let fullWindow = true; // a screen without the rail (and its account column)
   switch (phase.kind) {
     case 'starting':
-      content = <SplashView message={`Đang khởi động ${appName}…`} />;
+      if (cached && !setupPending) {
+        content = <MainShell />;
+        fullWindow = false;
+      } else content = <SplashView message={`Đang khởi động ${appName}…`} />;
       break;
     case 'preparing':
       content = <RuntimeSetupView setup={phase.setup} />;
@@ -66,7 +71,11 @@ export default function App() {
       content = <SetupFlow onFinish={finishSetup} />;
       break;
     case 'signingIn':
-      content = setupPending ? <SetupFlow onFinish={finishSetup} /> : <SplashView message="Đang đăng nhập và đồng bộ dữ liệu…" />;
+      if (setupPending) content = <SetupFlow onFinish={finishSetup} />;
+      else if (cached) {
+        content = <MainShell />;
+        fullWindow = false;
+      } else content = <SplashView message="Đang mở tài khoản Zalo…" />;
       break;
     case 'ready':
       content = setupPending ? <SetupFlow onFinish={finishSetup} /> : <MainShell />;

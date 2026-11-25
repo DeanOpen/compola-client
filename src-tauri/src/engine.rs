@@ -82,6 +82,17 @@ struct Inner {
     replay: std::collections::VecDeque<Value>,
     /// Recent renderer crashes of this account (`renderer_terminated`), for the restart backoff.
     crashes: std::collections::VecDeque<std::time::Instant>,
+    /// What the main page had posted when the app last ran (`startup-cache.json`): served by `engine_replay`, tagged
+    /// `cached`, until the page posts its own conversation list, so a relaunch shows the window at once instead of
+    /// waiting for the official client to boot (10–50 s).
+    startup_cache: Option<Vec<Value>>,
+    /// The page posted a full conversation list since it loaded: the replay is complete enough to be cached.
+    live_list: bool,
+    /// The replay changed since the cache was last written.
+    cache_dirty: bool,
+    cache_saver: bool,
+    /// When the hosts were started (`boot`), for the startup timing lines in the log.
+    booted_at: Option<std::time::Instant>,
 }
 
 /// Restart delay after the n-th renderer crash within `CRASH_WINDOW` (1st: 1 s, then doubling, at most 60 s).
@@ -92,6 +103,70 @@ const CRASH_WINDOW: Duration = Duration::from_secs(600);
 
 /// Bound of the replay log (events); the oldest non-conversation events go first.
 const REPLAY_CAP: usize = 4000;
+
+/// The startup cache (see `Inner::startup_cache`), in the account's data root.
+const STARTUP_CACHE_FILE: &str = "startup-cache.json";
+const STARTUP_CACHE_VERSION: u64 = 1;
+/// Conversations whose messages are cached (the most recently posted ones).
+const STARTUP_CACHE_CHATS: usize = 12;
+/// How often a changed replay is written to the cache (also on app exit).
+const STARTUP_CACHE_INTERVAL: Duration = Duration::from_secs(30);
+/// Replay slices that describe the moment, not the account: never cached.
+const TRANSIENT_KEYS: [&str; 8] = ["notification", "call", "transfer", "transferAvailable", "compose", "poll", "zcloud", "pins"];
+
+/// A full conversation list (`reset`, which the adapter implies when nothing was `removed`), not a chat event.
+fn is_full_list(state: &Value) -> bool {
+    state.get("conversations").is_some()
+        && state.get("chat").is_none()
+        && state.get("reset").and_then(Value::as_bool).unwrap_or(state.get("removed").is_none())
+}
+
+/// The replay events worth showing at the next launch: account state (list, labels, hidden chats, contacts, profile)
+/// and the messages of the most recently posted conversations.
+fn cacheable_events(replay: &std::collections::VecDeque<Value>) -> Vec<Value> {
+    let chat_id = |e: &Value| e.get("chat").and_then(|c| c.get("convId")).and_then(Value::as_str).map(str::to_owned);
+    let mut recent_chats: Vec<String> = Vec::new();
+    for id in replay.iter().rev().filter_map(chat_id) {
+        if recent_chats.len() >= STARTUP_CACHE_CHATS {
+            break;
+        }
+        if !recent_chats.contains(&id) {
+            recent_chats.push(id);
+        }
+    }
+    replay
+        .iter()
+        .filter(|e| !TRANSIENT_KEYS.iter().any(|k| e.get(*k).is_some()) || is_notification_settings(e))
+        .filter(|e| e.get("typing").is_none() || e.get("chat").is_some())
+        .filter(|e| chat_id(e).is_none_or(|id| recent_chats.contains(&id)))
+        .cloned()
+        .collect()
+}
+
+/// The notification settings (muted conversations): account state, unlike the other `notification` events.
+fn is_notification_settings(state: &Value) -> bool {
+    state.get("notification").and_then(|n| n.get("kind")).and_then(Value::as_str) == Some("settings")
+}
+
+fn read_startup_cache(path: &std::path::Path) -> Option<Vec<Value>> {
+    let doc: Value = serde_json::from_slice(&std::fs::read(path).ok()?).ok()?;
+    if doc.get("version").and_then(Value::as_u64) != Some(STARTUP_CACHE_VERSION) {
+        return None;
+    }
+    let events = doc.get("events")?.as_array()?.clone();
+    events.iter().any(is_full_list).then_some(events)
+}
+
+fn write_private(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, bytes)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600))?;
+    }
+    std::fs::rename(&tmp, path)
+}
 
 pub struct Engine {
     app: AppHandle,
@@ -111,15 +186,76 @@ const SECOND_QR_REQUIRED_CODE: i64 = -20;
 
 impl Engine {
     pub fn new(app: AppHandle, account: Arc<crate::account::Account>) -> Arc<Self> {
+        let started = std::time::Instant::now();
+        let startup_cache = read_startup_cache(&account.paths.data_root.join(STARTUP_CACHE_FILE));
+        if let Some(events) = &startup_cache {
+            log::info!("[{}] startup cache: {} events loaded in {} ms", account.id(), events.len(), started.elapsed().as_millis());
+        }
         Arc::new_cyclic(|me| Self {
             app,
             account,
             me: me.clone(),
             badge: Default::default(),
             booted: Default::default(),
-            inner: Mutex::new(Inner { phase: Some(Phase::Starting), ..Default::default() }),
+            inner: Mutex::new(Inner { phase: Some(Phase::Starting), startup_cache, ..Default::default() }),
             main: Mutex::new(None),
         })
+    }
+
+    fn startup_cache_path(&self) -> std::path::PathBuf {
+        self.account.paths.data_root.join(STARTUP_CACHE_FILE)
+    }
+
+    /// Writes what the main page posted to the startup cache, when it changed and holds a full conversation list.
+    pub fn save_startup_cache(&self) {
+        let events = {
+            let mut st = self.inner.lock();
+            if !st.cache_dirty || !st.live_list || !matches!(st.phase, Some(Phase::Ready)) {
+                return;
+            }
+            st.cache_dirty = false;
+            cacheable_events(&st.replay)
+        };
+        let saved_at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
+        let doc = json!({ "version": STARTUP_CACHE_VERSION, "savedAt": saved_at, "events": events });
+        match serde_json::to_vec(&doc).map_err(std::io::Error::other).and_then(|b| write_private(&self.startup_cache_path(), &b)) {
+            Ok(()) => log::debug!("[{}] startup cache saved ({} events)", self.id(), events.len()),
+            Err(e) => log::warn!("[{}] startup cache not saved: {e}", self.id()),
+        }
+    }
+
+    /// Signed out: nothing of the account may show at the next launch.
+    fn drop_startup_cache(&self) {
+        {
+            let mut st = self.inner.lock();
+            st.startup_cache = None;
+            st.cache_dirty = false;
+            st.live_list = false;
+        }
+        let _ = std::fs::remove_file(self.startup_cache_path());
+    }
+
+    /// Saves the cache every `STARTUP_CACHE_INTERVAL` while the engine lives (once per engine).
+    fn start_cache_saver(self: &Arc<Self>) {
+        {
+            let mut st = self.inner.lock();
+            if st.cache_saver {
+                return;
+            }
+            st.cache_saver = true;
+        }
+        let weak = Arc::downgrade(self);
+        tauri::async_runtime::spawn(async move {
+            loop {
+                tokio::time::sleep(STARTUP_CACHE_INTERVAL).await;
+                let Some(engine) = weak.upgrade() else { return };
+                tauri::async_runtime::spawn_blocking(move || engine.save_startup_cache());
+            }
+        });
+    }
+
+    fn since_boot(&self) -> u128 {
+        self.inner.lock().booted_at.map(|t| t.elapsed().as_millis()).unwrap_or(0)
     }
 
     pub fn id(&self) -> &str {
@@ -221,6 +357,9 @@ impl Engine {
             }
             st.phase = Some(phase.clone());
         }
+        if matches!(phase, Phase::Login { .. }) {
+            self.drop_startup_cache();
+        }
         self.emit("compola://phase", serde_json::to_value(&phase).unwrap_or(Value::Null));
         if let Some(a) = self.accounts() {
             a.changed();
@@ -300,6 +439,8 @@ impl Engine {
 
     fn boot(self: &Arc<Self>, info: crate::runtime::RuntimeInfo) {
         self.booted.store(true, std::sync::atomic::Ordering::SeqCst);
+        self.inner.lock().booted_at = Some(std::time::Instant::now());
+        self.start_cache_saver();
         if let Some(a) = self.accounts() {
             a.runtime_ready(&info);
         }
@@ -462,15 +603,19 @@ impl Engine {
 impl Engine {
     fn record_replay(&self, state: &Value) {
         let mut st = self.inner.lock();
-        // A full conversation list (`reset`, which the adapter implies when nothing was `removed`) replaces every
-        // earlier conversation snapshot.
-        if let Some(conv) = state.get("conversations").filter(|_| state.get("chat").is_none()) {
-            let _ = conv;
-            let reset = state.get("reset").and_then(Value::as_bool).unwrap_or(state.get("removed").is_none());
-            if reset {
-                st.replay.retain(|e| e.get("conversations").is_none() || e.get("chat").is_some());
+        // A full conversation list replaces every earlier conversation snapshot.
+        if is_full_list(state) {
+            st.replay.retain(|e| e.get("conversations").is_none() || e.get("chat").is_some());
+            if !st.live_list {
+                // The page's own list replaces the cached one (the UI drops its `cached` state on this event).
+                st.live_list = true;
+                st.startup_cache = None;
+                let rows = state.get("conversations").and_then(Value::as_array).map_or(0, Vec::len);
+                let ms = st.booted_at.map(|t| t.elapsed().as_millis()).unwrap_or(0);
+                log::info!("[{}] startup: conversation list ({rows} rows) after {ms} ms", self.id());
             }
         }
+        st.cache_dirty = true;
         st.replay.push_back(state.clone());
         while st.replay.len() > REPLAY_CAP {
             match st.replay.iter().position(|e| e.get("conversations").is_none()) {
@@ -485,7 +630,9 @@ impl Engine {
     }
 
     fn clear_replay(&self) {
-        self.inner.lock().replay.clear();
+        let mut st = self.inner.lock();
+        st.replay.clear();
+        st.live_list = false;
     }
 }
 
@@ -533,9 +680,19 @@ impl Engine {
         json!({ "runtimeVersion": st.runtime_version, "storage": storage, "recentLog": st.recent_log })
     }
 
-    /// Everything the main page posted since it loaded (`engine_replay`).
+    /// Everything the main page posted since it loaded (`engine_replay`), preceded by the startup cache (each event
+    /// tagged `cached: true`) until the page posted its own conversation list.
     pub fn replay(&self) -> Vec<Value> {
-        self.inner.lock().replay.iter().cloned().collect()
+        let st = self.inner.lock();
+        let cached = st.startup_cache.as_deref().filter(|_| !st.live_list).unwrap_or_default();
+        let tagged = cached.iter().map(|e| {
+            let mut e = e.clone();
+            if let Some(o) = e.as_object_mut() {
+                o.insert("cached".into(), Value::Bool(true));
+            }
+            e
+        });
+        tagged.chain(st.replay.iter().cloned()).collect()
     }
 
     fn automation(&self) -> Option<Arc<crate::automation::Automation>> {
@@ -609,6 +766,7 @@ impl HostObserver for Engine {
             m.page_did_finish_loading(host, page);
         }
         if host.kind == HostKind::Main && page == Page::Main && self.phase() == Phase::SigningIn {
+            log::info!("[{}] startup: main page loaded after {} ms", self.id(), self.since_boot());
             self.set_phase(Phase::Ready);
         }
         if host.kind == HostKind::Main {
