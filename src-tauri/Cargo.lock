@@ -838,7 +838,7 @@ dependencies = [
 
 [[package]]
 name = "compola"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "aes",
  "aes-gcm",

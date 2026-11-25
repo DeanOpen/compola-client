@@ -3,7 +3,7 @@ name: compola
 description: Compola Server on Linux (Zalo engine, API, admin console, web client) behind an HTTPS gateway. No Mac needed.
 type: application
 version: 0.2.0
-appVersion: "0.1.8"
+appVersion: "0.1.9"
 keywords: [compola, zalo, server, gateway, caddy]
 sources:
   - https://github.com/DeanOpen/compola-client
