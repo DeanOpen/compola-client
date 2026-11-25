@@ -69,6 +69,8 @@ self.onmessage = (e) => {
   const m = e.data;
   if (m.t === 'boot') {
     files = m.files;
+    // QuickJS has no fetch of its own: the prelude's (through the host, permission-checked) must be the one used.
+    self.fetch = undefined;
     try {
       (0, eval)(m.prelude);
       self.__in(JSON.stringify({ t: 'init', manifest: m.manifest, settings: m.settings, storage: {} }));
@@ -100,9 +102,51 @@ interface Running {
   actions: Record<string, unknown>[];
 }
 
+/** Settings the preview pretends the user saved (so the CRM add-on has a CRM to talk to). */
+const previewSettings: Record<string, Record<string, unknown>> = {
+  'frappe-crm': { url: 'https://crm.example.com', apiKey: 'demo', apiSecret: 'demo' },
+};
+
+/** A tiny Frappe CRM for the preview: the three methods frappe-crm calls, over a few sample leads. */
+const crmLeads: Record<string, unknown>[] = [
+  { name: 'CRM-LEAD-2026-00412', lead_name: 'Trần Thị Lan', first_name: 'Trần Thị Lan', organization: 'Lan Boutique', status: 'Contacted', mobile_no: '0908123456', email: 'lan@lanboutique.vn', lead_owner: 'minhanh@compola.vn', converted: 0 },
+  { name: 'CRM-LEAD-2026-00388', lead_name: 'Trần Thị Lan Anh', first_name: 'Trần Thị Lan Anh', organization: '', status: 'New', mobile_no: '0912000111', email: '', lead_owner: '', converted: 0 },
+  { name: 'CRM-LEAD-2026-00301', lead_name: 'Lê Quang Huy', first_name: 'Lê Quang Huy', organization: 'Huy Tech', status: 'Qualified', mobile_no: '0987654321', email: 'huy@huytech.vn', lead_owner: 'minhanh@compola.vn', converted: 0 },
+];
+const crmComments: { lead: string; content: string }[] = [];
+const fakeCrm = (url: string, body: string | null) => {
+  const method = /\/api\/method\/([\w.]+)/.exec(url)?.[1] ?? '';
+  const args = (() => { try { return JSON.parse(body ?? '{}'); } catch { return {}; } })() as Record<string, unknown>;
+  const digits = (v: unknown) => String(v ?? '').replace(/\D/g, '').replace(/^84/, '0');
+  const like = (v: unknown, pat: string) => new RegExp('^' + pat.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/%/g, '.*') + '$', 'i').test(String(v ?? ''));
+  const match = (l: Record<string, unknown>, f: unknown[]) => {
+    const [field, op, val] = f as [string, string, unknown];
+    if (op === '=') return l[field] === val;
+    if (op === 'in') return (val as unknown[]).includes(l[field]);
+    if (op === 'like') return like(l[field], String(val));
+    return true;
+  };
+  let message: unknown = null;
+  if (method === 'crm.nextwaves.lead_dedupe.check_lead_duplicate') message = crmLeads.filter((l) => digits(l.mobile_no) === digits(args.mobile_no));
+  else if (method === 'frappe.client.get_list') {
+    const filters = (args.filters as unknown[][]) ?? [];
+    const ors = (args.or_filters as unknown[][]) ?? [];
+    message = crmLeads.filter((l) => filters.every((f) => match(l, f)) && (!ors.length || ors.some((f) => match(l, f)))).slice(0, Number(args.limit_page_length) || 20);
+  } else if (method === 'frappe.client.insert') {
+    const doc = { ...(args.doc as Record<string, unknown>), name: `CRM-LEAD-2026-00${500 + crmLeads.length}`, status: 'New', converted: 0 };
+    crmLeads.unshift(doc);
+    message = doc;
+  } else if (method === 'crm.api.comment.add_comment') {
+    crmComments.push({ lead: String(args.reference_name), content: String(args.content) });
+    console.info('[preview CRM] comment on', args.reference_name, args.content);
+    message = { name: `c${crmComments.length}` };
+  } else return { status: 404, statusText: 'Not Found', url, headers: {}, body: '{"exc_type":"DoesNotExistError"}' };
+  return { status: 200, statusText: 'OK', url, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ message }) };
+};
+
 const defaults = (pkg: BuiltinPackage) => {
-  const out: Record<string, unknown> = {};
-  for (const s of pkg.manifest.settings ?? []) out[s.key] = s.default ?? (s.type === 'boolean' ? false : s.type === 'conversations' ? [] : s.type === 'number' ? 0 : '');
+  const out: Record<string, unknown> = { ...previewSettings[pkg.id] };
+  for (const s of pkg.manifest.settings ?? []) if (!(s.key in out)) out[s.key] = s.default ?? (s.type === 'boolean' ? false : s.type === 'conversations' ? [] : s.type === 'number' ? 0 : '');
   return out;
 };
 
@@ -159,6 +203,8 @@ const cannedAi = (addonId: string, req: Record<string, unknown>) => {
       ];
       return options[n];
     }
+    if (addonId === 'frappe-crm' && !req.json)
+      return '- Khách hỏi combo 3 áo thun cotton size M, màu trắng và xanh rêu\n- Đã báo giá 450.000 ₫, miễn phí giao nội thành\n- Khách hẹn chiều nay 16:00 đi cà phê để xem mẫu trực tiếp\n- Việc tiếp theo: gửi ảnh màu xanh rêu trước 17:00 (Minh Anh)\n- Mức độ quan tâm: cao, sẵn sàng chốt trong tuần';
     if (addonId === 'translator') {
       const lines = String(req.prompt ?? '').split('\n').filter((l) => /^\d+\. /.test(l)).length;
       return {
@@ -171,7 +217,8 @@ const cannedAi = (addonId: string, req: Record<string, unknown>) => {
     }
     return {};
   })();
-  const text = addonId === 'translator' && !req.json ? String((json as { translation?: string }).translation ?? 'Hello!') : JSON.stringify(json);
+  const text =
+    typeof json === 'string' ? json : addonId === 'translator' && !req.json ? String((json as { translation?: string }).translation ?? 'Hello!') : JSON.stringify(json);
   return { text, json, model: 'mock', usage: { inputTokens: 120, outputTokens: 60 } };
 };
 
@@ -256,6 +303,7 @@ export function createBuiltinHost(hooks: HostHooks) {
         await new Promise((res) => setTimeout(res, 600));
         return cannedAi(id, (a0 ?? {}) as Record<string, unknown>);
       case 'fetch':
+        if (id === 'frappe-crm') return fakeCrm(String(a0), (opts(1).body as string | null) ?? null);
         return { status: 200, statusText: 'OK', url: a0, headers: {}, body: '{"ok":true}' };
       case 'storageSet':
         if (args[1] == null) delete r.storage[String(a0)];

@@ -88,7 +88,7 @@ dữ liệu ra ngoài**, or **Có thể gửi ra: …** with the exact channels.
 
 | Way out | How it is closed |
 |---|---|
-| Network from the backend | No socket or HTTP of its own (QuickJS, no I/O). `fetch` only with `network`, only to declared hosts / hosts of `url` settings; private and loopback addresses refused, DNS pinned (no rebinding), redirects re-checked |
+| Network from the backend | No socket or HTTP of its own (QuickJS, no I/O). `fetch` only with `network`, only to declared hosts / hosts of `url` settings (which have no default: only a person fills them in); private and loopback addresses refused unless the person typed that host into a `url` setting (a CRM on the office network), DNS pinned (no rebinding), redirects re-checked |
 | Zalo messages | `sendText` only with `messages:send`, only to the conversations above (not to an arbitrary contact), rate-limited per add-on, per conversation and for all add-ons together |
 | MCP servers | Only with `mcp` (the servers the user configured), shown as a way out |
 | AI | Only to the provider the user set (the add-on never sees the key or the URL, and cannot add tools to the request) |
@@ -211,6 +211,13 @@ Installed disabled:
 - **Gửi sang Webhook** (`webhook`): posts messages as JSON to the https address you enter (n8n, Make, Zapier, Apps
   Script, a CRM), with a retrying queue and a status page in its settings. The only add-on here that sends data out,
   and only to that address.
+- **Frappe CRM** (`frappe-crm`): links a Zalo conversation to a CRM Lead: found by the phone numbers in the chat
+  (with the site's `crm.nextwaves.lead_dedupe.check_lead_duplicate` when it has it, otherwise a match on the last 9
+  digits of `mobile_no` / `phone`) or by name, auto-linked when exactly one lead has that phone, or searched / created
+  (source `Zalo`) from the info panel. *Tóm tắt hôm nay → CRM* (action, and a button on the card) has AI draft today's
+  summary, the person edits it, and it becomes a comment on the lead (`crm.api.comment.add_comment`, headed
+  "Zalo · Tóm tắt dd/mm/yyyy"). Settings: CRM address (a local server is fine: you typed it), API Key / Secret of a
+  Frappe user with write access to CRM Lead. Data goes only to that address.
 - **Trả lời tự động**, **Cảnh báo từ khoá**, **Tóm tắt hằng ngày**: as before.
 
 Built-ins live in `src-tauri/addons/<id>/` (every file is bundled, HTML views included). `cargo test --lib builtin`

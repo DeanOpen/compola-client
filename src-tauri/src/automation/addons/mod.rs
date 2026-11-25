@@ -146,6 +146,12 @@ impl Manifest {
             warnings.push(format!("Add-on thêm {} giao diện HTML vào ứng dụng (chạy trong khung cách ly).", self.contributes.views.len()));
         }
         let url_settings = self.settings.iter().filter(|s| s.get("type").and_then(Value::as_str) == Some("url")).count();
+        // A `url` setting widens what `fetch` may reach, so only a person may fill it in: no default value.
+        if let Some(s) = self.settings.iter().find(|s| {
+            s.get("type").and_then(Value::as_str) == Some("url") && s.get("default").and_then(Value::as_str).is_some_and(|d| !d.trim().is_empty())
+        }) {
+            return Err(format!("settings: \"{}\" kiểu url không được có giá trị mặc định", s.get("key").and_then(Value::as_str).unwrap_or_default()));
+        }
         if self.has("network") && self.hosts.is_empty() && url_settings == 0 {
             return Err("quyền \"network\" cần danh sách \"hosts\" (hoặc một tuỳ chỉnh kiểu \"url\" để người dùng tự nhập địa chỉ)".into());
         }
@@ -221,6 +227,7 @@ const BUILTINS: &[&str] = &[
     "translator",
     "mood-meter",
     "webhook",
+    "frappe-crm",
 ];
 
 /// The files of a built-in add-on, paths relative to its folder.
@@ -650,6 +657,10 @@ mod tests {
         assert!(m(json!({ "id": "a", "name": "A", "permissions": ["network"], "hosts": ["*.com"] })).is_err());
         assert!(m(json!({ "id": "a", "name": "A", "permissions": ["network"], "hosts": ["api.x.com"] })).is_ok());
         assert!(m(json!({ "id": "a", "name": "A", "permissions": ["network"], "settings": [{ "key": "hook", "type": "url" }] })).is_ok());
+        assert!(
+            m(json!({ "id": "a", "name": "A", "permissions": ["network"], "settings": [{ "key": "hook", "type": "url", "default": "http://10.0.0.1" }] })).is_err(),
+            "an add-on cannot pre-fill the address it may reach"
+        );
     }
 
     #[test]

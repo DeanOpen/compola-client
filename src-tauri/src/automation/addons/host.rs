@@ -758,6 +758,12 @@ impl AddonHost {
 
     /// Hosts `fetch` (and a view's images) may reach: the manifest's `hosts` plus the hosts of the add-on's `url`
     /// settings (what the user typed in).
+    /// Hosts the user typed into the add-on's `url` settings: these may also be on the local network (a CRM on the
+    /// office server); everything else must be public.
+    fn user_hosts(&self, addon: &str) -> Vec<String> {
+        self.running.lock().get(addon).map(|r| setting_hosts(&r.manifest, &r.settings)).unwrap_or_default()
+    }
+
     pub fn reachable_hosts(&self, addon: &str) -> Vec<String> {
         let running = self.running.lock();
         match running.get(addon) {
@@ -1051,7 +1057,8 @@ impl AddonHost {
                     return Err(format!("vượt giới hạn {} yêu cầu mạng/phút", limits.fetch_per_minute));
                 }
                 let hosts = self.reachable_hosts(addon);
-                self.fetch(&hosts, &arg_str(&args, 0), arg(&args, 1)).await
+                let local_ok = self.user_hosts(addon);
+                self.fetch(&hosts, &local_ok, &arg_str(&args, 0), arg(&args, 1)).await
             }
 
             // storage
@@ -1128,10 +1135,11 @@ impl AddonHost {
         }
     }
 
-    /// `fetch` for add-ons: http(s) only, to the allowed hosts, never to loopback / private addresses, bounded
+    /// `fetch` for add-ons: http(s) only, to the allowed hosts, never to loopback / private addresses (unless the user
+    /// typed that host into a `url` setting: `local_ok`), bounded
     /// answers. The connection goes to the addresses that were checked (no second DNS lookup to rebind), and each
     /// redirect is checked the same way before it is followed.
-    async fn fetch(&self, hosts: &[String], url: &str, init: &Value) -> Result<Value, String> {
+    async fn fetch(&self, hosts: &[String], local_ok: &[String], url: &str, init: &Value) -> Result<Value, String> {
         let mut target = url::Url::parse(url).map_err(|_| format!("URL không hợp lệ: {url}"))?;
         let mut method = reqwest::Method::from_bytes(opt_str(init, "method").unwrap_or("GET").to_ascii_uppercase().as_bytes()).map_err(|_| "method không hợp lệ")?;
         let mut body = init.get("body").and_then(Value::as_str).map(str::to_owned);
@@ -1153,7 +1161,7 @@ impl AddonHost {
             }
             let port = target.port_or_known_default().unwrap_or(443);
             let addrs: Vec<std::net::SocketAddr> = tokio::net::lookup_host((host.as_str(), port)).await.map_err(|e| format!("không phân giải được {host}: {e}"))?.collect();
-            if addrs.is_empty() || addrs.iter().any(|a| private_ip(&a.ip())) {
+            if addrs.is_empty() || (!local_ok.contains(&host) && addrs.iter().any(|a| private_ip(&a.ip()))) {
                 return Err(format!("không được truy cập địa chỉ nội bộ ({host})"));
             }
             // A client pinned to the checked addresses, no automatic redirects.
