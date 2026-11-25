@@ -369,3 +369,16 @@
   min-width: 0;
   color: var(--text-secondary);
 }
+
+/* The full "Add-on" page (AddonsPage): Settings' add-on sections on a wide, scrolling page. */
+.addons-page {
+  overflow-y: auto;
+  background: var(--layer-background, var(--content));
+}
+.addons-page-inner {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 20px 28px 40px;
+  color: var(--text);
+  font-size: 14px;
+}

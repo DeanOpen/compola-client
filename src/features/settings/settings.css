@@ -2,16 +2,21 @@
    --selected with the primary colour), grouped rows on the right. Falls back to the wave-1 tokens where the Zalo PC
    ones are not defined yet. */
 
-.st-dialog {
+.st-dialog,
+.st-page {
   --st-primary: var(--primary, var(--accent));
   --st-selected: var(--selected, var(--accent-tonal));
   --st-subtle: var(--subtle, #ebecf0);
   --st-border: var(--border, var(--separator));
   --st-bg: var(--content);
   --st-pane: var(--layer-background, #f4f5f7);
+}
+
+.st-dialog {
   display: flex;
-  width: min(820px, calc(100vw - 48px));
-  height: min(600px, calc(100vh - 60px));
+  /* Roomy on a large window (add-on cards, forms), still inside a small one. */
+  width: min(1080px, calc(100vw - 48px));
+  height: min(800px, calc(100vh - 60px));
   border-radius: 8px;
   overflow: hidden;
   background: var(--st-bg);
@@ -21,7 +26,8 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  .st-dialog {
+  .st-dialog,
+  .st-page {
     --st-pane: #1c1f23;
     --st-bg: #2a2e33;
     --st-subtle: rgba(255, 255, 255, 0.08);

@@ -169,6 +169,20 @@
 
     http: { fetch: doFetch },
 
+    /** Signing in to a service through the browser (OAuth 2 with PKCE; permission `network`). */
+    auth: {
+      /** A one-time local address the service redirects back to: {id, redirectUri} (http://127.0.0.1:<port>/callback). */
+      loopback: () => rpc('authLoopback'),
+      /** Asks the person, opens `url` (a host the add-on may reach) in the browser, waits for the redirect: {params}. */
+      browser: (id, url) => rpc('authBrowser', String(id), String(url)),
+    },
+    crypto: {
+      /** `bytes` random bytes, base64url (a PKCE verifier, a state). */
+      randomString: (bytes = 32) => rpc('cryptoRandom', bytes),
+      /** SHA-256 of a string: 'hex' (default) or 'base64url' (a PKCE challenge). */
+      sha256: (text, encoding = 'hex') => rpc('cryptoSha256', String(text), encoding),
+    },
+
     storage: {
       get: (key) => clone(storage[key]),
       all: () => clone(storage),

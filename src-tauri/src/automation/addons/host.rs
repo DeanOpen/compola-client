@@ -38,6 +38,8 @@ const GLOBAL_SENDS_PER_MINUTE: usize = 60;
 const SENT_BY_WINDOW_MS: i64 = 120_000;
 const MAX_FETCH_BYTES: usize = 10 * 1024 * 1024;
 const MAX_REDIRECTS: usize = 5;
+/// A browser sign-in (`compola.auth`) waits this long at most.
+const SIGN_IN_MS: i64 = 10 * 60 * 1000;
 /// `sendText` may answer a conversation this long after its last incoming message.
 const REPLY_WINDOW_MS: i64 = 24 * 3600 * 1000;
 /// … or one where a person used the add-on this recently.
@@ -143,6 +145,15 @@ pub struct AddonHost {
     inbound: Mutex<HashMap<(String, String), i64>>,
     /// (add-on, conversation) → when a person last used the add-on there (action, view, suggestion).
     touched: Mutex<HashMap<(String, String), i64>>,
+    /// Browser sign-ins waiting for their redirect (`compola.auth`), by id.
+    sign_ins: Mutex<HashMap<String, SignIn>>,
+}
+
+/// A one-time local address an OAuth provider redirects back to (`http://127.0.0.1:<port>/callback`, RFC 8252).
+struct SignIn {
+    addon: String,
+    listener: std::net::TcpListener,
+    created: i64,
 }
 
 /// The runtime's view of the host for one generation of one add-on.
@@ -233,6 +244,7 @@ impl AddonHost {
             view_calls: Mutex::default(),
             inbound: Mutex::default(),
             touched: Mutex::default(),
+            sign_ins: Mutex::default(),
             http: reqwest::Client::builder()
                 .timeout(Duration::from_secs(60))
                 .redirect(reqwest::redirect::Policy::limited(5))
@@ -1118,6 +1130,64 @@ impl AddonHost {
                 }
             }
 
+            // sign-in through the browser (OAuth with PKCE): `network`, a host the add-on may reach, the person agrees
+            "authLoopback" => {
+                Self::need(&manifest, "network")?;
+                let listener = std::net::TcpListener::bind("127.0.0.1:0").map_err(|e| format!("không mở được cổng đăng nhập: {e}"))?;
+                listener.set_nonblocking(true).map_err(|e| e.to_string())?;
+                let port = listener.local_addr().map_err(|e| e.to_string())?.port();
+                let id = uuid::Uuid::new_v4().to_string();
+                let t = now();
+                let mut sign_ins = self.sign_ins.lock();
+                sign_ins.retain(|_, s| s.addon != addon && s.created > t - SIGN_IN_MS);
+                sign_ins.insert(id.clone(), SignIn { addon: addon.to_owned(), listener, created: t });
+                Ok(json!({ "id": id, "redirectUri": format!("http://127.0.0.1:{port}/callback") }))
+            }
+            "authBrowser" => {
+                Self::need(&manifest, "network")?;
+                let (id, url) = (arg_str(&args, 0), arg_str(&args, 1));
+                let sign_in = self.sign_ins.lock().remove(&id).filter(|s| s.addon == addon).ok_or("phiên đăng nhập không còn, hãy thử lại")?;
+                let target = url::Url::parse(&url).map_err(|_| format!("URL không hợp lệ: {url}"))?;
+                let host = target.host_str().unwrap_or_default().trim_end_matches('.').to_ascii_lowercase();
+                if !matches!(target.scheme(), "http" | "https") || !host_allowed(&self.reachable_hosts(addon), &host) {
+                    return Err(format!("add-on chỉ được mở trang đăng nhập của địa chỉ nó được phép truy cập (không phải {host})"));
+                }
+                if crate::platform::headless() {
+                    return Err("Compola Server không mở được trình duyệt: hãy đăng nhập trên ứng dụng Compola trên máy tính".into());
+                }
+                let question = format!(
+                    "Add-on “{name}” muốn mở trình duyệt để bạn đăng nhập vào {host}.\n\nSau khi đăng nhập, trình duyệt sẽ trả quyền truy cập về cho add-on này. Chỉ tiếp tục nếu chính bạn vừa bấm đăng nhập."
+                );
+                if !confirm(&self.app, "Đăng nhập qua trình duyệt", question, "Mở trình duyệt").await {
+                    return Err("Bạn đã huỷ đăng nhập".into());
+                }
+                use tauri_plugin_opener::OpenerExt;
+                self.app.opener().open_url(target.as_str(), None::<&str>).map_err(|e| format!("không mở được trình duyệt: {e}"))?;
+                let params = wait_for_redirect(sign_in.listener).await?;
+                if let Some(w) = tauri::Manager::get_webview_window(&self.app, "main") {
+                    let _ = w.show();
+                    let _ = w.set_focus();
+                }
+                Ok(json!({ "params": params }))
+            }
+            "cryptoRandom" => {
+                use base64::Engine;
+                use rand::RngCore;
+                let n = arg(&args, 0).as_u64().unwrap_or(32).clamp(16, 128) as usize;
+                let mut bytes = vec![0u8; n];
+                rand::rngs::OsRng.fill_bytes(&mut bytes);
+                Ok(json!(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)))
+            }
+            "cryptoSha256" => {
+                use base64::Engine;
+                use sha2::Digest;
+                let digest = sha2::Sha256::digest(arg_str(&args, 0).as_bytes());
+                Ok(json!(match arg(&args, 1).as_str().unwrap_or("hex") {
+                    "base64url" => base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(digest),
+                    _ => digest.iter().map(|b| format!("{b:02x}")).collect::<String>(),
+                }))
+            }
+
             // mcp
             "mcpServers" => {
                 Self::need(&manifest, "mcp")?;
@@ -1310,6 +1380,63 @@ pub fn settings_with_defaults(manifest: &Manifest, saved: &Map<String, Value>) -
     out
 }
 
+/// A native yes / no question; false without an answer.
+async fn confirm(app: &AppHandle, title: &str, message: String, ok: &str) -> bool {
+    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .message(message)
+        .title(title)
+        .kind(MessageDialogKind::Info)
+        .buttons(MessageDialogButtons::OkCancelCustom(ok.into(), "Huỷ".into()))
+        .show(move |answer| {
+            let _ = tx.send(answer);
+        });
+    rx.await.unwrap_or(false)
+}
+
+/// Waits (up to 5 minutes) for the browser to come back to `/callback`, answers with a page that says so, and returns
+/// the query parameters (`code`, `state`, or `error`).
+async fn wait_for_redirect(listener: std::net::TcpListener) -> Result<Map<String, Value>, String> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::from_std(listener).map_err(|e| e.to_string())?;
+    let wait = async {
+        loop {
+            let (mut socket, _) = listener.accept().await.map_err(|e| e.to_string())?;
+            let mut buf = vec![0u8; 8192];
+            let mut len = 0;
+            while len < buf.len() {
+                let n = tokio::time::timeout(Duration::from_secs(10), socket.read(&mut buf[len..])).await.map_err(|_| "hết giờ".to_string())?.map_err(|e| e.to_string())?;
+                if n == 0 {
+                    break;
+                }
+                len += n;
+                if buf[..len].windows(4).any(|w| w == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            let head = String::from_utf8_lossy(&buf[..len]).into_owned();
+            let target = head.lines().next().and_then(|l| l.split_whitespace().nth(1)).unwrap_or("/").to_owned();
+            if !target.starts_with("/callback") {
+                let _ = socket.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await;
+                continue;
+            }
+            let params: Map<String, Value> = url::Url::parse(&format!("http://127.0.0.1{target}"))
+                .map(|u| u.query_pairs().map(|(k, v)| (k.into_owned(), json!(v.into_owned()))).collect())
+                .unwrap_or_default();
+            let failed = params.contains_key("error");
+            let body = format!(
+                "<!doctype html><meta charset=utf-8><title>Compola</title><body style=\"font:16px -apple-system,Segoe UI,sans-serif;display:grid;place-items:center;height:90vh;color:#081b3a\"><div style=\"text-align:center\"><h2>{}</h2><p>Bạn có thể đóng tab này và quay lại Compola.</p></div>",
+                if failed { "Đăng nhập không thành công" } else { "✓ Đã đăng nhập" }
+            );
+            let response = format!("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+            let _ = socket.write_all(response.as_bytes()).await;
+            return Ok(params);
+        }
+    };
+    tokio::time::timeout(Duration::from_secs(300), wait).await.map_err(|_| "hết 5 phút chờ đăng nhập trên trình duyệt".to_string())?
+}
+
 /// `patterns`: `api.x.com` or `*.x.com` (x.com and its subdomains). None = no host.
 pub fn host_allowed(patterns: &[String], host: &str) -> bool {
     patterns.iter().any(|p| match p.strip_prefix("*.") {
@@ -1389,6 +1516,25 @@ mod tests {
         assert_eq!(setting_hosts(&m, &settings), ["hooks.example.com"]);
         assert!(setting_hosts(&m, &json!({ "hook": "file:///etc/passwd" })).is_empty());
         assert!(chosen_conversations(&m, &json!({})).is_empty());
+    }
+
+    #[tokio::test]
+    async fn browser_redirect_is_caught() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let addr = listener.local_addr().unwrap();
+        let wait = tokio::spawn(wait_for_redirect(listener));
+        for path in ["/favicon.ico", "/callback?code=abc%20123&state=s1"] {
+            let mut c = tokio::net::TcpStream::connect(addr).await.unwrap();
+            c.write_all(format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n").as_bytes()).await.unwrap();
+            let mut out = String::new();
+            c.read_to_string(&mut out).await.unwrap();
+            assert!(out.starts_with(if path.starts_with("/callback") { "HTTP/1.1 200" } else { "HTTP/1.1 404" }), "{out}");
+        }
+        let params = wait.await.unwrap().unwrap();
+        assert_eq!(params["code"], "abc 123");
+        assert_eq!(params["state"], "s1");
     }
 
     #[test]

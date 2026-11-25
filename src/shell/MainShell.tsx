@@ -35,6 +35,7 @@ import { commands } from '../engine/backend';
 import { isInCall, useCalls } from '../engine/calls';
 import { addonTabOf, isAddonTab, isContacts, isConversationList, labelIdOf, officialFilter, shell, useShell, type Destination } from './shellStore';
 import { AddonModalHost, AddonTabPage } from '../features/addons/AddonSurfaces';
+import { AddonsPage } from '../features/addons/AddonsPage';
 import './shell.css';
 
 export function MainShell() {
@@ -78,7 +79,7 @@ export function MainShell() {
   }, [navigationRequest]);
 
   return (
-    <div className={`shell ${inspectorShown ? 'has-inspector' : ''} ${isAddonTab(destination) ? 'has-addon-tab' : ''}`}>
+    <div className={`shell ${inspectorShown ? 'has-inspector' : ''} ${isAddonTab(destination) || destination === 'addons' ? 'has-addon-tab' : ''}`}>
       <Rail />
       <section className="shell-content">
         <ContentColumn destination={destination} />
@@ -199,6 +200,7 @@ function DetailColumn({ destination, selection }: { destination: Destination; se
   if (isConversationList(destination)) return <ChatDetail conversationId={selection} />;
   if (isContacts(destination)) return <ContactsDetailColumn destination={destination} />;
   if (destination === 'zcloud') return <CloudDetailColumn />;
+  if (destination === 'addons') return <AddonsPage />;
   const tab = addonTabOf(destination);
   if (tab) return <AddonTabPage addonId={tab[0]} viewId={tab[1]} />;
   return (

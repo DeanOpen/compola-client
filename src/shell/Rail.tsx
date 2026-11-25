@@ -3,7 +3,7 @@
 // Replaces the Swift app's labelled sidebar (Tin nhắn / Chưa đọc / Người lạ / Lưu trữ / Danh bạ): the mailboxes now
 // live in the list column's tabs and the stranger row.
 
-import { Cloud, HardDrive, LogOut, MessageCircle, RefreshCw, Settings, SquareUser, UserRound, type LucideIcon } from 'lucide-react';
+import { Cloud, HardDrive, LogOut, MessageCircle, Puzzle, RefreshCw, Settings, SquareUser, UserRound, type LucideIcon } from 'lucide-react';
 import { useEffect, useMemo, useState, type MouseEvent } from 'react';
 import { startAccounts, useAccounts } from '../engine/accounts';
 import { AccountRail } from '../features/accounts/AccountRail';
@@ -99,8 +99,9 @@ export function Rail() {
           label={contactsLabel(contacts.pendingRequestCount, contacts.groupInviteUnread)}
           badge={contacts.pendingRequestCount + contacts.groupInviteUnread} selected={isContacts(destination)} onClick={() => shell.setDestination('friends')} />
       </div>
-      {addonTabs.length > 0 && (
+      {(addonTabs.length > 0 || !joined) && (
         <div className="rail-group rail-addons">
+          {!joined && <RailItem icon={Puzzle} label="Add-on · tất cả" selected={destination === 'addons'} onClick={() => shell.setDestination('addons')} />}
           {addonTabs.map((v) => (
             <RailItem
               key={`${v.addonId}:${v.id}`}

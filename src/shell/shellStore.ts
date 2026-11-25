@@ -22,6 +22,8 @@ export type Destination =
   | 'addFriend'
   | 'groupInvites'
   | `label:${string}`
+  /** Every add-on, full screen (install, turn on, configure, open their pages). */
+  | 'addons'
   /** An add-on's `tab` view: `addon:<addonId>:<viewId>`. */
   | `addon:${string}`;
 

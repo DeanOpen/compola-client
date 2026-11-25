@@ -5,6 +5,8 @@ import { AlertTriangle, CalendarClock, Check, ChevronDown, ChevronRight, Copy, F
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { addons as addonApi, useAddonCatalog, type AddonLimits, type AddonLogLine, type AddonPreview, type AiConfig } from '../../engine/addons';
 import { AddonFrame } from '../addons/AddonFrame';
+import { shell } from '../../shell/shellStore';
+import { closeSettings } from './hosts';
 import {
   addonSettings,
   automation,
@@ -979,11 +981,25 @@ function AddonCard({ addon, onRemove }: { addon: Addon; onRemove: () => void }) 
                   {permissionTitles[p] ?? p}
                 </span>
               ))}
-              {views.map((v) => (
-                <span key={v.id} className="st-chip is-tool" title={`Giao diện HTML (${v.location})`}>
-                  {v.location === 'tab' ? 'Tab' : v.location === 'inspector' ? 'Bảng thông tin' : v.location === 'composer' ? 'Ô soạn tin' : v.location === 'modal' ? 'Hộp thoại' : 'Cài đặt'}: {v.title}
-                </span>
-              ))}
+              {views.map((v) =>
+                v.location === 'tab' && addon.enabled ? (
+                  <button
+                    key={v.id}
+                    className="st-chip is-tool is-button"
+                    title="Mở trang này"
+                    onClick={() => {
+                      closeSettings();
+                      shell.setDestination(`addon:${m.id}:${v.id}`);
+                    }}
+                  >
+                    Trang: {v.title} ↗
+                  </button>
+                ) : (
+                  <span key={v.id} className="st-chip is-tool" title={`Giao diện HTML (${v.location})`}>
+                    {v.location === 'tab' ? 'Trang' : v.location === 'inspector' ? 'Bảng thông tin' : v.location === 'composer' ? 'Ô soạn tin' : v.location === 'modal' ? 'Hộp thoại' : 'Cài đặt'}: {v.title}
+                  </span>
+                ),
+              )}
               {addon.tools.map((t) => (
                 <span key={t.name} className="st-chip is-tool" title={t.description}>
                   MCP: {t.name}

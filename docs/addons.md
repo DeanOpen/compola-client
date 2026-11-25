@@ -96,6 +96,7 @@ dữ liệu ra ngoài**, or **Có thể gửi ra: …** with the exact channels.
 | Other add-ons, the app | Each add-on has its own runtime, storage and notes; views cannot reach the app, its storage or Tauri |
 | Notes, panels, suggestions | Plain text in the UI (no HTML, no remote images) |
 | Updates | An update that adds permissions or hosts lists them before it installs |
+| Browser sign-in | `compola.auth.browser` opens only an address the add-on may reach, after a native dialog that names the add-on and the host; the redirect comes back to a one-time 127.0.0.1 port (not on Compola Server, which has no browser) |
 
 Residual risk worth knowing: a person can always be persuaded to send a suggestion or a reply an add-on prepared, and an
 add-on with `messages:send` may answer anyone who wrote in the last day. Install add-ons from sources you trust.
@@ -137,6 +138,11 @@ await compola.views.post(name, data, { viewId, conversationId })  // to open vie
 compola.storage.get(key) / storage.all() / await storage.set(key, value) / storage.remove(key)
 compola.assets.read('prompt.md');  require('./lib/util.js')
 await fetch(url, { method, headers, body, timeoutMs })     // `network`: `hosts` + hosts of `url` settings only
+// Sign in to a service through the browser (OAuth 2 + PKCE), `network`:
+const { id, redirectUri } = await compola.auth.loopback()   // http://127.0.0.1:<port>/callback, one-time
+const { params } = await compola.auth.browser(id, authorizeUrl)  // asks the person, opens the browser (a host the
+                                                            // add-on may reach), waits ≤ 5 min: {code, state} | {error}
+await compola.crypto.randomString(48) / compola.crypto.sha256(text, 'base64url' | 'hex')
 await compola.schedules.save({ cron | at, name, payload }) / list() / remove(id) / runNow(id)
 await compola.mcp.servers() / mcp.tools(id) / mcp.call(id, tool, args)
 compola.tools.register({ name, description, inputSchema }, handler)   // offered to AI apps by Compola's MCP server
