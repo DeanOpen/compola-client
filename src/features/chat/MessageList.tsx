@@ -3,7 +3,7 @@
 // jumps to a pinned message.
 
 import { ChevronDown } from 'lucide-react';
-import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { loadOlderMessages, react } from '../../engine/chat';
 import type { ChatMessage } from '../../engine/models/chat';
 import { selfConversationTitle, type ConversationSummary } from '../../engine/models/conversations';
@@ -13,6 +13,7 @@ import { useEngine } from '../../engine/store';
 import { openTransfer } from '../transfer/hosts';
 import { Spinner } from '../../ui/Spinner';
 import { daySeparator, time } from './format';
+import { listScroll } from './listScroll';
 import { MessageRow } from './MessageRow';
 import { buildRows, groupByDay } from './rows';
 
@@ -48,15 +49,11 @@ export function MessageList({
 
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
-  const [nearBottom, setNearBottom] = useState(true);
-  /** Messages from others that arrived while the reader was scrolled up (badge on the scroll-to-bottom button). */
-  const [unseen, setUnseen] = useState(0);
-  useEffect(() => {
-    if (nearBottom) setUnseen(0);
-  }, [nearBottom]);
+  // The scroll-to-bottom button keeps its own state: leaving the bottom must not re-render the whole list.
+  const [bottom] = useState(createBottomState);
   const nearBottomRef = useRef(true);
   const [loadingOlder, setLoadingOlder] = useState(false);
-  const state = useRef({ atTop: false, armed: true, firstId: msgs[0]?.id, lastId: newestId, height: 0, top: 0, pending: 0 as number | ReturnType<typeof setTimeout>, giveUp: 0 as number | ReturnType<typeof setTimeout> });
+  const state = useRef({ atTop: false, armed: true, firstId: msgs[0]?.id, lastId: newestId, height: 0, top: 0, pending: 0 as number | ReturnType<typeof setTimeout>, giveUp: 0 as number | ReturnType<typeof setTimeout>, scrollIdle: 0 as number | ReturnType<typeof setTimeout> });
 
   const scrollToBottom = (smooth: boolean) => {
     const el = scroller.current;
@@ -103,6 +100,8 @@ export function MessageList({
     return () => {
       clearTimeout(state.current.pending);
       clearTimeout(state.current.giveUp);
+      clearTimeout(state.current.scrollIdle);
+      listScroll.active = false;
     };
   }, []);
 
@@ -125,7 +124,7 @@ export function MessageList({
       else {
         const from = msgs.findIndex((m) => m.id === st.lastId);
         const fresh = from >= 0 ? msgs.slice(from + 1).filter((m) => !m.isMine).length : 1;
-        if (fresh) setUnseen((n) => n + fresh);
+        if (fresh) bottom.addUnseen(fresh);
       }
     }
     if (msgs.length !== 0 && st.firstId !== firstId) setLoadingOlder(false);
@@ -181,6 +180,10 @@ export function MessageList({
     const el = scroller.current;
     if (!el) return;
     const st = state.current;
+    // While the list moves, every row passing under a still pointer would mount its hover bar: rows check this first.
+    listScroll.active = true;
+    clearTimeout(st.scrollIdle);
+    st.scrollIdle = setTimeout(() => (listScroll.active = false), 150);
     const top = el.scrollTop < topBand;
     // Re-armed once the reader is away from the top, or when the history is too short to ever leave the top band.
     if (!st.armed && (!top || el.scrollHeight - el.clientHeight < topBand)) st.armed = true;
@@ -188,7 +191,7 @@ export function MessageList({
     const near = el.scrollHeight - el.scrollTop - el.clientHeight < nearBottomBand;
     if (near !== nearBottomRef.current) {
       nearBottomRef.current = near;
-      setNearBottom(near);
+      bottom.setNear(near);
     }
     record();
     if (top) maybeLoadOlder();
@@ -237,18 +240,45 @@ export function MessageList({
         <div style={{ height: 8 }} />
       </div>
     </div>
-      {!nearBottom && (
-        <button
-          className="scroll-bottom circle-glass pop-in"
-          onClick={() => scrollToBottom(true)}
-          aria-label={unseen ? `${unseen} tin nhắn mới, cuộn xuống` : 'Cuộn xuống tin nhắn mới nhất'}
-          title={unseen ? `${unseen} tin nhắn mới` : 'Cuộn xuống tin nhắn mới nhất'}
-        >
-          <ChevronDown size={16} strokeWidth={2.6} />
-          {unseen > 0 && <span className="scroll-bottom-count nums">{unseen > 99 ? '99+' : unseen}</span>}
-        </button>
-      )}
+      <ScrollBottomButton state={bottom} onClick={() => scrollToBottom(true)} />
     </div>
+  );
+}
+
+/** Near the bottom or not, and messages from others that arrived while the reader was scrolled up. */
+function createBottomState() {
+  let snapshot = { near: true, unseen: 0 };
+  const listeners = new Set<() => void>();
+  const set = (next: typeof snapshot) => {
+    if (next.near === snapshot.near && next.unseen === snapshot.unseen) return;
+    snapshot = next;
+    listeners.forEach((l) => l());
+  };
+  return {
+    get: () => snapshot,
+    subscribe: (l: () => void) => {
+      listeners.add(l);
+      return () => void listeners.delete(l);
+    },
+    // Back at the bottom: nothing is unseen any more.
+    setNear: (near: boolean) => set({ near, unseen: near ? 0 : snapshot.unseen }),
+    addUnseen: (n: number) => set({ ...snapshot, unseen: snapshot.unseen + n }),
+  };
+}
+
+function ScrollBottomButton({ state, onClick }: { state: ReturnType<typeof createBottomState>; onClick: () => void }) {
+  const { near, unseen } = useSyncExternalStore(state.subscribe, state.get);
+  if (near) return null;
+  return (
+    <button
+      className="scroll-bottom circle-glass pop-in"
+      onClick={onClick}
+      aria-label={unseen ? `${unseen} tin nhắn mới, cuộn xuống` : 'Cuộn xuống tin nhắn mới nhất'}
+      title={unseen ? `${unseen} tin nhắn mới` : 'Cuộn xuống tin nhắn mới nhất'}
+    >
+      <ChevronDown size={16} strokeWidth={2.6} />
+      {unseen > 0 && <span className="scroll-bottom-count nums">{unseen > 99 ? '99+' : unseen}</span>}
+    </button>
   );
 }
 
