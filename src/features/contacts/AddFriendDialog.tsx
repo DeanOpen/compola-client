@@ -16,6 +16,7 @@ import {
   type FoundUser,
   type FriendSuggestion,
 } from '../../engine/contacts';
+import { countries, phoneText, prettyPhone, rememberPhone, type Country } from '../../engine/contactPhones';
 import { Avatar } from '../../ui/Avatar';
 import { openMenuBelow } from '../../ui/Menu';
 import { Sheet } from '../../ui/Overlays';
@@ -23,31 +24,6 @@ import { Spinner } from '../../ui/Spinner';
 import { DialogHeader } from './ContactsShared';
 import { ProfileDetails, ProfileHero, type Relationship } from './ProfileCard';
 import './addFriend.css';
-
-interface Country {
-  iso: string;
-  code: string;
-  name: string;
-}
-
-const countries: Country[] = [
-  { iso: 'VN', code: '+84', name: 'Việt Nam' },
-  { iso: 'US', code: '+1', name: 'Hoa Kỳ' },
-  { iso: 'AU', code: '+61', name: 'Úc' },
-  { iso: 'CA', code: '+1', name: 'Canada' },
-  { iso: 'CN', code: '+86', name: 'Trung Quốc' },
-  { iso: 'DE', code: '+49', name: 'Đức' },
-  { iso: 'FR', code: '+33', name: 'Pháp' },
-  { iso: 'GB', code: '+44', name: 'Anh' },
-  { iso: 'JP', code: '+81', name: 'Nhật Bản' },
-  { iso: 'KH', code: '+855', name: 'Campuchia' },
-  { iso: 'KR', code: '+82', name: 'Hàn Quốc' },
-  { iso: 'LA', code: '+856', name: 'Lào' },
-  { iso: 'MY', code: '+60', name: 'Malaysia' },
-  { iso: 'SG', code: '+65', name: 'Singapore' },
-  { iso: 'TH', code: '+66', name: 'Thái Lan' },
-  { iso: 'TW', code: '+886', name: 'Đài Loan' },
-];
 
 // MARK: - "Có thể bạn quen"
 
@@ -134,13 +110,6 @@ function SectionTitle({ icon: Icon, title, count }: { icon: LucideIcon; title: s
   );
 }
 
-/** "0912345678" → "0912 345 678" (Vietnamese mobile grouping); other numbers as typed. */
-const prettyPhone = (phone: string): string => {
-  const digits = phone.replace(/\s+/g, '');
-  if (/^0\d{9}$/.test(digits)) return `${digits.slice(0, 4)} ${digits.slice(4, 7)} ${digits.slice(7)}`;
-  return phone.trim();
-};
-
 // MARK: - Recent searches (this device only)
 
 interface RecentSearch {
@@ -203,6 +172,8 @@ export function AddFriendDialog({ onClose }: { onClose: () => void }) {
     setShown(user);
     setStep((s) => (s === 'message' ? s : 'profile'));
     if (lastQuery && !user.isSelf) {
+      // Who this number belongs to, kept after the request goes out (requests page, profile, friend list).
+      rememberPhone(user.id, lastQuery.phone, lastQuery.iso, user.name);
       const entry: RecentSearch = { id: user.id, name: user.name, avatar: user.avatar, phone: lastQuery.phone, iso: lastQuery.iso };
       setRecent((list) => {
         const next = [entry, ...list.filter((r) => r.id !== user.id)].slice(0, 5);
@@ -348,7 +319,7 @@ export function AddFriendDialog({ onClose }: { onClose: () => void }) {
                       <Avatar url={r.avatar} name={r.name} size={40} />
                       <span className="af-row-text">
                         <span className="af-row-name truncate">{r.name || 'Người dùng Zalo'}</span>
-                        <span className="af-row-sub nums">{prettyPhone(r.phone)}</span>
+                        <span className="af-row-sub nums">{phoneText(r)}</span>
                       </span>
                     </button>
                     <button
@@ -403,7 +374,7 @@ export function AddFriendDialog({ onClose }: { onClose: () => void }) {
             />
             <ProfileDetails
               rows={[
-                { label: 'Điện thoại', value: lastQuery ? `${country.iso === 'VN' ? '' : country.code + ' '}${prettyPhone(lastQuery.phone)}` : null },
+                { label: 'Điện thoại', value: lastQuery ? phoneText(lastQuery) : null },
                 { label: 'Giới thiệu', value: user.bio || null },
               ]}
             />

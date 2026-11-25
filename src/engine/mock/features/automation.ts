@@ -41,8 +41,33 @@ registerMockCommand('automation_state', () => ({
   addons: manifests.map(view),
   addonDir: '~/Library/Application Support/Compola/addons',
   permissions: ['messages:read', 'messages:send', 'notes', 'ui', 'ai', 'schedules', 'mcp', 'network', 'notifications'],
-  ai: { enabled: false, provider: 'anthropic', url: '', apiKey: '', model: 'claude-opus-5-5', effort: 'medium', maxTokens: 16000, hasKey: false },
+  ai: { ...ai, apiKey: '' },
 }));
+// AI for add-ons: a saved config, the service's model list (`&aiError=1`: the key is refused) and the test request.
+let ai = { enabled: false, provider: 'anthropic', preset: 'anthropic', url: '', apiKey: '', model: 'claude-opus-5-5', effort: 'medium', maxTokens: 16000, hasKey: false };
+const mockModels: Record<string, string[]> = {
+  anthropic: ['claude-fable-5-2', 'claude-haiku-5-5', 'claude-opus-5-5', 'claude-sonnet-5-5'],
+  'api.deepseek.com': ['deepseek-flash', 'deepseek-pro'],
+  'openrouter.ai': ['anthropic/claude-sonnet-5.5', 'deepseek/deepseek-v4.1-flash', 'google/gemini-4-hydrogen', 'moonshotai/kimi-k3.1-pro', 'openrouter/auto', 'z-ai/glm-5.3'],
+};
+registerMockCommand('addons_ai_models', async (a) => {
+  const c = a.config as typeof ai;
+  await new Promise((r) => setTimeout(r, 600));
+  if (new URLSearchParams(location.search).get('aiError')) throw 'API key không hợp lệ (Incorrect API key provided)';
+  if (c.provider === 'anthropic') return mockModels.anthropic;
+  const host = (() => { try { return new URL(c.url).host; } catch { return ''; } })();
+  return mockModels[host] ?? [c.model || 'model-a', 'model-b'];
+});
+registerMockCommand('addons_ai_set', (a) => {
+  const c = a.config as typeof ai;
+  const same = c.provider === ai.provider && c.url === ai.url;
+  ai = { ...c, apiKey: '', hasKey: c.apiKey ? true : same && ai.hasKey };
+  return { ...ai };
+});
+registerMockCommand('addons_ai_test', async () => {
+  await new Promise((r) => setTimeout(r, 800));
+  return { text: 'OK', model: ai.model };
+});
 registerMockCommand('addons_logs', (a) => [{ at: Date.now(), level: 'info', text: `${String(a.id)}: khởi động v1.0.0` }]);
 registerMockCommand('addons_set_enabled', (a) => void (a.enabled ? enabled.add(String(a.id)) : enabled.delete(String(a.id))));
 registerMockCommand('addons_set_settings', (a) => void (saved[String(a.id)] = a.settings as Record<string, unknown>));

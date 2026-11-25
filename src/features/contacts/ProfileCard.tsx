@@ -15,6 +15,7 @@ import {
   type ContactProfile,
   type StrangerInfo,
 } from '../../engine/contacts';
+import { usePhoneOf } from '../../engine/contactPhones';
 import { mediaUrl } from '../../engine/media';
 import { setEngine, useEngine } from '../../engine/store';
 import { Avatar } from '../../ui/Avatar';
@@ -106,6 +107,7 @@ export function PersonProfileDialog({ id, hint, onClose }: { id: string; hint: P
   const known = useContacts((s) => s.known[id] ?? null);
   const inSent = useContacts((s) => s.sent.some((r) => r.id === id));
   const inReceived = useContacts((s) => s.received.some((r) => r.id === id));
+  const phone = usePhoneOf(id);
   const [profile, setProfile] = useState<ContactProfile | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [info, setInfo] = useState<StrangerInfo | null>(null);
@@ -211,6 +213,7 @@ export function PersonProfileDialog({ id, hint, onClose }: { id: string; hint: P
         )}
         <ProfileDetails
           rows={[
+            { label: 'Điện thoại', value: phone },
             { label: 'Giới thiệu', value: profile?.bio || null },
             { label: 'Loại tài khoản', value: profile?.isOfficialAccount ? 'Tài khoản chính thức' : null },
           ]}

@@ -94,9 +94,6 @@
   color: var(--text-secondary);
 }
 
-.st-nav-search:focus-within {
-  box-shadow: 0 0 0 1px var(--st-primary);
-}
 
 .st-nav-search input {
   flex: 1;

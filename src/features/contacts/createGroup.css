@@ -109,11 +109,6 @@
   color: var(--text-placeholder);
 }
 
-.cg-name-field:focus,
-.cg-name-field:focus-visible {
-  outline: none;
-  border-bottom-color: var(--primary);
-}
 
 .cg-name-field.is-invalid {
   border-bottom-color: var(--danger);
@@ -143,9 +138,6 @@
   flex: none;
 }
 
-.cg-search:focus-within {
-  border-color: var(--primary);
-}
 
 .cg-search-icon {
   flex: none;

@@ -22,6 +22,7 @@ import {
   type FriendRequest,
   type GroupInvite,
 } from '../../engine/contacts';
+import { usePhoneOf } from '../../engine/contactPhones';
 import { Avatar } from '../../ui/Avatar';
 import { Sheet } from '../../ui/Overlays';
 import { Spinner } from '../../ui/Spinner';
@@ -128,6 +129,7 @@ function SectionTitle({ title, count }: { title: string; count: number }) {
 const isRecent = (date: number | null) => !!date && Date.now() - date < 86_400_000;
 
 function ReceivedCard({ request, busy, perform }: { request: FriendRequest; busy: boolean; perform: (a: RequestAction) => void }) {
+  const phone = usePhoneOf(request.id);
   return (
     <div className={`ct-card cp-card ${busy ? 'is-busy' : ''}`}>
       <div className="cp-card-head">
@@ -138,6 +140,11 @@ function ReceivedCard({ request, busy, perform }: { request: FriendRequest; busy
         <div className="ct-card-name">
           <span className="ct-card-title truncate">{request.name || 'Người dùng Zalo'}</span>
           <span className="ct-card-extra truncate">{request.date ? `${ago(request.date)} · Muốn kết bạn` : 'Muốn kết bạn với bạn'}</span>
+          {phone && (
+            <span className="ct-card-extra cp-phone nums truncate" title="Số điện thoại bạn đã tìm">
+              {phone}
+            </span>
+          )}
         </div>
         <button
           className="cp-card-icon"
@@ -163,12 +170,26 @@ function ReceivedCard({ request, busy, perform }: { request: FriendRequest; busy
 
 /** A sent request: one dense row (OpenAI / Upwork pending-invites pattern) with "Thu hồi". */
 function SentRow({ request, busy, perform }: { request: FriendRequest; busy: boolean; perform: (a: RequestAction) => void }) {
+  const phone = usePhoneOf(request.id);
+  const when = request.date ? `Đã gửi ${ago(request.date)}` : 'Đang chờ người này chấp nhận';
   return (
     <div className={`cp-sent-row ${busy ? 'is-busy' : ''}`}>
       <Avatar url={request.avatar} name={request.name} size={40} />
       <span className="ct-row-text">
         <span className="ct-row-name truncate">{request.name || 'Người dùng Zalo'}</span>
-        <span className="ct-row-sub truncate">{request.date ? `Đã gửi ${ago(request.date)}` : 'Đang chờ người này chấp nhận'}</span>
+        <span className="ct-row-sub truncate">
+          {phone ? (
+            <>
+              <span className="cp-phone nums" title="Số điện thoại bạn đã tìm">
+                {phone}
+              </span>
+              {' · '}
+              {when}
+            </>
+          ) : (
+            when
+          )}
+        </span>
       </span>
       <button
         className="cp-card-icon"

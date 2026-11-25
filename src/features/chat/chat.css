@@ -415,6 +415,16 @@
   background: rgba(8, 27, 58, 0.3);
 }
 
+/* Reaction chips hang 12px below the bubble (.reaction-chips): the status line goes under them, not behind them. */
+.bubble-row.has-reactions .bubble-status-line {
+  margin-top: 14px;
+}
+
+/* The status line is then the row's bottom edge: no extra room for the chips. */
+.bubble-row.has-reactions:has(> .bubble-column > .bubble-status-line) {
+  padding-bottom: 0;
+}
+
 .bubble-status-line.is-failed {
   background: var(--danger);
 }
@@ -527,44 +537,27 @@
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
 }
 
-/* The like button on the bubble's bottom corner; hovering it opens the six reactions above it. */
+/* The like button, first in the hover bar (next to the bubble); hovering it opens the six reactions above it. */
 .react-trigger {
-  position: absolute;
-  bottom: -10px;
-  z-index: 4;
-  display: none;
+  position: relative;
+  display: flex;
 }
 
-.bubble-row:not(.is-mine) .react-trigger {
-  right: 8px;
-}
-
+/* Mine: the bar sits left of the bubble, so the like button goes last (nearest the bubble). */
 .bubble-row.is-mine .react-trigger {
-  left: 8px;
-}
-
-.bubble-row:hover .react-trigger,
-.react-trigger:focus-within {
-  display: block;
-}
-
-/* Reaction chips sit on the bubble's bottom-right corner for both sides. An incoming message's like button is on
-   that corner too, so with reactions it moves to the left; mine is already on the left. */
-.bubble-row.has-reactions:not(.is-mine) .react-trigger {
-  right: auto;
-  left: 8px;
+  order: 1;
 }
 
 .react-trigger-btn {
   display: grid;
   place-items: center;
-  width: 22px;
-  height: 22px;
+  width: 26px;
+  height: 26px;
   border-radius: 50%;
   background: var(--surface, #fff);
   color: var(--text-secondary);
-  font-size: 13px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+  font-size: 14px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
 }
 
 .react-trigger-btn:hover {
@@ -591,11 +584,6 @@
 
 .bubble-row.is-mine .react-strip {
   right: -6px;
-}
-
-/* While the reactions are open, the reply · forward · ⋯ bar steps aside. */
-.bubble-stack:has(.react-trigger:hover) .hover-bar {
-  visibility: hidden;
 }
 
 /* A small bridge so the strip stays open while the pointer moves up to it. */
@@ -1589,6 +1577,7 @@
 }
 
 .composer-row {
+  position: relative;
   display: flex;
   align-items: flex-end;
   gap: 4px;
@@ -1752,10 +1741,6 @@
   font-size: 13px;
 }
 
-.text-field:focus {
-  box-shadow: 0 0 0 3px var(--accent-soft);
-  border-color: var(--accent);
-}
 
 .forward-list {
   flex: 1;

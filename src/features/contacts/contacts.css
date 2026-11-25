@@ -285,10 +285,6 @@
   background: var(--ct-hover);
 }
 
-.ct-search:focus-within {
-  border-color: #3384ff;
-  background: var(--ct-input);
-}
 
 .ct-search-icon {
   flex: none;
@@ -646,9 +642,6 @@
   border-bottom: 1px solid var(--ct-border);
 }
 
-.ct-phone-row:focus-within {
-  border-bottom-color: var(--ct-primary);
-}
 
 .ct-country {
   display: inline-flex;
@@ -924,9 +917,6 @@
   padding: 8px 10px 6px;
 }
 
-.ct-textarea-wrap:focus-within {
-  border-color: #3384ff;
-}
 
 .ct-textarea {
   width: 100%;
@@ -1029,9 +1019,6 @@
   font-size: 15px;
 }
 
-.compose-field:focus {
-  border-bottom-color: var(--ct-primary);
-}
 
 .compose-field.is-invalid {
   border-bottom-color: var(--ct-danger);

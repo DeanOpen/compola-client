@@ -71,9 +71,6 @@
   color: var(--text-secondary);
 }
 
-.sa-search:focus-within {
-  border-color: var(--st-primary, var(--accent));
-}
 
 .sa-search input {
   flex: 1;

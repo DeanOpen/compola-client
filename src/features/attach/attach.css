@@ -233,9 +233,6 @@
   outline: none;
 }
 
-.send-preview-caption textarea:focus {
-  border-color: var(--accent);
-}
 
 .send-preview-caption textarea::placeholder {
   color: var(--text-placeholder);

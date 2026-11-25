@@ -476,9 +476,6 @@
   transition: border-color 0.12s ease;
 }
 
-.poll-option-field:focus-within {
-  border-color: var(--zp-primary-pressed);
-}
 
 .poll-option-field.is-invalid {
   border-color: var(--zp-danger);

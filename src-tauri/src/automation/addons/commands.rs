@@ -162,7 +162,8 @@ pub fn addons_ai_set(automation: AutomationState<'_>, config: AiConfig) -> Resul
     }
     config.max_tokens = config.max_tokens.clamp(256, 128_000);
     let saved = a.update_config(|c| {
-        if config.api_key.trim().is_empty() {
+        // Keep the stored key only for the same service: another server must never receive it.
+        if config.api_key.trim().is_empty() && same_service(&c.ai, &config) {
             config.api_key = c.ai.api_key.clone();
         }
         config.api_key = config.api_key.trim().to_owned();
@@ -171,6 +172,27 @@ pub fn addons_ai_set(automation: AutomationState<'_>, config: AiConfig) -> Resul
     })?;
     a.changed();
     Ok(ai_view(&saved))
+}
+
+/// Same protocol and server: a stored API key may be reused.
+fn same_service(a: &AiConfig, b: &AiConfig) -> bool {
+    a.provider == b.provider && crate::automation::ai::base(a) == crate::automation::ai::base(b)
+}
+
+/// The models of the provider being edited (`config` not saved yet); an empty `apiKey` uses the stored key when it is the
+/// same service.
+#[tauri::command]
+pub async fn addons_ai_models(automation: AutomationState<'_>, config: AiConfig) -> Result<Vec<String>, String> {
+    let a = automation.inner().clone();
+    let mut cfg = config;
+    if !matches!(cfg.provider.as_str(), "anthropic" | "openai") {
+        return Err("provider phải là anthropic hoặc openai".into());
+    }
+    let stored = a.ai_config();
+    if cfg.api_key.trim().is_empty() && same_service(&stored, &cfg) {
+        cfg.api_key = stored.api_key;
+    }
+    crate::automation::ai::models(&a.http, &cfg).await
 }
 
 /// Sends one short request with the saved provider; returns the model's answer.

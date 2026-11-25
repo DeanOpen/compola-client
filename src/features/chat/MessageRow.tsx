@@ -116,34 +116,35 @@ function BubbleRow({ message, firstInGroup, lastInGroup, showStatus, isGroup, al
               <Star size={9} fill="currentColor" strokeWidth={3} />
             </span>
           )}
-          {/* Zalo PC: a like button on the bubble's corner; hovering it opens the six reactions. */}
-          {!recalled && !readOnly && (
-            <div className="react-trigger">
-              <button
-                className={`react-trigger-btn ${myReactions.size ? 'is-mine' : ''}`}
-                title="Thả cảm xúc"
-                aria-label="Thả 👍"
-                onClick={() => onReact(myReactions.size ? [...myReactions][0] : '👍', message)}
-              >
-                {myReactions.size ? [...myReactions][0] : <ThumbsUp size={13} />}
-              </button>
-              <div className="react-strip" role="toolbar" aria-label="Cảm xúc">
-                {reactionEmojis.map((emoji) => (
-                  <button
-                    key={emoji}
-                    className={`hover-reaction ${myReactions.has(emoji) ? 'is-selected' : ''}`}
-                    title={`Thả ${emoji}`}
-                    aria-label={`Thả ${emoji}`}
-                    onClick={() => onReact(emoji, message)}
-                  >
-                    {emoji}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-          {/* Actions beside the bubble, aligned with its top edge: reply · forward · ⋯ */}
+          {/* Actions beside the bubble, aligned with its top edge: like · reply · forward · ⋯ */}
           <div className="hover-bar" role="toolbar" aria-label="Thao tác tin nhắn">
+            {/* Like: hovering it opens the six reactions. In the bar beside the bubble, so it never covers the time,
+                the reaction chips or the delivery status under the bubble. */}
+            {!recalled && !readOnly && (
+              <div className="react-trigger">
+                <button
+                  className={`react-trigger-btn ${myReactions.size ? 'is-mine' : ''}`}
+                  title="Thả cảm xúc"
+                  aria-label="Thả 👍"
+                  onClick={() => onReact(myReactions.size ? [...myReactions][0] : '👍', message)}
+                >
+                  {myReactions.size ? [...myReactions][0] : <ThumbsUp size={13} />}
+                </button>
+                <div className="react-strip" role="toolbar" aria-label="Cảm xúc">
+                  {reactionEmojis.map((emoji) => (
+                    <button
+                      key={emoji}
+                      className={`hover-reaction ${myReactions.has(emoji) ? 'is-selected' : ''}`}
+                      title={`Thả ${emoji}`}
+                      aria-label={`Thả ${emoji}`}
+                      onClick={() => onReact(emoji, message)}
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             {!recalled && !readOnly && (
               <>
                 <BarButton title="Trả lời" onClick={() => onReply(message)}>

@@ -243,6 +243,7 @@ pub fn run() {
             automation::addons::commands::addons_clear_logs,
             automation::addons::commands::addons_ai_set,
             automation::addons::commands::addons_ai_test,
+            automation::addons::commands::addons_ai_models,
             automation::addons::commands::addons_workspace,
             automation::addons::commands::addons_quick_replies,
             automation::addons::commands::addons_note_counts,

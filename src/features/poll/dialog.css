@@ -188,9 +188,6 @@
   color: var(--zp-text-secondary);
 }
 
-.zp-input:focus {
-  border-color: var(--zp-primary-pressed);
-}
 
 .zp-input:focus-visible {
   outline: none;

@@ -115,10 +115,7 @@
   font: inherit;
   font-size: 13px;
 }
-.addon-note-input:focus {
-  outline: 2px solid var(--accent-soft);
-  border-color: var(--accent);
-}
+
 .addon-note-save {
   align-self: flex-end;
 }

@@ -47,11 +47,6 @@ select.join-input {
   appearance: auto;
 }
 
-.join-input:focus {
-  outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
-}
 
 .join-input::placeholder {
   color: var(--text-placeholder);

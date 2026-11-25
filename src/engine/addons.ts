@@ -133,6 +133,8 @@ export const addons = {
   clearLogs: (id: string) => call<void>('addons_clear_logs', { id }),
   setAi: (config: AiConfig) => call<AiConfig>('addons_ai_set', { config }),
   testAi: () => call<{ text: string; model: string }>('addons_ai_test'),
+  /** The models of the service being edited (unsaved `config`; an empty key uses the stored one for the same service). */
+  aiModels: (config: AiConfig) => call<string[]>('addons_ai_models', { config }),
 
   workspace: (conversationId: string) => call<Workspace>('addons_workspace', { account: acc(), conversationId }),
   quickReplies: () => call<QuickReply[]>('addons_quick_replies', { account: acc() }),
@@ -168,6 +170,8 @@ export interface AddonLimits {
 export interface AiConfig {
   enabled: boolean;
   provider: 'anthropic' | 'openai';
+  /** The service picked in Settings (src/features/settings/aiProviders.ts). */
+  preset: string;
   url: string;
   apiKey: string;
   model: string;

@@ -18,6 +18,7 @@ import {
   type ContactGroup,
   type Friend,
 } from '../../engine/contacts';
+import { phoneMatches, phoneText, useContactPhones } from '../../engine/contactPhones';
 import { setConversationLabel } from '../../engine/conversations';
 import { cssColor, type ConversationLabel } from '../../engine/models/conversations';
 import { getEngine, useEngine } from '../../engine/store';
@@ -189,6 +190,10 @@ const friendStatus = (f: Friend): string | undefined => {
   return f.zaloName && f.zaloName !== f.name ? f.zaloName : undefined;
 };
 
+/** "0912 345 678 · Truy cập 5 phút trước": the number found by phone (when known) before the status. */
+const withPhone = (phone: string | null, status: string | undefined): string | undefined =>
+  phone ? (status ? `${phone} · ${status}` : phone) : status;
+
 /** Text tab of the friends panel ("Tất cả 17 · Đang hoạt động 3"), Zalo PC underline style. */
 function PresenceTab({ selected, onClick, title, count, dot }: { selected: boolean; onClick: () => void; title: string; count: number; dot?: boolean }) {
   return (
@@ -213,6 +218,7 @@ export function FriendsPage() {
   const labelFilter = useContactsUi((s) => s.friendLabel);
   const [query, setQuery] = useState('');
   const [presence, setPresence] = useState<'all' | 'online'>('all');
+  const phones = useContactPhones((s) => s.book);
   const activeLabel = labels.find((l) => l.id === labelFilter) ?? null;
   const onlineCount = useMemo(() => friends.filter((f) => f.online).length, [friends]);
 
@@ -223,7 +229,9 @@ export function FriendsPage() {
 
   const sections = useMemo(() => {
     const q = contactFold(query).trim();
-    let matches = q ? friends.filter((f) => f.sortKey.includes(q) || contactFold(f.zaloName).includes(q)) : friends;
+    let matches = q
+      ? friends.filter((f) => f.sortKey.includes(q) || contactFold(f.zaloName).includes(q) || phoneMatches(phones, f.id, query))
+      : friends;
     if (activeLabel) matches = matches.filter((f) => labelOf[f.id] === activeLabel.id);
     if (presence === 'online') matches = matches.filter((f) => f.online);
     const grouped = new Map<string, Friend[]>();
@@ -232,7 +240,7 @@ export function FriendsPage() {
     return [...grouped.keys()]
       .sort((a, b) => (a === '#' || b === '#' ? compareSections(a, b) : dir * compareSections(a, b)))
       .map((letter) => ({ letter, friends: grouped.get(letter)!.sort((a, b) => dir * standardCompare(a.sortKey, b.sortKey)) }));
-  }, [friends, query, sort, activeLabel, labelOf, presence]);
+  }, [friends, query, sort, activeLabel, labelOf, presence, phones]);
 
   let body: ReactNode;
   if (!friendsLoaded || !hiddenKnown) body = <ContactsLoading text="Đang tải danh sách bạn bè…" />;
@@ -268,7 +276,7 @@ export function FriendsPage() {
                 name={friend.name}
                 avatar={friend.avatar}
                 online={friend.online}
-                subtitle={friendStatus(friend)}
+                subtitle={withPhone(phones[friend.id] ? phoneText(phones[friend.id]) : null, friendStatus(friend))}
                 subtitleTone={friend.online ? 'online' : undefined}
                 label={labels.find((l) => l.id === labelOf[friend.id]) ?? null}
                 menu={() => friendMenuItems(friend)}

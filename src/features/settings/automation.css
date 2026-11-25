@@ -97,12 +97,6 @@
   resize: vertical;
 }
 
-.st-input:focus {
-  outline: none;
-  border-color: var(--st-primary);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--st-primary) 18%, transparent);
-}
-
 .st-input.is-narrow {
   width: 200px;
 }
@@ -127,7 +121,7 @@ input.st-input {
 .st-auto-mono,
 .st-code,
 .st-snippet {
-  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
   font-size: 12px;
 }
 
@@ -597,4 +591,162 @@ input.st-input {
 .st-addon-privacy.is-out {
   background: color-mix(in srgb, var(--warning, #c77700) 12%, transparent);
   color: var(--warning, #a86400);
+}
+
+/* AI for add-ons: the service picker (aiProviders.ts) */
+.st-ai-providers {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  gap: 8px;
+}
+.st-ai-provider {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+  padding: 9px 11px;
+  border: 1px solid var(--st-border);
+  border-radius: 10px;
+  background: var(--st-bg);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 0.12s,
+    background 0.12s;
+}
+.st-ai-provider:hover {
+  background: var(--st-subtle);
+}
+.st-ai-provider.is-selected {
+  border-color: var(--st-primary);
+  background: var(--st-selected);
+  box-shadow: inset 0 0 0 1px var(--st-primary);
+}
+.st-ai-provider:focus-visible {
+  outline: 2px solid var(--st-primary);
+  outline-offset: 1px;
+}
+.st-ai-provider-name {
+  font-size: 14px;
+  font-weight: 600;
+}
+.st-ai-provider.is-selected .st-ai-provider-name {
+  color: var(--st-primary);
+}
+.st-ai-provider-note {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 12px;
+  opacity: 0.65;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.st-ai-label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.st-ai-label .st-muted {
+  font-size: 12px;
+}
+.st-ai-models-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.st-ai-keylink {
+  margin-left: auto;
+  font-size: 13px;
+}
+.st-ai-models-error {
+  font-size: 12px;
+}
+.st-ai-advanced {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  align-self: flex-start;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font-size: 13px;
+  opacity: 0.75;
+  cursor: pointer;
+}
+.st-ai-advanced:hover {
+  opacity: 1;
+}
+.st-ai-picker {
+  position: relative;
+}
+.st-ai-picker-field {
+  position: relative;
+}
+.st-ai-picker-field .st-input {
+  width: 100%;
+  padding-right: 34px;
+}
+.st-ai-picker-toggle {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  display: flex;
+  padding: 4px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  opacity: 0.6;
+  transform: translateY(-50%);
+  cursor: pointer;
+}
+.st-ai-picker-toggle:hover {
+  background: var(--st-subtle);
+  opacity: 1;
+}
+.st-ai-picker-list {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 4px);
+  right: 0;
+  left: 0;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--st-border);
+  border-radius: 10px;
+  background: var(--st-bg);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+}
+.st-ai-picker-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 9px;
+  border-radius: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  cursor: pointer;
+}
+.st-ai-picker-item.is-active {
+  background: var(--st-subtle);
+}
+.st-ai-picker-item.is-current {
+  color: var(--st-primary);
+  font-weight: 600;
+}
+.st-ai-picker-empty {
+  padding: 6px 9px;
+  font-size: 12px;
+  opacity: 0.65;
+}
+.st-ai-keylink {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
 }

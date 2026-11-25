@@ -4,7 +4,10 @@
 //!   sampling parameters; adaptive thinking is the model default and `output_config.effort` controls depth; only text
 //!   blocks are returned; `stop_reason: refusal` is an error. Models that support server-side refusal fallbacks get
 //!   `fallbacks: "default"`.
-//! - `openai`: any OpenAI-compatible `/chat/completions` (Ollama, LM Studio, vLLM, …) for local or self-hosted models.
+//! - `openai`: any OpenAI-compatible `/chat/completions`: OpenAI, OpenRouter, Z.ai, Kimi, DeepSeek, Gemini, xAI, Groq,
+//!   Mistral, Qwen, Meta Llama API, or a local Ollama / LM Studio / vLLM. Newer OpenAI models refuse `max_tokens`, so
+//!   api.openai.com gets `max_completion_tokens` (and any server that asks for it gets one retry with it).
+//! - [`models`]: the provider's own model list (`GET /models`, Claude `GET /v1/models`) for the model picker.
 
 use std::time::Duration;
 
@@ -94,7 +97,7 @@ impl Request {
     }
 }
 
-fn base(cfg: &AiConfig) -> String {
+pub(crate) fn base(cfg: &AiConfig) -> String {
     let url = cfg.url.trim().trim_end_matches('/');
     if !url.is_empty() {
         return url.to_owned();
@@ -204,22 +207,37 @@ async fn openai(http: &reqwest::Client, cfg: &AiConfig, system: &str, req: &Requ
         messages.push(json!({ "role": "system", "content": system }));
     }
     messages.extend(req.messages.iter().map(|(role, content)| json!({ "role": role, "content": content })));
-    let body = json!({ "model": cfg.model.trim(), "messages": messages, "max_tokens": req.max_tokens, "stream": false });
-    let mut request = http
-        .post(format!("{}/chat/completions", base(cfg)))
-        .timeout(Duration::from_secs(600))
-        .header("content-type", "application/json")
-        .body(body.to_string());
-    if !cfg.api_key.trim().is_empty() {
-        request = request.bearer_auth(cfg.api_key.trim());
-    }
-    let resp = request.send().await.map_err(|e| format!("không gọi được máy chủ AI: {e}"))?;
-    let status = resp.status();
-    let v = read_json(resp).await.map_err(|e| format!("máy chủ AI trả lời không đọc được: {e}"))?;
-    if !status.is_success() {
-        let msg = v.pointer("/error/message").and_then(Value::as_str).or_else(|| v.get("error").and_then(Value::as_str)).unwrap_or("lỗi không rõ");
-        return Err(format!("máy chủ AI báo lỗi {status}: {msg}"));
-    }
+    let url = base(cfg);
+    let mut completion_tokens = url.contains("api.openai.com");
+    let mut retried = false;
+    let v = loop {
+        let mut body = json!({ "model": cfg.model.trim(), "messages": messages, "stream": false });
+        body[if completion_tokens { "max_completion_tokens" } else { "max_tokens" }] = json!(req.max_tokens);
+        let request = with_headers(http.post(format!("{url}/chat/completions")), cfg)
+            .timeout(Duration::from_secs(600))
+            .header("content-type", "application/json")
+            .body(body.to_string());
+        let resp = request.send().await.map_err(|e| format!("không gọi được máy chủ AI: {e}"))?;
+        let status = resp.status();
+        let v = read_json(resp).await.map_err(|e| format!("máy chủ AI trả lời không đọc được ({status}): {e}"))?;
+        if status.is_success() {
+            break v;
+        }
+        let msg = error_message(&v);
+        // "Unsupported parameter: 'max_tokens' … Use 'max_completion_tokens' instead." (and the reverse): one retry.
+        if status.as_u16() == 400 && !retried && msg.contains("max_completion_tokens") != completion_tokens && msg.contains("max_") {
+            completion_tokens = !completion_tokens;
+            retried = true;
+            continue;
+        }
+        return Err(match status.as_u16() {
+            401 | 403 => format!("API key không hợp lệ hoặc không có quyền ({msg})"),
+            402 => format!("tài khoản AI hết tiền / hết hạn mức ({msg})"),
+            404 => format!("không tìm thấy model “{}” hoặc sai địa chỉ máy chủ ({msg})", cfg.model.trim()),
+            429 => format!("máy chủ AI đang giới hạn tần suất, thử lại sau ({msg})"),
+            _ => format!("máy chủ AI báo lỗi {status}: {msg}"),
+        });
+    };
     Ok(Completion {
         text: v.pointer("/choices/0/message/content").and_then(Value::as_str).unwrap_or_default().to_owned(),
         model: v.get("model").and_then(Value::as_str).unwrap_or(&cfg.model).to_owned(),
@@ -230,6 +248,59 @@ async fn openai(http: &reqwest::Client, cfg: &AiConfig, system: &str, req: &Requ
         },
         json: None,
     })
+}
+
+fn error_message(v: &Value) -> String {
+    v.pointer("/error/message")
+        .and_then(Value::as_str)
+        .or_else(|| v.get("error").and_then(Value::as_str))
+        .or_else(|| v.get("message").and_then(Value::as_str))
+        .or_else(|| v.get("detail").and_then(Value::as_str))
+        .unwrap_or("lỗi không rõ")
+        .to_owned()
+}
+
+/// Bearer key for OpenAI-compatible servers; OpenRouter also gets the app's name (shown in its activity list).
+fn with_headers(request: reqwest::RequestBuilder, cfg: &AiConfig) -> reqwest::RequestBuilder {
+    let mut request = request;
+    if !cfg.api_key.trim().is_empty() {
+        request = request.bearer_auth(cfg.api_key.trim());
+    }
+    if base(cfg).contains("openrouter.ai") {
+        request = request.header("HTTP-Referer", "https://github.com/compola").header("X-Title", "Compola");
+    }
+    request
+}
+
+/// The models the provider offers with this key (`GET /models`; Claude `GET /v1/models`), sorted, for the model picker.
+pub async fn models(http: &reqwest::Client, cfg: &AiConfig) -> Result<Vec<String>, String> {
+    let url = base(cfg);
+    let request = if cfg.provider == "anthropic" {
+        if cfg.api_key.trim().is_empty() {
+            return Err("nhập API key để tải danh sách model".into());
+        }
+        http.get(format!("{url}/v1/models?limit=1000")).header("x-api-key", cfg.api_key.trim()).header("anthropic-version", ANTHROPIC_VERSION)
+    } else {
+        with_headers(http.get(format!("{url}/models")), cfg)
+    };
+    let resp = request.timeout(Duration::from_secs(20)).send().await.map_err(|e| format!("không kết nối được {url}: {e}"))?;
+    let status = resp.status();
+    let v = read_json(resp).await.map_err(|e| format!("danh sách model không đọc được ({status}): {e}"))?;
+    if !status.is_success() {
+        let msg = error_message(&v);
+        // Gemini and xAI answer a bad key with 400.
+        let bad_key = matches!(status.as_u16(), 401 | 403) || (status.as_u16() == 400 && msg.to_ascii_lowercase().contains("key"));
+        return Err(if bad_key { format!("API key không hợp lệ ({msg})") } else { format!("không tải được danh sách model ({status}: {msg})") });
+    }
+    // OpenAI shape `{data: [{id}]}`; some servers answer a bare array or `{models: [{id | name}]}`.
+    let list = v.get("data").or_else(|| v.get("models")).unwrap_or(&v);
+    let mut ids: Vec<String> = list
+        .as_array()
+        .map(|a| a.iter().filter_map(|m| m.get("id").or_else(|| m.get("name")).and_then(Value::as_str).or_else(|| m.as_str())).map(|s| s.trim_start_matches("models/").to_owned()).collect())
+        .unwrap_or_default();
+    ids.sort();
+    ids.dedup();
+    Ok(ids)
 }
 
 #[cfg(test)]
@@ -254,6 +325,15 @@ mod tests {
         assert_eq!(json_of("```json\n{\"a\":1}\n```"), Some(json!({ "a": 1 })));
         assert_eq!(json_of(" [1,2] "), Some(json!([1, 2])));
         assert_eq!(json_of("nope"), None);
+    }
+
+    /// Real request (network): `cargo test --lib live_model_list -- --ignored`. OpenRouter lists its models without a key.
+    #[tokio::test]
+    #[ignore]
+    async fn live_model_list() {
+        let cfg = AiConfig { provider: "openai".into(), url: "https://openrouter.ai/api/v1".into(), ..AiConfig::default() };
+        let list = models(&reqwest::Client::new(), &cfg).await.unwrap();
+        assert!(list.len() > 20 && list.iter().any(|m| m.starts_with("deepseek/")), "{list:?}");
     }
 
     #[test]

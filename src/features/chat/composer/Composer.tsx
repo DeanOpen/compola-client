@@ -147,20 +147,22 @@ export function Composer({
     });
   };
   const stickerButton = useRef<HTMLButtonElement>(null);
-  const [typing, setTyping] = useState<{ stickers: StickerEntry[]; for: string | null }>({ stickers: [], for: null });
+  // `for` = the text the stickers were found for, `conv` = its conversation. The strip keeps the last answer on screen
+  // while the next keystroke is being asked about (it used to vanish and slide back in on every keystroke).
+  const [typing, setTyping] = useState<{ stickers: StickerEntry[]; for: string | null; conv: string | null }>({ stickers: [], for: null, conv: null });
   const [stripDismissed, setStripDismissed] = useState(false);
   const [sendingSuggestion, setSendingSuggestion] = useState<string | null>(null);
   const heldText = useRef<string | null>(null);
   const suggestEnabled = useStickerSuggest((s) => s.setting?.enabled ?? null);
   const stripOpen =
-    typing.stickers.length > 0 && typing.for === draft.text && !isEmpty && !stripDismissed && !suggestionsOpen && suggestEnabled !== false;
+    typing.stickers.length > 0 && typing.conv === conversationId && !isEmpty && !stripDismissed && !suggestionsOpen && suggestEnabled !== false;
 
   // Official `_checkStickerSuggestion` (debounced): nothing is asked while the setting is off, for blank or over-long
   // text, while the mention list is open or an IME composition is running.
   useEffect(() => {
     setStripDismissed(false);
     const text = draft.text;
-    const clear = () => setTyping((t) => (t.stickers.length ? { stickers: [], for: null } : t));
+    const clear = () => setTyping((t) => (t.stickers.length ? { stickers: [], for: null, conv: null } : t));
     if (!text.trim() || text.length > 200 || suggestionsOpen) return clear();
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -176,7 +178,13 @@ export function Composer({
         const found = await typingStickerSuggestions(conversationId, text);
         if (cancelled) return;
         heldText.current = null;
-        setTyping({ stickers: found, for: found.length ? text : null });
+        if (!found.length) return clear();
+        // Same stickers as on screen: only the text they answer changes, the strip is not redrawn.
+        setTyping((t) =>
+          t.conv === conversationId && t.stickers.length === found.length && t.stickers.every((s, i) => s.key === found[i].key)
+            ? { ...t, for: text }
+            : { stickers: found, for: text, conv: conversationId },
+        );
       }, stickerSuggestDelay());
     })();
     return () => {
@@ -192,7 +200,7 @@ export function Composer({
     if (getEngine().openConversationId !== target) return showToast(stickerNotReady, target);
     const taken = draft;
     const typed = typing.for ?? draft.text;
-    setTyping({ stickers: [], for: null });
+    setTyping({ stickers: [], for: null, conv: null });
     setSendingSuggestion(sticker.key);
     onDraftChange({ ...draft, text: '', mentions: [], styles: [] });
     void sendSticker(sticker, target, 'suggestion', typed, index).then((outcome) => {
@@ -435,11 +443,12 @@ export function Composer({
       )}
       {showMyCard && <MyCardSheet conversationId={conversationId} conversationName={name} onClose={() => setShowMyCard(false)} />}
       {reminderInfo && <ReminderComposeSheet conversationId={conversationId} info={reminderInfo} onClose={() => setReminderInfo(null)} />}
-      {stripOpen && (
-        <TypingStickerStrip stickers={typing.stickers} sending={sendingSuggestion} pick={sendSuggestion} dismiss={() => setStripDismissed(true)} />
-      )}
       {suggestionsOpen && <MentionSuggestions candidates={candidates} selected={selected} setSelected={setSelected} pick={pick} />}
       <div className="composer-row">
+        {/* A popover above the input (official suggestion popover): showing or hiding it never moves the chat. */}
+        {stripOpen && (
+          <TypingStickerStrip stickers={typing.stickers} sending={sendingSuggestion} pick={sendSuggestion} dismiss={() => setStripDismissed(true)} />
+        )}
         <div className={`composer-input ${styles.length ? 'has-styles' : ''}`} style={{ height }}>
           <div className="composer-mirror" ref={mirror} aria-hidden>
             {renderMirror(draft)}

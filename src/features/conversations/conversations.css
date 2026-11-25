@@ -48,10 +48,6 @@
   transition: border-color var(--motion-fast);
 }
 
-.search-field:focus-within {
-  border-color: var(--accent-pressed);
-  background: var(--content);
-}
 
 .search-field input {
   flex: 1;

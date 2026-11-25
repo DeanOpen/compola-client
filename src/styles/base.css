@@ -51,6 +51,15 @@ textarea {
   outline-offset: 1px;
 }
 
+/* Text fields: nothing on focus (no ring, no border change); the caret shows where typing goes. Buttons and rows keep
+   the keyboard outline above. */
+input:not([type='checkbox']):not([type='radio']):not([type='range']):focus,
+textarea:focus,
+select:focus,
+[contenteditable]:focus {
+  outline: none;
+}
+
 a {
   color: inherit;
 }

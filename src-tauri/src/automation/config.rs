@@ -154,6 +154,9 @@ pub struct AiConfig {
     pub enabled: bool,
     /// `anthropic` (Claude API) or `openai` (any OpenAI-compatible `/chat/completions`: Ollama, LM Studio, vLLM…).
     pub provider: String,
+    /// The service picked in Settings (`anthropic`, `openai`, `openrouter`, `zai`, `kimi`, `deepseek`, …, `custom`): only
+    /// the UI's choice; `provider` + `url` decide how requests are sent.
+    pub preset: String,
     /// Empty: the provider's default (`https://api.anthropic.com`, `http://127.0.0.1:11434/v1`).
     pub url: String,
     pub api_key: String,
@@ -169,6 +172,7 @@ impl Default for AiConfig {
         Self {
             enabled: false,
             provider: "anthropic".into(),
+            preset: "anthropic".into(),
             url: String::new(),
             api_key: String::new(),
             model: "claude-opus-5-5".into(),

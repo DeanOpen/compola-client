@@ -138,10 +138,14 @@
 
 /* Typing suggestions: a row above the input */
 .typing-stickers {
+  position: absolute;
+  bottom: calc(100% - 2px);
+  left: 12px;
+  right: 12px;
+  z-index: 5;
   display: flex;
   align-items: center;
   height: 70px;
-  margin: 0 12px 6px;
   border-radius: 8px;
   background: var(--glass-bg);
   box-shadow: var(--glass-shadow);

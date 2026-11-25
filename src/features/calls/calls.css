@@ -322,10 +322,6 @@
   color: var(--cx-text-secondary);
 }
 
-.call-picker-search:focus-within {
-  border-color: var(--cx-primary);
-  background: var(--cx-surface);
-}
 
 .call-picker-search input {
   flex: 1;
