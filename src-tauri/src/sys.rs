@@ -66,6 +66,12 @@ pub fn signal(pid: i32, signal: Signal) {
     }
 }
 
+/// Windows: the helper `child` ends when this process ends (a kill-on-close job object).
+#[cfg(windows)]
+pub fn kill_with_us(child: &std::process::Child) {
+    win::kill_with_us(child)
+}
+
 /// Whether `pid` names a running process.
 pub fn pid_is_alive(pid: i32) -> bool {
     #[cfg(unix)]
@@ -164,6 +170,41 @@ mod win {
             let ok = GetExitCodeProcess(h, &mut code) != 0;
             CloseHandle(h);
             ok && code == STILL_ACTIVE as u32
+        }
+    }
+
+    /// Puts `child` in a job that kills it when the job's last handle closes: ours, which we never close, so it
+    /// closes when this process ends however it ends (Windows has no parent-death signal).
+    pub fn kill_with_us(child: &std::process::Child) {
+        use std::os::windows::io::AsRawHandle;
+        use std::sync::OnceLock;
+        use windows_sys::Win32::System::JobObjects::{
+            AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+            JobObjectExtendedLimitInformation, SetInformationJobObject,
+        };
+        // One job for every helper (the handle as usize: raw handles are not Send).
+        static JOB: OnceLock<usize> = OnceLock::new();
+        let job = *JOB.get_or_init(|| {
+            // SAFETY: a fresh unnamed job object; the limit struct lives for the call.
+            unsafe {
+                let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
+                if job.is_null() {
+                    return 0;
+                }
+                let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
+                info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+                let size = std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32;
+                SetInformationJobObject(job, JobObjectExtendedLimitInformation, (&info as *const JOBOBJECT_EXTENDED_LIMIT_INFORMATION).cast(), size);
+                job as usize
+            }
+        });
+        if job == 0 {
+            log::warn!("helper job object not created: the helper may outlive a crash");
+            return;
+        }
+        // SAFETY: both handles are valid (the child's for as long as `child` lives).
+        if unsafe { AssignProcessToJobObject(job as _, child.as_raw_handle() as _) } == 0 {
+            log::warn!("helper not assigned to the job object");
         }
     }
 

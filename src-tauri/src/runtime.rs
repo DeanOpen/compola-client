@@ -86,6 +86,12 @@ pub fn helper(name: &str, runtime: &Path) -> PathBuf {
     runtime.join("Contents/ZaloHelper.app/Contents/MacOS").join(name)
 }
 
+/// The native call helper of a runtime: `ZaloHelper.app/…/ZaloCall` on macOS; on Windows `plugins/capture/ZaloCall.exe`
+/// (where Zalo PC for Windows keeps it, next to its Qt libraries), extracted from the official installer.
+pub fn call_helper(runtime: &Path) -> PathBuf {
+    if cfg!(windows) { runtime.join("plugins/capture/ZaloCall.exe") } else { helper("ZaloCall", runtime) }
+}
+
 pub fn is_executable_file(path: &Path) -> bool {
     crate::sys::is_executable_file(path)
 }
@@ -93,8 +99,8 @@ pub fn is_executable_file(path: &Path) -> bool {
 pub fn is_complete(dir: &Path) -> bool {
     dir.join("Contents/Info.plist").is_file()
         && dir.join("Contents/Resources/app.asar").is_file()
-        // ZaloHelper.app (calls, screenshots) is a macOS program: elsewhere the runtime is the renderer only.
-        && (!cfg!(target_os = "macos") || is_executable_file(&helper("ZaloCall", dir)))
+        // The call helper is part of the runtime on macOS and Windows; the Linux server runs the renderer only.
+        && (!cfg!(any(target_os = "macos", windows)) || is_executable_file(&call_helper(dir)))
 }
 
 /// `26.10.20` is newer than `26.9.10`: compared component-wise as numbers (missing or non-numeric components are 0).

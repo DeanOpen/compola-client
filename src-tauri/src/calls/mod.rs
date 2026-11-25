@@ -60,9 +60,10 @@ pub enum CallEvent {
     Popup { header: String, content: String },
 }
 
-/// Where Zalo.app keeps the helper (`dirname(exe)/../ZaloHelper.app/Contents/MacOS/ZaloCall`), in our runtime copy.
+/// Where Zalo keeps the helper, in our runtime copy (`ZaloHelper.app/Contents/MacOS/ZaloCall` on macOS,
+/// `plugins/capture/ZaloCall.exe` on Windows).
 pub fn helper_executable(runtime: &Path) -> PathBuf {
-    runtime.join("Contents/ZaloHelper.app/Contents/MacOS/ZaloCall")
+    crate::runtime::call_helper(runtime)
 }
 
 pub fn is_executable(path: &Path) -> bool {
@@ -74,6 +75,9 @@ pub struct Config {
     pub executable: Option<PathBuf>,
     pub socket_base: PathBuf,
     pub key: Vec<u8>,
+    /// macOS (`G`/`W` in main): messages go out in chunks, one per acknowledgement from the helper. Windows (`V`): each
+    /// message is written whole (`<hex>$`) and the helper sends no acknowledgements.
+    pub chunked: bool,
     pub spawn: Spawn,
     pub verify: Box<dyn Fn(&Path) -> Result<(), String> + Send + Sync>,
     pub reap_orphans: Box<dyn Fn() + Send + Sync>,
@@ -269,10 +273,7 @@ impl CallBridge {
             return;
         }
         let Some(executable) = self.cfg.executable.clone().filter(|e| is_executable(e)) else {
-            self.fail(
-                st,
-                "Không tìm thấy trình gọi của Zalo (ZaloHelper.app/Contents/MacOS/ZaloCall). Hãy mở lại ứng dụng để cài lại.".into(),
-            );
+            self.fail(st, "Không tìm thấy trình gọi của Zalo (ZaloCall). Hãy mở lại ứng dụng để cài lại.".into());
             return;
         };
         // A ZaloCall left behind by a crashed Compola (its argv points into our dead socket directory).
@@ -346,10 +347,21 @@ impl CallBridge {
         if st.recv_server.is_some() && st.send_server.is_some() {
             return Ok(());
         }
-        let dir = helper::make_socket_directory(&self.cfg.socket_base)?;
-        st.recv_path = dir.join("recv").to_string_lossy().into_owned();
-        st.send_path = dir.join("send").to_string_lossy().into_owned();
-        st.socket_dir = Some(dir);
+        #[cfg(windows)]
+        {
+            // Named pipes (main uses `\\.\pipe\PipeZCallRecv` / `…Send`; ours are per process so the official Zalo
+            // can run at the same time). The helper gets them as argv, like the socket paths on macOS.
+            let (recv, send) = helper::pipe_names();
+            st.recv_path = recv;
+            st.send_path = send;
+        }
+        #[cfg(not(windows))]
+        {
+            let dir = helper::make_socket_directory(&self.cfg.socket_base)?;
+            st.recv_path = dir.join("recv").to_string_lossy().into_owned();
+            st.send_path = dir.join("send").to_string_lossy().into_owned();
+            st.socket_dir = Some(dir);
+        }
         let me = self.me.clone();
         let recv = Arc::new(UnixSocketServer::new(
             &st.recv_path,
@@ -425,8 +437,8 @@ impl CallBridge {
                 self.flush_if_ready(&mut st);
             }
             ServerEvent::Data(id, _) => {
-                // Only the helper currently on the send socket acknowledges chunks.
-                if st.send_connection == Some(id) {
+                // Only the helper currently on the send socket acknowledges chunks (macOS; Windows sends none).
+                if self.cfg.chunked && st.send_connection == Some(id) {
                     st.awaiting_ack = false;
                     Self::pump(&mut st);
                 }
@@ -464,6 +476,13 @@ impl CallBridge {
             self.log("call: encrypt failed");
             return;
         };
+        if !self.cfg.chunked {
+            // `V(e, t)`: the whole frame at once.
+            if let (Some(id), Some(server)) = (st.send_connection, st.send_server.clone()) {
+                server.write(format!("{hex}$").into_bytes(), id);
+            }
+            return;
+        }
         let chunks = st.chunker.chunks(&hex);
         st.chunk_queue.extend(chunks);
         Self::pump(st);
@@ -662,6 +681,7 @@ fn production(app: &AppHandle) -> Arc<Calls> {
         executable: Some(executable),
         socket_base: std::env::temp_dir(),
         key: transport::default_key(),
+        chunked: !cfg!(windows),
         spawn: Box::new(|recv, send, on_exit| {
             let exe = helper_executable(&crate::runtime::candidate());
             helper::SystemCallProcess::launch(&exe, &[recv, send], on_exit)

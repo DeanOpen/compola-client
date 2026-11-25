@@ -1,4 +1,5 @@
-//! Minimal `net.createServer().listen(path)` for a UNIX-domain stream socket — port of `UnixSocketServer.swift`.
+//! Minimal `net.createServer().listen(path)` — port of `UnixSocketServer.swift`. A UNIX-domain stream socket on macOS
+//! and Linux; on Windows `path` is a named pipe (`\\.\pipe\…`), which is what Node's `listen(path)` uses there.
 //!
 //! Each connection gets a reader and a writer task on the async runtime. Events for one connection are delivered in
 //! order (connect, data…, end) on the reader's task; the callback is never invoked with the server's lock held.
@@ -7,13 +8,11 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-#[cfg(unix)]
 use std::time::Duration;
 
 use parking_lot::Mutex;
 use tauri::async_runtime::JoinHandle;
-#[cfg(unix)]
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::mpsc;
 
 /// `sockaddr_un.sun_path` holds 104 bytes on macOS, including the terminator.
@@ -74,13 +73,52 @@ impl UnixSocketServer {
         if self.listening.load(Ordering::SeqCst) {
             return Ok(());
         }
+        #[cfg(unix)]
         if self.path.len() > MAX_PATH_LENGTH {
             return Err("socket path too long".into());
         }
-        #[cfg(not(unix))]
-        return Err("UNIX sockets are not available on this platform".into());
-        #[cfg(unix)]
+        #[cfg(not(any(unix, windows)))]
+        return Err("local sockets are not available on this platform".into());
+        #[cfg(any(unix, windows))]
         self.listen()
+    }
+
+    /// A named pipe server: one pipe instance waits for a client at a time; once one connects, the next instance is
+    /// created before the connection is handed over (as `net.Server` does on Windows).
+    #[cfg(windows)]
+    fn listen(&self) -> Result<(), String> {
+        use tokio::net::windows::named_pipe::ServerOptions;
+        // Creating a pipe registers it with the I/O driver: the runtime must be current.
+        let runtime = tauri::async_runtime::handle();
+        let _entered = runtime.inner().enter();
+        let create = |first: bool| ServerOptions::new().first_pipe_instance(first).reject_remote_clients(true).create(&self.path);
+        // `first_pipe_instance`: fails when someone else already owns this name (no squatting on our pipe).
+        let mut server = create(true).map_err(|e| format!("CreateNamedPipe(): {e}"))?;
+        self.listening.store(true, Ordering::SeqCst);
+        let inner = self.inner.clone();
+        let path = self.path.clone();
+        let task = tauri::async_runtime::spawn(async move {
+            loop {
+                if server.connect().await.is_err() {
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                    match ServerOptions::new().reject_remote_clients(true).create(&path) {
+                        Ok(s) => server = s,
+                        Err(_) => tokio::time::sleep(Duration::from_millis(500)).await,
+                    }
+                    continue;
+                }
+                let next = loop {
+                    match ServerOptions::new().reject_remote_clients(true).create(&path) {
+                        Ok(s) => break s,
+                        Err(_) => tokio::time::sleep(Duration::from_millis(100)).await,
+                    }
+                };
+                let connected = std::mem::replace(&mut server, next);
+                accept_one(&inner, connected);
+            }
+        });
+        *self.accept.lock() = Some(task);
+        Ok(())
     }
 
     #[cfg(unix)]
@@ -124,7 +162,7 @@ impl UnixSocketServer {
         if let Some(t) = self.accept.lock().take() {
             t.abort();
         }
-        if self.listening.swap(false, Ordering::SeqCst) {
+        if self.listening.swap(false, Ordering::SeqCst) && cfg!(unix) {
             let _ = std::fs::remove_file(&self.path);
         }
     }
@@ -136,10 +174,9 @@ impl Drop for UnixSocketServer {
     }
 }
 
-#[cfg(unix)]
-fn accept_one(inner: &Arc<Inner>, stream: tokio::net::UnixStream) {
+fn accept_one<S: AsyncRead + AsyncWrite + Send + 'static>(inner: &Arc<Inner>, stream: S) {
     let id = inner.next_id.fetch_add(1, Ordering::Relaxed);
-    let (mut read_half, mut write_half) = stream.into_split();
+    let (mut read_half, mut write_half) = tokio::io::split(stream);
     let (tx, mut rx) = mpsc::unbounded_channel::<Vec<u8>>();
     let writer_inner = Arc::downgrade(inner);
     let writer = tauri::async_runtime::spawn(async move {
@@ -188,6 +225,7 @@ fn accept_one(inner: &Arc<Inner>, stream: tokio::net::UnixStream) {
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
     #[test]
     fn socket_path_limit() {
         let long = format!("/tmp/{}", "a".repeat(120));

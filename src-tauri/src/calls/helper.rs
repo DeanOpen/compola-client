@@ -32,9 +32,43 @@ pub fn verify_signature(executable: &Path, requirement: &str) -> Result<(), Stri
     })
 }
 
-#[cfg(not(target_os = "macos"))]
+/// Windows: Zalo PC itself only runs `ZaloCall.exe` when its MD5 is `CALL_NATIVE_HASH` of its own `main-dist/main.js`
+/// (module "ZQzv"); the same check here, against the `app.asar` of the runtime the helper came with (both extracted
+/// from the SHA-256-pinned official installer).
+#[cfg(windows)]
+pub fn verify_signature(executable: &Path, _requirement: &str) -> Result<(), String> {
+    use md5::{Digest, Md5};
+    let runtime = executable.ancestors().nth(3).ok_or("Không tìm thấy bản Zalo của trình gọi.")?;
+    let main_js = crate::asar::AsarArchive::open(&runtime.join("Contents/Resources/app.asar"))
+        .ok()
+        .and_then(|a| a.read("main-dist/main.js"))
+        .ok_or("Không đọc được bản Zalo của trình gọi.")?;
+    let expected = native_hash(&main_js).ok_or("Bản Zalo không có mã kiểm tra trình gọi.")?;
+    let data = std::fs::read(executable).map_err(|_| "Không đọc được trình gọi của Zalo.".to_owned())?;
+    let actual = hex::encode(Md5::digest(&data));
+    if actual == expected { Ok(()) } else { Err("Trình gọi của Zalo không khớp với bản Zalo đã cài nên ứng dụng không chạy nó.".into()) }
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
 pub fn verify_signature(_executable: &Path, _requirement: &str) -> Result<(), String> {
-    Err("Trình gọi của Zalo chỉ chạy trên macOS.".into())
+    Err("Trình gọi của Zalo chỉ chạy trên macOS và Windows.".into())
+}
+
+/// `CALL_NATIVE_HASH:"<md5>"` in the official `main-dist/main.js`.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn native_hash(main_js: &[u8]) -> Option<String> {
+    const KEY: &[u8] = b"CALL_NATIVE_HASH:\"";
+    let at = main_js.windows(KEY.len()).position(|w| w == KEY)? + KEY.len();
+    let hash = main_js.get(at..at + 32)?;
+    (hash.iter().all(|b| b.is_ascii_hexdigit()) && main_js.get(at + 32) == Some(&b'"'))
+        .then(|| String::from_utf8_lossy(hash).to_ascii_lowercase())
+}
+
+/// Per-process named pipes for the helper (recv, send): `\\.\pipe\compola-call-<pid>-<random>-recv` / `-send`.
+#[cfg(windows)]
+pub fn pipe_names() -> (String, String) {
+    let base = format!(r"\\.\pipe\compola-call-{}-{:08x}", std::process::id(), rand::random::<u32>());
+    (format!("{base}-recv"), format!("{base}-send"))
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -332,15 +366,22 @@ pub struct SystemCallProcess {
 
 impl SystemCallProcess {
     pub fn launch(executable: &Path, args: &[&str], on_exit: ExitFn) -> Result<Arc<dyn CallProcess>, String> {
-        let mut child = Command::new(executable)
-            .args(args)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|e| e.to_string())?;
+        let mut command = Command::new(executable);
+        command.args(args).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped());
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            // Next to its Qt libraries and plugins; no console window.
+            if let Some(dir) = executable.parent() {
+                command.current_dir(dir);
+            }
+            command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+        }
+        let mut child = command.spawn().map_err(|e| e.to_string())?;
         let pid = child.id() as i32;
-        // The helper must not outlive us (it does not exit when its sockets close).
+        // The helper must not outlive us (it does not exit when its sockets close). Windows: a kill-on-close job.
+        #[cfg(windows)]
+        crate::sys::kill_with_us(&child);
         let watchdog = Watchdog::spawn(child.id());
         let running = Arc::new(AtomicBool::new(true));
         let mut stderr = child.stderr.take();
