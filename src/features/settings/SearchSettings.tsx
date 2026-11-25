@@ -1,13 +1,13 @@
 // Settings › Nâng cao › Tìm kiếm: search the message index (keyword + semantic), its status, and the embeddings
 // provider for semantic search / RAG. Backed by src/engine/search.ts (Rust src-tauri/src/automation/search.rs).
 
-import { Search, Sparkles } from 'lucide-react';
+import { ChevronRight, Search, Sparkles } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { formatTime } from '../../engine/automation';
 import { usesMock } from '../../engine/backend';
 import { openExternal } from '../../engine/system';
 import { openConversation } from '../../engine/chat';
-import { embedProblem, embeddingPresets, messageSearch, type SearchConfig, type SearchResult, type SearchStatus } from '../../engine/search';
+import { embedProblem, embeddingPresets, messageSearch, type BuiltinStatus, type SearchConfig, type SearchResult, type SearchStatus } from '../../engine/search';
 import { Highlight } from '../../ui/Highlight';
 import { Alert } from '../../ui/Overlays';
 import { Spinner } from '../../ui/Spinner';
@@ -174,17 +174,129 @@ function IndexSection({ status, reload }: { status: SearchStatus; reload: () => 
   );
 }
 
+const mb = (bytes: number) => `${Math.round(bytes / 1e6).toLocaleString('vi-VN')} MB`;
+
+/**
+ * Tìm theo ý nghĩa. Default: the built-in model — one switch downloads it (with progress), checks it and turns semantic
+ * search on; nothing to install or configure. Ollama and OpenAI-compatible APIs are under "Tuỳ chỉnh nâng cao".
+ */
 function SemanticSection({ status, reload }: { status: SearchStatus; reload: () => void }) {
-  const [draft, setDraft] = useState<SearchConfig>(status.config);
-  const [test, setTest] = useState<{ ok: boolean; text: string } | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [pulling, setPulling] = useState(false);
   const saved = status.config;
-  const dirty = JSON.stringify({ ...draft, enabled: saved.enabled }) !== JSON.stringify(saved);
+  const [builtin, setBuiltin] = useState<BuiltinStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [advanced, setAdvanced] = useState(saved.provider !== 'builtin');
   const s = status.stats;
-  const preset = embeddingPresets[draft.provider];
-  const save = (next: SearchConfig) => {
+  const isBuiltin = saved.provider === 'builtin';
+
+  const refreshBuiltin = () => void messageSearch.builtinStatus().then(setBuiltin, () => {});
+  useEffect(() => {
+    refreshBuiltin();
+  }, []);
+  // Progress while the model downloads.
+  const downloading = !!builtin?.downloading;
+  useEffect(() => {
+    if (!downloading && !busy) return;
+    const t = setInterval(refreshBuiltin, 700);
+    return () => clearInterval(t);
+  }, [downloading, busy]);
+
+  /** One click: download the built-in model if needed, check it, save. */
+  const enable = async (config: SearchConfig = saved) => {
     setBusy(true);
+    setProblem(null);
+    try {
+      const next: SearchConfig = { ...config, semantic: true };
+      if (next.provider === 'builtin') {
+        next.url = '';
+        next.model = embeddingPresets.builtin.model;
+        const st = await messageSearch.builtinStatus();
+        if (!st.installed) await messageSearch.builtinInstall();
+      }
+      await messageSearch.test(next);
+      await messageSearch.setConfig(next);
+      reload();
+    } catch (e) {
+      setProblem(errorText(e));
+    } finally {
+      setBusy(false);
+      refreshBuiltin();
+    }
+  };
+  const disable = () => void messageSearch.setConfig({ ...saved, semantic: false }).then(reload);
+
+  const progress = builtin && builtin.total > 0 ? builtin.received / builtin.total : 0;
+  const detail = (() => {
+    if (busy && downloading) return `Đang tải mô hình… ${mb(builtin?.received ?? 0)} / ${mb(builtin?.total ?? 0)}`;
+    if (busy) return 'Đang chuẩn bị…';
+    if (saved.semantic && s) {
+      const err = status.embedError ? ` · lỗi: ${embedProblem(status.embedError).text}` : '';
+      return `${s.embedded.toLocaleString('vi-VN')} / ${s.messages.toLocaleString('vi-VN')} tin đã được hiểu theo ý nghĩa${err}`;
+    }
+    return isBuiltin
+      ? 'Tìm “ai hẹn đi ăn tối?” ra đúng tin nhắn dù không trùng chữ. Bật lên là xong: Compola tự tải mô hình (khoảng 490 MB, một lần) và chạy ngay trên máy này.'
+      : `Dùng ${saved.provider === 'ollama' ? 'Ollama' : 'API'} · ${saved.model}`;
+  })();
+
+  return (
+    <Section
+      title="Tìm theo ý nghĩa (RAG)"
+      footer="Mỗi tin nhắn được biến thành vector để tìm theo ý nghĩa, và để ứng dụng AI (qua MCP) hay add-on lấy đúng đoạn hội thoại khi trả lời câu hỏi. Với mô hình tích hợp, tin nhắn không rời máy này."
+    >
+      <Row label="Bật tìm theo ý nghĩa" detail={detail}>
+        {busy ? <Spinner size={16} /> : <Toggle label="Bật tìm theo ý nghĩa" on={saved.semantic} onChange={(on) => (on ? void enable() : disable())} />}
+      </Row>
+      {busy && downloading && (
+        <div className="st-auto-sub">
+          <div className="st-progress" role="progressbar" aria-valuenow={Math.round(progress * 100)} aria-valuemin={0} aria-valuemax={100}>
+            <div className="st-progress-bar" style={{ width: `${Math.max(2, progress * 100)}%` }} />
+          </div>
+        </div>
+      )}
+      {problem && (
+        <div className="st-auto-sub">
+          <div className="st-auto-error">{embedProblem(problem).text}</div>
+          <div className="st-auto-actions is-end">
+            <button className="st-button is-primary" onClick={() => void enable()}>
+              Thử lại
+            </button>
+          </div>
+        </div>
+      )}
+      {isBuiltin && builtin?.installed && !busy && (
+        <Row label="Mô hình tích hợp" detail={`${builtin.model} · đã cài trên máy này · ${mb(builtin.total)}`}>
+          <button
+            className="st-button"
+            title="Xoá tệp mô hình (tắt tìm theo ý nghĩa)"
+            onClick={() => void messageSearch.setConfig({ ...saved, semantic: false }).then(() => messageSearch.builtinRemove()).then(() => (refreshBuiltin(), reload()))}
+          >
+            Xoá mô hình
+          </button>
+        </Row>
+      )}
+      <button className="st-row st-link-row st-search-link" onClick={() => setAdvanced((o) => !o)} aria-expanded={advanced}>
+        <span className="st-row-text">
+          <span className="st-row-label">Tuỳ chỉnh nâng cao</span>
+          <span className="st-row-detail">Dùng Ollama hoặc một API embeddings thay cho mô hình tích hợp</span>
+        </span>
+        <ChevronRight size={16} className={`st-chevron ${advanced ? 'is-open' : ''}`} />
+      </button>
+      {advanced && <ProviderEditor status={status} reload={reload} onEnable={(c) => void enable(c)} busy={busy} />}
+    </Section>
+  );
+}
+
+function ProviderEditor({ status, reload, onEnable, busy }: { status: SearchStatus; reload: () => void; onEnable: (c: SearchConfig) => void; busy: boolean }) {
+  const saved = status.config;
+  const [draft, setDraft] = useState<SearchConfig>(saved);
+  const [test, setTest] = useState<{ ok: boolean; text: string } | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [pulling, setPulling] = useState(false);
+  useEffect(() => setDraft(saved), [JSON.stringify(saved)]);
+  const dirty = JSON.stringify({ ...draft, enabled: saved.enabled, semantic: saved.semantic }) !== JSON.stringify(saved);
+  const preset = embeddingPresets[draft.provider];
+  const check = (next: SearchConfig) => {
+    setChecking(true);
     setTest(null);
     void messageSearch
       .test(next)
@@ -194,93 +306,85 @@ function SemanticSection({ status, reload }: { status: SearchStatus; reload: () 
       })
       .then(reload)
       .catch((e) => setTest({ ok: false, text: errorText(e) }))
-      .finally(() => setBusy(false));
+      .finally(() => setChecking(false));
   };
   const problem = test && !test.ok ? embedProblem(test.text) : null;
-  /** Ollama runs but lacks the model: download it (like `ollama pull`), then test and save again. */
   const pull = () => {
     const next = { ...draft, enabled: saved.enabled, semantic: true };
     setPulling(true);
     setTest(null);
     void messageSearch
       .pullModel(next)
-      .then(() => save(next))
+      .then(() => check(next))
       .catch((e) => setTest({ ok: false, text: errorText(e) }))
       .finally(() => setPulling(false));
   };
   return (
-    <Section
-      title="Tìm theo ý nghĩa (RAG)"
-      footer="Embeddings biến mỗi tin nhắn thành vector để tìm theo ý nghĩa và để ứng dụng AI (qua MCP) lấy đúng đoạn hội thoại khi trả lời câu hỏi."
-    >
-      <Row
-        label="Bật tìm theo ý nghĩa"
-        detail={
-          saved.semantic && s
-            ? `${s.embedded.toLocaleString('vi-VN')} / ${s.messages.toLocaleString('vi-VN')} tin đã có vector${s.embedModel ? ` (${s.embedModel})` : ''}${status.embedError ? ` · lỗi: ${embedProblem(status.embedError).text}` : ''}`
-            : 'Cần một mô hình embeddings: Ollama trên máy hoặc một API.'
-        }
-      >
-        <Toggle
-          label="Bật tìm theo ý nghĩa"
-          on={saved.semantic}
-          onChange={(semantic) => (semantic ? save({ ...draft, enabled: saved.enabled, semantic }) : void messageSearch.setConfig({ ...saved, semantic }).then(reload))}
+    <div className="st-auto-sub st-search-advanced">
+      <div className="st-field">
+        <span>Nhà cung cấp</span>
+        <Segmented
+          label="Nhà cung cấp"
+          value={draft.provider}
+          options={[
+            { value: 'builtin', title: 'Tích hợp (khuyên dùng)' },
+            { value: 'ollama', title: 'Ollama' },
+            { value: 'openai', title: 'API tương thích OpenAI' },
+          ]}
+          onChange={(provider) => {
+            setTest(null);
+            setDraft({ ...draft, provider, url: embeddingPresets[provider].url, model: embeddingPresets[provider].model });
+          }}
         />
-      </Row>
-      <div className="st-auto-editor is-flat st-search-provider">
-        <div className="st-field">
-          <span>Nhà cung cấp</span>
-          <Segmented
-            label="Nhà cung cấp"
-            value={draft.provider}
-            options={[
-              { value: 'ollama', title: 'Ollama (trên máy)' },
-              { value: 'openai', title: 'API tương thích OpenAI' },
-            ]}
-            onChange={(provider) => setDraft({ ...draft, provider, url: embeddingPresets[provider].url, model: embeddingPresets[provider].model })}
-          />
-          <span className="st-muted">{preset.note}</span>
-        </div>
-        <label className="st-field">
-          <span>URL</span>
-          <input className="st-input st-auto-mono" value={draft.url} onChange={(e) => setDraft({ ...draft, url: e.target.value })} spellCheck={false} />
-        </label>
-        <label className="st-field">
-          <span>Model</span>
-          <input className="st-input st-auto-mono" value={draft.model} onChange={(e) => setDraft({ ...draft, model: e.target.value })} spellCheck={false} />
-        </label>
-        {draft.provider === 'openai' && (
+        <span className="st-muted">{preset.note}</span>
+      </div>
+      {draft.provider !== 'builtin' && (
+        <>
           <label className="st-field">
-            <span>API key</span>
-            <input className="st-input st-auto-mono" type="password" value={draft.apiKey} onChange={(e) => setDraft({ ...draft, apiKey: e.target.value })} spellCheck={false} />
+            <span>URL</span>
+            <input className="st-input st-auto-mono" value={draft.url} onChange={(e) => setDraft({ ...draft, url: e.target.value })} spellCheck={false} />
           </label>
-        )}
-        {test && <div className={test.ok ? 'st-ok' : 'st-auto-error'}>{problem ? problem.text : test.text}</div>}
-        {problem?.kind === 'ollama-missing' && (
-          <div className="st-auto-actions">
-            <span className="st-muted">Ollama chạy mô hình AI ngay trên máy này, miễn phí.</span>
-            <button className="st-button" onClick={() => void openExternal('https://ollama.com/download')}>
-              Tải Ollama
-            </button>
-          </div>
-        )}
-        {(problem?.kind === 'ollama-model' || pulling) && (
-          <div className="st-auto-actions">
-            <span className="st-muted">{pulling ? `Đang tải ${draft.model}… (bge-m3 khoảng 1,2 GB, có thể mất vài phút)` : `Compola có thể tải ${draft.model} vào Ollama cho bạn.`}</span>
-            <button className="st-button is-primary" disabled={pulling} onClick={pull}>
-              {pulling && <Spinner size={12} />}
-              Tải model {draft.model}
-            </button>
-          </div>
-        )}
-        <div className="st-auto-actions is-end">
-          {dirty && saved.model !== draft.model && saved.semantic && <span className="st-muted">Đổi model sẽ tính lại toàn bộ vector.</span>}
-          <button className="st-button is-primary" disabled={busy || pulling || (!dirty && !!test?.ok)} onClick={() => save({ ...draft, enabled: saved.enabled, semantic: true })}>
-            {busy && <Spinner size={12} />}
-            Kiểm tra và lưu
+          <label className="st-field">
+            <span>Model</span>
+            <input className="st-input st-auto-mono" value={draft.model} onChange={(e) => setDraft({ ...draft, model: e.target.value })} spellCheck={false} />
+          </label>
+          {draft.provider === 'openai' && (
+            <label className="st-field">
+              <span>API key</span>
+              <input className="st-input st-auto-mono" type="password" value={draft.apiKey} onChange={(e) => setDraft({ ...draft, apiKey: e.target.value })} spellCheck={false} />
+            </label>
+          )}
+        </>
+      )}
+      {test && <div className={test.ok ? 'st-ok' : 'st-auto-error'}>{problem ? problem.text : test.text}</div>}
+      {problem?.kind === 'ollama-missing' && (
+        <div className="st-auto-actions">
+          <span className="st-muted">Chưa có Ollama trên máy. Dùng mô hình tích hợp thì không cần cài gì.</span>
+          <button className="st-button" onClick={() => void openExternal('https://ollama.com/download')}>
+            Tải Ollama
           </button>
         </div>
+      )}
+      {(problem?.kind === 'ollama-model' || pulling) && (
+        <div className="st-auto-actions">
+          <span className="st-muted">{pulling ? `Đang tải ${draft.model} vào Ollama…` : `Ollama chưa có ${draft.model}.`}</span>
+          <button className="st-button is-primary" disabled={pulling} onClick={pull}>
+            {pulling && <Spinner size={12} />}
+            Tải model {draft.model}
+          </button>
+        </div>
+      )}
+      <div className="st-auto-actions is-end">
+        {dirty && saved.model !== draft.model && saved.semantic && <span className="st-muted">Đổi mô hình sẽ tính lại toàn bộ vector.</span>}
+        <button
+          className="st-button is-primary"
+          disabled={busy || checking || pulling || !dirty}
+          onClick={() => (draft.provider === 'builtin' ? onEnable({ ...draft, enabled: saved.enabled }) : check({ ...draft, enabled: saved.enabled, semantic: true }))}
+        >
+          {checking && <Spinner size={12} />}
+          {draft.provider === 'builtin' ? 'Dùng mô hình tích hợp' : 'Kiểm tra và lưu'}
+        </button>
       </div>
-    </Section>
+    </div>
   );
 }

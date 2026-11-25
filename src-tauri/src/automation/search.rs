@@ -372,7 +372,11 @@ pub async fn pull_ollama_model(cfg: &SearchConfig) -> Result<(), String> {
     Ok(())
 }
 
-pub async fn embed(http: &reqwest::Client, cfg: &SearchConfig, texts: &[String]) -> Result<Vec<Vec<f32>>, String> {
+pub async fn embed(http: &reqwest::Client, cfg: &SearchConfig, texts: &[String], kind: super::embedder::Kind) -> Result<Vec<Vec<f32>>, String> {
+    if cfg.provider == "builtin" {
+        let texts = texts.to_vec();
+        return tauri::async_runtime::spawn_blocking(move || super::embedder::embed(&texts, kind)).await.map_err(|e| e.to_string())?;
+    }
     let base = cfg.url.trim().trim_end_matches('/');
     if base.is_empty() || cfg.model.trim().is_empty() {
         return Err("chưa cấu hình URL hoặc model embeddings".into());
@@ -426,7 +430,7 @@ pub async fn embed_pending(index: &Index, http: &reqwest::Client, cfg: &SearchCo
         return Ok(0);
     }
     let texts: Vec<String> = rows.iter().map(|(_, t)| t.chars().take(2000).collect()).collect();
-    let vectors = tokio::time::timeout(Duration::from_secs(120), embed(http, cfg, &texts)).await.map_err(|_| "hết thời gian chờ embeddings".to_owned())??;
+    let vectors = tokio::time::timeout(Duration::from_secs(120), embed(http, cfg, &texts, super::embedder::Kind::Passage)).await.map_err(|_| "hết thời gian chờ embeddings".to_owned())??;
     let pairs: Vec<(i64, Vec<f32>)> = rows.iter().map(|(id, _)| *id).zip(vectors).collect();
     index.store_embeddings(&cfg.model, &pairs)?;
     Ok(pairs.len())
@@ -571,11 +575,11 @@ mod tests {
         });
         let http = reqwest::Client::new();
         let texts = vec!["xin chào".to_owned()];
-        let ollama = SearchConfig { semantic: true, url: format!("http://127.0.0.1:{port}"), ..Default::default() };
-        assert_eq!(embed(&http, &ollama, &texts).await.unwrap()[0].len(), 3);
+        let ollama = SearchConfig { semantic: true, provider: "ollama".into(), url: format!("http://127.0.0.1:{port}"), model: "bge-m3".into(), ..Default::default() };
+        assert_eq!(embed(&http, &ollama, &texts, crate::automation::embedder::Kind::Passage).await.unwrap()[0].len(), 3);
         let mut openai = SearchConfig { provider: "openai".into(), url: format!("http://127.0.0.1:{port}/v1"), model: "m".into(), api_key: "k".into(), ..Default::default() };
-        assert_eq!(embed(&http, &openai, &texts).await.unwrap()[0], vec![1.0, 2.0]);
+        assert_eq!(embed(&http, &openai, &texts, crate::automation::embedder::Kind::Passage).await.unwrap()[0], vec![1.0, 2.0]);
         openai.api_key = "wrong".into();
-        assert!(embed(&http, &openai, &texts).await.unwrap_err().contains("bad key"));
+        assert!(embed(&http, &openai, &texts, crate::automation::embedder::Kind::Passage).await.unwrap_err().contains("bad key"));
     }
 }

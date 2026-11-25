@@ -337,3 +337,29 @@ select.st-input {
   padding: 12px 14px 14px;
   border-top: 1px solid var(--st-border);
 }
+
+/* Settings › Tìm kiếm: download progress of the built-in model, the advanced provider form. */
+.st-progress {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--st-border);
+  overflow: hidden;
+}
+.st-progress-bar {
+  height: 100%;
+  background: var(--st-primary);
+  transition: width 0.4s ease;
+}
+.st-search-advanced {
+  border-top: 1px solid var(--st-border);
+  padding-top: 14px;
+}
+.st-chevron.is-open {
+  transform: rotate(90deg);
+}
+.st-search-link .st-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+}

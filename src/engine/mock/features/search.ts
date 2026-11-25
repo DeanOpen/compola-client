@@ -50,7 +50,7 @@ registerMockCommand('automation_search', (args) => {
 
 // ---- Settings › Tìm kiếm ----
 
-let config = { enabled: true, semantic: false, provider: 'ollama', url: 'http://127.0.0.1:11434', model: 'bge-m3', apiKey: '' };
+let config = { enabled: true, semantic: false, provider: 'builtin', url: '', model: 'multilingual-e5-small', apiKey: '' };
 let pulled = false;
 const ollama = () => new URLSearchParams(location.search).get('ollama') ?? 'missing';
 
@@ -64,8 +64,12 @@ registerMockCommand('automation_search_set_config', (args) => {
   config = { ...config, ...(args.config as object) };
   return null;
 });
-registerMockCommand('automation_search_test', async () => {
+registerMockCommand('automation_search_test', async (args) => {
   await new Promise((r) => setTimeout(r, 500));
+  if ((args.config as { provider?: string })?.provider === 'builtin') {
+    if (!builtin.installed) throw new Error('[builtin-missing] Mô hình multilingual-e5-small chưa được tải.');
+    return 384;
+  }
   if (ollama() === 'missing') throw new Error('[ollama-missing] Chưa thấy Ollama ở http://127.0.0.1:11434. Cài Ollama, mở nó lên rồi kiểm tra lại.');
   if (ollama() === 'nomodel' && !pulled) throw new Error(`[ollama-model] Ollama chưa có model ${config.model}.`);
   return 1024;
@@ -73,5 +77,25 @@ registerMockCommand('automation_search_test', async () => {
 registerMockCommand('automation_search_pull_model', async () => {
   await new Promise((r) => setTimeout(r, 2000));
   pulled = true;
+  return null;
+});
+
+// The built-in model (embedder.rs): a fake ~470 MB download over ~4 s.
+const total = 488_725_000;
+const builtin = { model: 'multilingual-e5-small', installed: false, downloading: false, received: 0, total, error: null as string | null };
+registerMockCommand('automation_search_builtin_status', () => ({ ...builtin }));
+registerMockCommand('automation_search_builtin_install', async () => {
+  builtin.downloading = true;
+  for (let i = 1; i <= 40; i++) {
+    await new Promise((r) => setTimeout(r, 100));
+    builtin.received = Math.round((total * i) / 40);
+  }
+  builtin.downloading = false;
+  builtin.installed = true;
+  return null;
+});
+registerMockCommand('automation_search_builtin_remove', () => {
+  builtin.installed = false;
+  builtin.received = 0;
   return null;
 });

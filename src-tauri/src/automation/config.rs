@@ -194,7 +194,8 @@ pub struct SearchConfig {
 
 impl Default for SearchConfig {
     fn default() -> Self {
-        Self { enabled: true, semantic: false, provider: "ollama".into(), url: "http://127.0.0.1:11434".into(), model: "bge-m3".into(), api_key: String::new() }
+        // Built in: nothing to install, the model downloads on first use (`embedder.rs`).
+        Self { enabled: true, semantic: false, provider: "builtin".into(), url: String::new(), model: super::embedder::MODEL.into(), api_key: String::new() }
     }
 }
 

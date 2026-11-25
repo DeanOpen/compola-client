@@ -12,6 +12,7 @@ pub mod addons;
 pub mod ai;
 pub mod config;
 pub mod cron;
+pub mod embedder;
 pub mod mcp_client;
 pub mod mcp_server;
 mod mirror;
@@ -324,7 +325,7 @@ impl Automation {
         let mut semantic_error = None;
         let mut query_vector = None;
         if cfg.enabled && cfg.semantic {
-            match tokio::time::timeout(Duration::from_secs(15), search::embed(&self.http, &cfg, &[query.to_owned()])).await {
+            match tokio::time::timeout(Duration::from_secs(15), search::embed(&self.http, &cfg, &[query.to_owned()], embedder::Kind::Query)).await {
                 Ok(Ok(mut v)) => query_vector = v.pop(),
                 Ok(Err(e)) => semantic_error = Some(e),
                 Err(_) => semantic_error = Some("hết thời gian chờ embeddings".into()),
@@ -962,6 +963,10 @@ pub fn automation_search_set_config(automation: AutomationState<'_>, config: con
     if was_enabled && !config.enabled {
         automation.clear_all_search();
     }
+    // The built-in model holds ~500 MB of memory: only while it is used.
+    if !config.semantic || config.provider != "builtin" {
+        embedder::unload();
+    }
     automation.changed();
     Ok(())
 }
@@ -985,10 +990,33 @@ pub async fn automation_search_pull_model(config: config::SearchConfig) -> Resul
 #[tauri::command]
 pub async fn automation_search_test(automation: AutomationState<'_>, config: config::SearchConfig) -> Result<usize, String> {
     let a = automation.inner().clone();
-    let v = search::embed(&a.http, &config, &["Xin chào, hẹn gặp lúc 3 giờ chiều".to_owned()]).await?;
+    let v = search::embed(&a.http, &config, &["Xin chào, hẹn gặp lúc 3 giờ chiều".to_owned()], embedder::Kind::Passage).await?;
     Ok(v.first().map(Vec::len).unwrap_or(0))
 }
 
 fn json_ok<T: Serialize>(v: T) -> Result<Value, String> {
     serde_json::to_value(v).map_err(|e| e.to_string())
+}
+
+// ---- built-in embeddings (`embedder.rs`) ----
+
+#[tauri::command]
+pub fn automation_search_builtin_status() -> embedder::Status {
+    embedder::status()
+}
+
+/// Downloads the built-in model (progress in `automation_search_builtin_status`).
+#[tauri::command]
+pub async fn automation_search_builtin_install(automation: AutomationState<'_>) -> Result<(), String> {
+    let a = automation.inner().clone();
+    let r = embedder::install(&a.http).await;
+    a.changed();
+    r
+}
+
+#[tauri::command]
+pub fn automation_search_builtin_remove(automation: AutomationState<'_>) -> Result<(), String> {
+    embedder::remove()?;
+    automation.changed();
+    Ok(())
 }
