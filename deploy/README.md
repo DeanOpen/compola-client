@@ -26,7 +26,7 @@ Three ways to run it, from simplest:
 | | Command | HTTPS |
 |---|---|---|
 | [Docker Compose](#docker-compose-server--gateway) (recommended) | `docker compose -f deploy/docker-compose.yml up -d` | built in (gateway) |
-| [Kubernetes (Helm)](#kubernetes-helm) | `helm install compola deploy/helm/compola-gateway …` | ingress |
+| [Kubernetes (Helm)](#kubernetes-helm) | `helm install compola https://github.com/DeanOpen/compola-client/releases/latest/download/compola-helm.tgz …` | ingress |
 | [One container](#one-container-no-gateway) | `docker run … compola-server` | bring your own proxy |
 
 ## Docker Compose (server + gateway)
@@ -59,14 +59,18 @@ volume: back it up. To build both images yourself instead of pulling them: `dock
 The chart runs the server (a StatefulSet with one replica and a persistent volume) and the gateway (a stateless
 Deployment) behind your ingress:
 
+Straight from GitHub (no clone needed; the chart is attached to every release):
+
 ```sh
-helm install compola deploy/helm/compola-gateway \
+helm install compola https://github.com/DeanOpen/compola-client/releases/latest/download/compola-helm.tgz \
   --set server.admin='admin:<password>' \
   --set ingress.enabled=true \
-  --set ingress.hosts[0].host=compola.example.com \
-  --set ingress.tls[0].secretName=compola-tls \
-  --set ingress.tls[0].hosts[0]=compola.example.com
+  --set 'ingress.hosts[0].host=compola.example.com' \
+  --set 'ingress.tls[0].secretName=compola-tls' \
+  --set 'ingress.tls[0].hosts[0]=compola.example.com'
 ```
+
+From a clone, use `deploy/helm/compola` instead of the URL.
 
 - The server keeps **one replica**: one container holds one Zalo session. Its data is on a 10 Gi volume
   (`server.persistence`); `/dev/shm` is a 1 Gi memory volume for WebKitGTK. `server.existingSecret` takes the first
@@ -76,7 +80,7 @@ helm install compola deploy/helm/compola-gateway \
   size for uploads. Add `cert-manager.io/cluster-issuer` for automatic certificates.
 - Gateway pods run non-root with a read-only root filesystem and all capabilities dropped; probes hit `/healthz`.
 
-All settings are in [`helm/compola-gateway/values.yaml`](helm/compola-gateway/values.yaml).
+All settings are in [`helm/compola/values.yaml`](helm/compola/values.yaml).
 
 ## One container (no gateway)
 
@@ -106,11 +110,11 @@ A Compola desktop app (macOS, Windows or Linux) can also be the host: *Settings 
 access allowed. To give it an HTTPS address, run only the gateway and point it at that machine:
 
 ```sh
-# deploy/.env: COMPOLA_UPSTREAM=http://192.168.1.20:39218 (the desktop host, reachable directly or over a VPN)
+# deploy/.env: COMPOLA_UPSTREAM=http://<desktop-host-address>:39218 (reachable directly or over a VPN)
 docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d gateway
 
 # or Helm
-helm install compola deploy/helm/compola-gateway --set server.enabled=false --set upstream.url=http://192.168.1.20:39218
+helm install compola https://github.com/DeanOpen/compola-client/releases/latest/download/compola-helm.tgz --set server.enabled=false --set upstream.url=http://<desktop-host-address>:39218
 ```
 
 Use the gateway version that matches the desktop app's version. In the admin console, set *Cài đặt máy chủ › Địa chỉ

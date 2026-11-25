@@ -7,9 +7,9 @@
 apiVersion: v1
 kind: Secret
 metadata:
-  name: {{ include "compola-gateway.serverName" . }}
+  name: {{ include "compola.serverName" . }}
   labels:
-    {{- include "compola-gateway.labels" . | nindent 4 }}
+    {{- include "compola.labels" . | nindent 4 }}
 type: Opaque
 stringData:
   COMPOLA_ADMIN: {{ .Values.server.admin | quote }}
@@ -18,9 +18,9 @@ stringData:
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "compola-gateway.serverName" . }}
+  name: {{ include "compola.serverName" . }}
   labels:
-    {{- include "compola-gateway.labels" . | nindent 4 }}
+    {{- include "compola.labels" . | nindent 4 }}
 spec:
   type: ClusterIP
   ports:
@@ -29,25 +29,25 @@ spec:
       protocol: TCP
       name: http
   selector:
-    {{- include "compola-gateway.serverSelectorLabels" . | nindent 4 }}
+    {{- include "compola.serverSelectorLabels" . | nindent 4 }}
 ---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: {{ include "compola-gateway.serverName" . }}
+  name: {{ include "compola.serverName" . }}
   labels:
-    {{- include "compola-gateway.labels" . | nindent 4 }}
+    {{- include "compola.labels" . | nindent 4 }}
 spec:
   # One Zalo session per container: never more than one replica.
   replicas: 1
-  serviceName: {{ include "compola-gateway.serverName" . }}
+  serviceName: {{ include "compola.serverName" . }}
   selector:
     matchLabels:
-      {{- include "compola-gateway.serverSelectorLabels" . | nindent 6 }}
+      {{- include "compola.serverSelectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "compola-gateway.serverSelectorLabels" . | nindent 8 }}
+        {{- include "compola.serverSelectorLabels" . | nindent 8 }}
     spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
@@ -64,7 +64,7 @@ spec:
             - name: COMPOLA_ADMIN
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.server.existingSecret | default (include "compola-gateway.serverName" .) }}
+                  name: {{ .Values.server.existingSecret | default (include "compola.serverName" .) }}
                   key: COMPOLA_ADMIN
             {{- end }}
             {{- if $public }}

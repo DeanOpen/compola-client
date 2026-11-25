@@ -1,14 +1,14 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "compola-gateway.fullname" . }}
+  name: {{ include "compola.fullname" . }}
   labels:
-    {{- include "compola-gateway.labels" . | nindent 4 }}
+    {{- include "compola.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicaCount }}
   selector:
     matchLabels:
-      {{- include "compola-gateway.selectorLabels" . | nindent 6 }}
+      {{- include "compola.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       annotations:
@@ -16,7 +16,7 @@ spec:
         {{- toYaml . | nindent 8 }}
         {{- end }}
       labels:
-        {{- include "compola-gateway.selectorLabels" . | nindent 8 }}
+        {{- include "compola.selectorLabels" . | nindent 8 }}
         {{- with .Values.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -25,7 +25,7 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      serviceAccountName: {{ include "compola-gateway.serviceAccountName" . }}
+      serviceAccountName: {{ include "compola.serviceAccountName" . }}
       automountServiceAccountToken: false
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
@@ -40,7 +40,7 @@ spec:
             - name: SITE_ADDRESS
               value: ":8080"
             - name: COMPOLA_UPSTREAM
-              value: {{ include "compola-gateway.upstream" . | quote }}
+              value: {{ include "compola.upstream" . | quote }}
           ports:
             - name: http
               containerPort: 8080

@@ -100,9 +100,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: azure/setup-helm@v4
-      - run: helm lint deploy/helm/compola-gateway
-      - run: helm template ci deploy/helm/compola-gateway --set server.admin=admin:ci --set ingress.enabled=true > /dev/null
-      - run: helm template ci deploy/helm/compola-gateway --set server.enabled=false --set upstream.url=http://192.0.2.10:39218 > /dev/null
+      - run: helm lint deploy/helm/compola
+      - run: helm template ci deploy/helm/compola --set server.admin=admin:ci --set ingress.enabled=true > /dev/null
+      - run: helm template ci deploy/helm/compola --set server.enabled=false --set upstream.url=http://192.0.2.10:39218 > /dev/null
       - uses: docker/setup-buildx-action@v3
       - name: Build gateway image (no push)
         uses: docker/build-push-action@v6

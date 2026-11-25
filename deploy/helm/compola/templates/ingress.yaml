@@ -2,9 +2,9 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: {{ include "compola-gateway.fullname" . }}
+  name: {{ include "compola.fullname" . }}
   labels:
-    {{- include "compola-gateway.labels" . | nindent 4 }}
+    {{- include "compola.labels" . | nindent 4 }}
   {{- with .Values.ingress.annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
@@ -26,7 +26,7 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: {{ include "compola-gateway.fullname" $ }}
+                name: {{ include "compola.fullname" $ }}
                 port:
                   name: http
     {{- end }}

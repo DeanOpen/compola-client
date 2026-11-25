@@ -1,4 +1,4 @@
-Compola gateway → {{ include "compola-gateway.upstream" . }}{{ if and .Values.server.enabled (not .Values.upstream.url) }} (Compola Server on Linux, in this release){{ end }}
+Compola → {{ include "compola.upstream" . }}{{ if and .Values.server.enabled (not .Values.upstream.url) }} (Compola Server on Linux, in this release){{ end }}
 
 {{- if .Values.ingress.enabled }}
 {{- range .Values.ingress.hosts }}
@@ -6,7 +6,7 @@ Compola gateway → {{ include "compola-gateway.upstream" . }}{{ if and .Values.
   Web client:    http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}/web/
 {{- end }}
 {{- else }}
-  kubectl port-forward svc/{{ include "compola-gateway.fullname" . }} 8080:{{ .Values.service.port }}
+  kubectl port-forward svc/{{ include "compola.fullname" . }} 8080:{{ .Values.service.port }}
   then open http://localhost:8080/admin/
 {{- end }}
 

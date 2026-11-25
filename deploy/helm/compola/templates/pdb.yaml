@@ -2,12 +2,12 @@
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
-  name: {{ include "compola-gateway.fullname" . }}
+  name: {{ include "compola.fullname" . }}
   labels:
-    {{- include "compola-gateway.labels" . | nindent 4 }}
+    {{- include "compola.labels" . | nindent 4 }}
 spec:
   minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
   selector:
     matchLabels:
-      {{- include "compola-gateway.selectorLabels" . | nindent 6 }}
+      {{- include "compola.selectorLabels" . | nindent 6 }}
 {{- end }}

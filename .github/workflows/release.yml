@@ -245,6 +245,16 @@ jobs:
         with:
           path: dist-release
           merge-multiple: true
+      - uses: azure/setup-helm@v4
+        if: env.TAG != 'edge'
+      - name: Helm chart (installable from the release URL)
+        # helm install compola https://github.com/<repo>/releases/latest/download/compola-helm.tgz
+        if: env.TAG != 'edge'
+        run: |
+          VERSION="${TAG#v}"
+          sed -i "s/^version: .*/version: $VERSION/; s/^appVersion: .*/appVersion: \"$VERSION\"/" deploy/helm/compola/Chart.yaml
+          helm package deploy/helm/compola -d dist-release
+          cp "dist-release/compola-$VERSION.tgz" dist-release/compola-helm.tgz
       - name: Fixed-name copies (README download buttons)
         # releases/latest/download/<name> always serves the newest release: the README links these names.
         if: env.TAG != 'edge'

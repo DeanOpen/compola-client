@@ -322,8 +322,8 @@ Compola Server chạy trên Linux: container `compola-server` chứa bộ máy Z
 cp deploy/.env.example deploy/.env       # đặt COMPOLA_ADMIN; với HTTPS thêm SITE_ADDRESS và COMPOLA_PUBLIC_URL
 docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d
 
-helm install compola deploy/helm/compola-gateway --set server.admin='admin:<mật-khẩu>' \
-  --set ingress.enabled=true --set ingress.hosts[0].host=compola.example.com
+helm install compola https://github.com/DeanOpen/compola-client/releases/latest/download/compola-helm.tgz \
+  --set server.admin='admin:<mật-khẩu>' --set ingress.enabled=true --set 'ingress.hosts[0].host=compola.example.com'
 ```
 
 Mở `/admin/`, đăng nhập bằng `COMPOLA_ADMIN`, rồi quét mã QR Zalo trong *Tài khoản Zalo*. Gateway cũng có thể đứng
