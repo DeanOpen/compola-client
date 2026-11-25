@@ -775,7 +775,7 @@ pub fn helper_request_headers(headers: &[(String, String)], user_agent: &str, co
 
 /// The shim's body description → bytes (and Content-Type).
 fn encode_body(encoded: &Value, headers: &mut Vec<(String, String)>) -> Vec<u8> {
-    let mut set_default_ct = |headers: &mut Vec<(String, String)>, v: &str| {
+    let set_default_ct = |headers: &mut Vec<(String, String)>, v: &str| {
         if !headers.iter().any(|(k, _)| k.eq_ignore_ascii_case("content-type")) {
             headers.push(("Content-Type".into(), v.to_owned()));
         }

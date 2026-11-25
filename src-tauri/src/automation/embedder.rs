@@ -247,7 +247,9 @@ mod tests {
         let folder = data.join("models").join(MODEL);
         std::fs::create_dir_all(&folder).unwrap();
         for (name, _, _) in FILES {
-            std::os::unix::fs::symlink(std::path::Path::new(&src).join(name), folder.join(name)).unwrap();
+            // A hard link on every platform (no symlink rights needed on Windows); a copy across volumes.
+            let (from, to) = (std::path::Path::new(&src).join(name), folder.join(name));
+            std::fs::hard_link(&from, &to).or_else(|_| std::fs::copy(&from, &to).map(|_| ())).unwrap();
         }
         // SAFETY: test-only, single-threaded at this point.
         unsafe { std::env::set_var("COMPOLA_DATA_DIR", &data) };
