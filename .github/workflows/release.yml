@@ -1,8 +1,8 @@
 name: Release
 
 # Push a tag like v0.2.0 (or run it by hand with a tag): builds Compola for macOS (universal, ad-hoc signed),
-# Windows (x64: NSIS installer + MSI) and Linux (x64: .deb, .rpm, AppImage), then publishes them all with SHA256SUMS
-# to one GitHub Release. The gateway image is published by docker.yml, the Linux server image by server-image.yml.
+# Windows (x64: NSIS installer) and Linux (x64: .deb, .rpm, AppImage), then publishes one file per download (fixed
+# names, no version in them), the macOS update bundle, latest.json and SHA256SUMS to one GitHub Release. The gateway image is published by docker.yml, the Linux server image by server-image.yml.
 #
 # Every push to main also builds all platforms and replaces the rolling `edge` pre-release (version
 # <tauri.conf version>-<run number>), so the newest packages of main are always at /releases/tag/edge. Update
@@ -57,7 +57,7 @@ jobs:
             os: windows-latest
             target: x86_64-pc-windows-msvc
             rust-targets: x86_64-pc-windows-msvc
-            bundles: nsis,msi
+            bundles: nsis
           - name: Linux (x64)
             os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
@@ -194,12 +194,10 @@ jobs:
               if [ "${MAC_SIGNED:-}" = 1 ]; then
                 SIGNED=src-tauri/target/dist/Compola-$VERSION
                 cp "$SIGNED.dmg" "$MAC.dmg"
-                cp "$SIGNED.zip" "$MAC.zip"
                 cp "$SIGNED.app.tar.gz" "$MAC.app.tar.gz"
                 cp "$SIGNED.app.tar.gz.sig" "$MAC.app.tar.gz.sig"
               else
                 cp "$OUT"/dmg/Compola.dmg "$MAC.dmg"
-                ditto -c -k --keepParent "$OUT/macos/Compola.app" "$MAC.zip"
                 cp "$OUT"/macos/Compola.app.tar.gz "$MAC.app.tar.gz"
                 cp "$OUT"/macos/Compola.app.tar.gz.sig "$MAC.app.tar.gz.sig"
               fi
@@ -207,7 +205,6 @@ jobs:
             Windows)
               cp "$OUT"/nsis/*.exe "dist-release/Compola-$VERSION-windows-x64-setup.exe"
               cp "$OUT"/nsis/*.exe.sig "dist-release/Compola-$VERSION-windows-x64-setup.exe.sig"
-              cp "$OUT"/msi/*.msi "dist-release/Compola-$VERSION-windows-x64.msi"
               ;;
             Linux)
               cp "$OUT"/deb/*.deb "dist-release/Compola-$VERSION-linux-amd64.deb"
@@ -253,23 +250,11 @@ jobs:
         run: |
           VERSION="${TAG#v}"
           sed -i "s/^version: .*/version: $VERSION/; s/^appVersion: .*/appVersion: \"$VERSION\"/" deploy/helm/compola/Chart.yaml
-          helm package deploy/helm/compola -d dist-release
-          cp "dist-release/compola-$VERSION.tgz" dist-release/compola-helm.tgz
-      - name: Fixed-name copies (README download buttons)
-        # releases/latest/download/<name> always serves the newest release: the README links these names.
-        if: env.TAG != 'edge'
-        run: |
-          VERSION="${TAG#v}"
-          cd dist-release
-          for kind in macos-universal.dmg windows-x64-setup.exe windows-x64.msi linux-x86_64.AppImage linux-amd64.deb linux-x86_64.rpm; do
-            if [ -f "Compola-$VERSION-$kind" ]; then cp "Compola-$VERSION-$kind" "Compola-$kind"; fi
-          done
-          ls -l
-      - name: Checksums
-        run: |
-          ls dist-release/* >/dev/null 2>&1 || { echo "no platform built" >&2; exit 1; }
-          (cd dist-release && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt)
-      - name: Update manifest (latest.json)
+          helm package deploy/helm/compola -d helm-out
+          mkdir -p upload && cp "helm-out/compola-$VERSION.tgz" upload/compola-helm.tgz
+      - name: Update manifest (latest.json) and the files to publish
+        # One file per download, named without the version so releases/latest/download/<name> (README buttons) always
+        # serves the newest. Update signatures go inside latest.json, so no .sig files are published.
         # Edge builds read the edge release's own manifest (their version comes from the file names).
         run: |
           VERSION="${TAG#v}"
@@ -277,20 +262,25 @@ jobs:
             VERSION="$(ls dist-release | grep -E '^Compola-.+-(macos-universal\.app\.tar\.gz|windows-x64-setup\.exe|linux-x86_64\.AppImage)\.sig$' | head -1 | sed -E 's/^Compola-(.+)-(macos-universal|windows-x64-setup|linux-x86_64).*$/\1/')"
             [ -n "$VERSION" ] || { echo "no signed update bundle in the edge build" >&2; exit 0; }
           fi
+          mkdir -p upload
+          for kind in macos-universal.dmg macos-universal.app.tar.gz windows-x64-setup.exe linux-x86_64.AppImage linux-amd64.deb linux-x86_64.rpm; do
+            if [ -f "dist-release/Compola-$VERSION-$kind" ]; then cp "dist-release/Compola-$VERSION-$kind" "upload/Compola-$kind"; fi
+          done
+          ls upload/Compola-* >/dev/null 2>&1 || { echo "no platform built" >&2; exit 1; }
           BASE="https://github.com/${{ github.repository }}/releases/download/$TAG"
           python3 - "$VERSION" "$BASE" <<'PY'
           import json, sys, datetime, pathlib
           version, base = sys.argv[1], sys.argv[2]
-          d = pathlib.Path("dist-release")
-          def entry(name):
-              sig = d / f"{name}.sig"
-              return {"signature": sig.read_text().strip(), "url": f"{base}/{name}"} if sig.exists() else None
-          mac = entry(f"Compola-{version}-macos-universal.app.tar.gz")
+          built, out = pathlib.Path("dist-release"), pathlib.Path("upload")
+          def entry(kind):
+              sig = built / f"Compola-{version}-{kind}.sig"
+              return {"signature": sig.read_text().strip(), "url": f"{base}/Compola-{kind}"} if sig.exists() else None
+          mac = entry("macos-universal.app.tar.gz")
           targets = {
               "darwin-aarch64": mac,
               "darwin-x86_64": mac,
-              "windows-x86_64": entry(f"Compola-{version}-windows-x64-setup.exe"),
-              "linux-x86_64": entry(f"Compola-{version}-linux-x86_64.AppImage"),
+              "windows-x86_64": entry("windows-x64-setup.exe"),
+              "linux-x86_64": entry("linux-x86_64.AppImage"),
           }
           manifest = {
               "version": version,
@@ -298,9 +288,28 @@ jobs:
               "pub_date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
               "platforms": {k: v for k, v in targets.items() if v},
           }
-          (d / "latest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+          (out / "latest.json").write_text(json.dumps(manifest, indent=2) + "\n")
           print(json.dumps(manifest, indent=2))
           PY
+          (cd upload && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt)
+      - name: Release notes
+        run: |
+          VERSION="${TAG#v}"
+          DL="https://github.com/${{ github.repository }}/releases/download/$TAG"
+          cat > notes.md <<EOF
+          ## Tải về
+
+          | Máy | Tệp |
+          |---|---|
+          | **macOS** (Apple Silicon và Intel) | [Compola-macos-universal.dmg]($DL/Compola-macos-universal.dmg) |
+          | **Windows** 10/11 (64-bit) | [Compola-windows-x64-setup.exe]($DL/Compola-windows-x64-setup.exe) |
+          | **Linux** (x86_64) | [AppImage]($DL/Compola-linux-x86_64.AppImage) · [.deb]($DL/Compola-linux-amd64.deb) · [.rpm]($DL/Compola-linux-x86_64.rpm) |
+          | **Compola Server** (Kubernetes) | \`helm install compola $DL/compola-helm.tgz\` |
+
+          Ứng dụng đã cài sẽ tự cập nhật. \`Compola-macos-universal.app.tar.gz\` và \`latest.json\` là tệp cho việc tự cập nhật; \`SHA256SUMS.txt\` để kiểm tra tệp tải về.
+
+          EOF
+          cat notes.md
       - name: Create or update the release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -309,15 +318,16 @@ jobs:
           if [ "$TAG" = edge ]; then
             # The rolling pre-release of main: replaced (tag moved to this commit) on every push.
             gh release delete edge --cleanup-tag --yes >/dev/null 2>&1 || true
-            gh release create edge dist-release/* --prerelease --target "$GITHUB_SHA" \
+            gh release create edge upload/* --prerelease --target "$GITHUB_SHA" \
               --title "Compola edge (main @ ${GITHUB_SHA::7})" \
               --notes "Built automatically from \`main\` at ${GITHUB_SHA}. Not a release: for testing the newest changes. Stable versions are the \`v*\` releases."
             exit 0
           fi
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" dist-release/* --clobber
+            gh release upload "$TAG" upload/* --clobber
           else
-            PREV="$(git describe --tags --abbrev=0 "$TAG^" 2>/dev/null || true)"
-            gh release create "$TAG" dist-release/* --title "Compola $VERSION" --generate-notes \
+            # The previous version tag (not the moving `edge` tag) starts the generated changelog.
+            PREV="$(git describe --tags --abbrev=0 --match 'v*' "$TAG^" 2>/dev/null || true)"
+            gh release create "$TAG" upload/* --title "Compola $VERSION" --notes-file notes.md --generate-notes \
               ${PREV:+--notes-start-tag "$PREV"}
           fi
