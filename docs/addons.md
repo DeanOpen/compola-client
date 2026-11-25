@@ -211,13 +211,6 @@ Installed disabled:
 - **Gửi sang Webhook** (`webhook`): posts messages as JSON to the https address you enter (n8n, Make, Zapier, Apps
   Script, a CRM), with a retrying queue and a status page in its settings. The only add-on here that sends data out,
   and only to that address.
-- **Frappe CRM** (`frappe-crm`): links a Zalo conversation to a CRM Lead: found by the phone numbers in the chat
-  (with the site's `crm.nextwaves.lead_dedupe.check_lead_duplicate` when it has it, otherwise a match on the last 9
-  digits of `mobile_no` / `phone`) or by name, auto-linked when exactly one lead has that phone, or searched / created
-  (source `Zalo`) from the info panel. *Tóm tắt hôm nay → CRM* (action, and a button on the card) has AI draft today's
-  summary, the person edits it, and it becomes a comment on the lead (`crm.api.comment.add_comment`, headed
-  "Zalo · Tóm tắt dd/mm/yyyy"). Settings: CRM address (a local server is fine: you typed it), API Key / Secret of a
-  Frappe user with write access to CRM Lead. Data goes only to that address.
 - **Trả lời tự động**, **Cảnh báo từ khoá**, **Tóm tắt hằng ngày**: as before.
 
 Built-ins live in `src-tauri/addons/<id>/` (every file is bundled, HTML views included). `cargo test --lib builtin`

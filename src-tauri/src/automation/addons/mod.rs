@@ -227,7 +227,6 @@ const BUILTINS: &[&str] = &[
     "translator",
     "mood-meter",
     "webhook",
-    "frappe-crm",
 ];
 
 /// The files of a built-in add-on, paths relative to its folder.
