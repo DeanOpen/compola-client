@@ -202,15 +202,26 @@ impl Installer {
     }
 
     /// Off macOS: the Windows installer is NSIS → `$PLUGINSDIR/app-32.7z` → `Zalo-<version>/resources/app.asar`.
-    /// Only `app.asar` is kept (Rust plays the main process; native modules and ZaloCall are not used), laid out as
+    /// `app.asar` is kept (Rust plays the main process; native modules are not used), laid out as
     /// `Contents/Resources/app.asar` with a minimal `Contents/Info.plist` carrying the version, like the Mac runtime.
+    /// On Windows the call helper comes along too: `Zalo-<version>/plugins/capture/` (ZaloCall.exe and its Qt
+    /// libraries) → `plugins/capture/`. The Linux server runs the renderer only.
     async fn extract_renderer(&self, setup: &Path, version: &str, destination: &Path) -> anyhow::Result<String> {
         (self.progress)(Step::Installing);
         let staging = RemoveOnDrop(self.work.join(format!("staging-{}", uuid::Uuid::new_v4())));
         let target = staging.0.join("Contents/Resources/app.asar");
         tokio::fs::create_dir_all(target.parent().unwrap()).await?;
         let (setup_path, target_path) = (setup.to_owned(), target.clone());
-        let built_in = tokio::task::spawn_blocking(move || windows_installer::extract_asar(&setup_path, &target_path)).await?;
+        let helper_dir = staging.0.join("plugins/capture");
+        let built_in = tokio::task::spawn_blocking(move || {
+            windows_installer::extract_asar(&setup_path, &target_path)?;
+            if cfg!(windows) {
+                let files = windows_installer::extract_call_helper(&setup_path, &helper_dir)?;
+                log::info!("runtime: call helper extracted ({files} files)");
+            }
+            anyhow::Ok(())
+        })
+        .await?;
         if let Err(e) = built_in {
             // A future installer that compresses its app archive: 7-Zip (from PATH or where it installs) still can.
             log::warn!("runtime: reading the Windows installer failed ({e:#}); trying 7-Zip");
@@ -231,6 +242,15 @@ impl Installer {
                 .find(|p| p.is_file())
                 .ok_or_else(|| anyhow!("Không tìm thấy app.asar trong bộ cài Zalo."))?;
             tokio::fs::rename(&asar, &target).await?;
+            if cfg!(windows) {
+                run(&seven, &["x", "-y", "-bd", &out, &archive_arg, "*/plugins/capture/*", "-xr!pdbs", "-xr!*.pdb"]).await?;
+                let capture = std::fs::read_dir(&unpacked.0)?
+                    .filter_map(|e| e.ok().map(|e| e.path().join("plugins/capture")))
+                    .find(|p| p.join("ZaloCall.exe").is_file())
+                    .ok_or_else(|| anyhow!("Không tìm thấy ZaloCall.exe trong bộ cài Zalo."))?;
+                tokio::fs::create_dir_all(staging.0.join("plugins")).await?;
+                tokio::fs::rename(&capture, staging.0.join("plugins/capture")).await?;
+            }
         }
         let mut info = plist::Dictionary::new();
         info.insert("CFBundleShortVersionString".into(), version.into());
@@ -561,6 +581,59 @@ pub(crate) mod windows_installer {
         Ok(())
     }
 
+    /// Where an archive entry of `plugins/capture/` goes under the helper folder (`None`: not part of the helper).
+    /// Debug symbols (`pdbs/`, `*.pdb`, about 40 MB) are left out.
+    pub fn call_helper_path(name: &str) -> Option<PathBuf> {
+        let name = name.replace('\\', "/");
+        let at = name.find("plugins/capture/")?;
+        if at != 0 && !name[..at].ends_with('/') {
+            return None;
+        }
+        let rel = &name[at + "plugins/capture/".len()..];
+        let lower = rel.to_ascii_lowercase();
+        if rel.is_empty() || lower.starts_with("pdbs/") || lower.ends_with(".pdb") {
+            return None;
+        }
+        // Only plain relative components (no `..`, no drive or root).
+        let path = PathBuf::from(rel);
+        path.components().all(|c| matches!(c, std::path::Component::Normal(_))).then_some(path)
+    }
+
+    /// Extracts the call helper (`*/plugins/capture/**`, see [`call_helper_path`]) into `target`; returns the number of
+    /// files written. Requires `ZaloCall.exe`.
+    pub fn extract_call_helper(setup: &Path, target: &Path) -> anyhow::Result<usize> {
+        let mut file = std::io::BufReader::with_capacity(1 << 20, std::fs::File::open(setup).context("mở bộ cài Zalo")?);
+        let (start, len) = embedded_7z(&mut file)?.ok_or_else(|| anyhow!("bộ cài không chứa gói 7z đọc trực tiếp được"))?;
+        let window = Window { inner: file, start, len, pos: 0 };
+        let mut reader = sevenz_rust2::ArchiveReader::new(window, sevenz_rust2::Password::empty()).map_err(|e| anyhow!("gói ứng dụng Zalo: {e}"))?;
+        let wanted = reader.archive().files.iter().filter(|f| !f.is_directory() && call_helper_path(&f.name).is_some()).count();
+        ensure!(wanted > 0, "không tìm thấy trình gọi (plugins/capture) trong bộ cài Zalo");
+        std::fs::create_dir_all(target)?;
+        let mut written = 0usize;
+        reader
+            .for_each_entries_with_decision(|entry, data| {
+                if written == wanted {
+                    return Ok(sevenz_rust2::EntryDecision::Stop);
+                }
+                let Some(rel) = call_helper_path(&entry.name).filter(|_| !entry.is_directory()) else {
+                    // Other files of the same solid block are read through (and CRC-checked) to reach ours.
+                    return Ok(sevenz_rust2::EntryDecision::Continue);
+                };
+                let path = target.join(rel);
+                if let Some(parent) = path.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                let mut out = std::fs::File::create(&path)?;
+                std::io::copy(data, &mut out)?;
+                out.flush()?;
+                written += 1;
+                Ok(sevenz_rust2::EntryDecision::Continue)
+            })
+            .map_err(|e| anyhow!("giải nén trình gọi: {e}"))?;
+        ensure!(target.join("ZaloCall.exe").is_file(), "bộ cài Zalo không có ZaloCall.exe");
+        Ok(written)
+    }
+
     /// 7-Zip's command line: on PATH, or where its installers put it (the official installer does not add itself to
     /// PATH on Windows).
     pub fn find_7zip() -> Option<PathBuf> {
@@ -653,6 +726,16 @@ pub(crate) mod windows_installer {
             let target = std::env::temp_dir().join(format!("compola-real-asar-{}", uuid::Uuid::new_v4()));
             extract_asar(Path::new(&setup), &target).unwrap();
             assert!(std::fs::metadata(&target).unwrap().len() > 100 << 20);
+            // The call helper, and the MD5 Zalo's own main.js expects for it.
+            let helper = std::env::temp_dir().join(format!("compola-real-capture-{}", uuid::Uuid::new_v4()));
+            let files = extract_call_helper(Path::new(&setup), &helper).unwrap();
+            assert!(files > 20, "{files} files");
+            assert!(helper.join("Qt5Core.dll").is_file() && helper.join("platforms").is_dir() && !helper.join("pdbs").exists());
+            let main_js = crate::asar::AsarArchive::open(&target).unwrap().read("main-dist/main.js").unwrap();
+            let expected = crate::calls::helper::native_hash(&main_js).unwrap();
+            use md5::{Digest, Md5};
+            assert_eq!(hex::encode(Md5::digest(std::fs::read(helper.join("ZaloCall.exe")).unwrap())), expected);
+            let _ = std::fs::remove_dir_all(helper);
             let _ = std::fs::remove_file(target);
         }
     }
@@ -785,7 +868,7 @@ mod tests {
         info.insert("CFBundleShortVersionString".into(), version.into());
         plist::Value::Dictionary(info).to_file_xml(dir.join("Contents/Info.plist")).unwrap();
         std::fs::write(dir.join("Contents/Resources/app.asar"), "asar").unwrap();
-        let helper = runtime::helper("ZaloCall", dir);
+        let helper = runtime::call_helper(dir);
         std::fs::create_dir_all(helper.parent().unwrap()).unwrap();
         std::fs::write(&helper, "#!/bin/sh\n").unwrap();
         crate::sys::set_mode(&helper, 0o755);
@@ -825,7 +908,32 @@ mod tests {
         assert!(!runtime::is_complete(&dir));
     }
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(windows)]
+    #[test]
+    fn completeness_on_windows_requires_the_call_helper() {
+        let root = TempRoot::new();
+        let dir = root.0.join("current");
+        make_runtime(&dir, "26.10.20");
+        assert!(runtime::is_complete(&dir));
+        std::fs::remove_file(runtime::call_helper(&dir)).unwrap();
+        assert!(!runtime::is_complete(&dir));
+    }
+
+    #[test]
+    fn call_helper_entries_of_the_windows_installer() {
+        use windows_installer::call_helper_path;
+        let p = |s: &str| call_helper_path(s).map(|p| p.to_string_lossy().replace('\\', "/"));
+        assert_eq!(p("Zalo-26.10.20/plugins/capture/ZaloCall.exe").as_deref(), Some("ZaloCall.exe"));
+        assert_eq!(p("Zalo-26.10.20\\plugins\\capture\\platforms\\qwindows.dll").as_deref(), Some("platforms/qwindows.dll"));
+        assert_eq!(p("Zalo-26.10.20/plugins/capture/pdbs/ZaloCall.pdb"), None);
+        assert_eq!(p("Zalo-26.10.20/plugins/capture/ZaloCap.pdb"), None);
+        assert_eq!(p("Zalo-26.10.20/plugins/ocr/zocr-host.exe"), None);
+        assert_eq!(p("Zalo-26.10.20/resources/app.asar"), None);
+        assert_eq!(p("Zalo-26.10.20/plugins/capture/../../evil.exe"), None);
+        assert_eq!(p("Zalo-26.10.20/myplugins/capture/x.dll"), None);
+    }
+
+    #[cfg(not(any(target_os = "macos", windows)))]
     #[test]
     fn completeness_off_macos_needs_only_the_renderer() {
         let root = TempRoot::new();

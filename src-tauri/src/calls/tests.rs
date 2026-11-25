@@ -214,6 +214,15 @@ impl Harness {
     }
 
     fn with(executable_exists: bool) -> Self {
+        Self::framed(executable_exists, true)
+    }
+
+    /// Windows framing: whole messages, no acknowledgements.
+    fn unchunked() -> Self {
+        Self::framed(true, false)
+    }
+
+    fn framed(executable_exists: bool, chunked: bool) -> Self {
         // Short path: sockaddr_un holds 103 bytes.
         let base = PathBuf::from(format!("/tmp/szt-{}", rand::random::<u32>() % 1_000_000));
         std::fs::create_dir_all(&base).unwrap();
@@ -223,6 +232,7 @@ impl Harness {
             executable: Some(PathBuf::from(if executable_exists { "/bin/echo" } else { "/nonexistent/ZaloCall" })),
             socket_base: base.clone(),
             key: transport::default_key(),
+            chunked,
             spawn: Box::new(move |recv, send, on_exit| {
                 let index = s1.natives.lock().len();
                 let native = Arc::new(FakeNative {
@@ -520,4 +530,18 @@ fn reset_allows_a_fresh_start_right_away() {
     assert!(!h.bridge.started());
     h.bridge.send_to_native("{}".into(), false);
     assert_eq!(h.process_count(), 2);
+}
+
+#[test]
+fn unchunked_framing_sends_whole_messages_without_acks() {
+    let h = Harness::unchunked();
+    h.s.no_ack.store(true, Ordering::SeqCst); // the Windows helper never acknowledges
+    h.bridge.send_to_native("{}".into(), false);
+    let native = h.native(0);
+    assert!(wait(|| h.has_event(&CallEvent::Ready)));
+    let big = format!(r#"{{"blob":"{}"}}"#, "a".repeat(9000));
+    h.bridge.send_to_native(big.clone(), false);
+    h.bridge.send_to_native(r#"{"n":3}"#.into(), false);
+    // Everything arrives, the 9000-character message as one frame (`V`: `<hex>$`, no `#seq#count#index#`).
+    assert!(wait(|| native.received() == vec!["{}".to_owned(), big.clone(), r#"{"n":3}"#.to_owned()]));
 }
