@@ -35,10 +35,26 @@ where
     let Some(host) = hosts.get(&label) else {
         // A non-host webview (the UI) asking for renderer assets (e.g. stickers/emoji sprites): serve files only.
         if let Some(any) = hosts.0.lock().values().next().cloned() {
-            return serve_file(&any, request.uri().path(), responder);
+            return off_ui_thread(move || serve_file(&any, request.uri().path(), responder));
         }
         return respond(responder, 404, "text/plain", Vec::new());
     };
+    off_ui_thread(move || route(host, request, responder));
+}
+
+/// WebView2 (Windows) has no custom schemes: every request of the renderer reaches us on the window's UI thread (the
+/// one that also draws the app), and wry posts each response back to it. Answering there — synchronous bridge calls,
+/// asar reads, script patching — made the whole app stutter under the renderer's traffic. On Windows the work runs on a
+/// blocking-pool thread; the UI thread only hands the request over and the response back. WebKit is left as it was.
+fn off_ui_thread(work: impl FnOnce() + Send + 'static) {
+    if cfg!(windows) {
+        tauri::async_runtime::spawn_blocking(work);
+    } else {
+        work();
+    }
+}
+
+fn route(host: Arc<Host>, request: http::Request<Vec<u8>>, responder: UriSchemeResponder) {
     let path = percent_decode(request.uri().path());
 
     if path == "/__compola/blank.html" {
