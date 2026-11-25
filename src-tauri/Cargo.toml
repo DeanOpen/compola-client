@@ -1,6 +1,6 @@
 [package]
 name = "compola"
-version = "0.1.9"
+version = "0.1.10"
 description = "Compola — a native-shell Zalo client for macOS (Rust + Tauri port of zalo-swift-re)"
 edition = "2024"
 
