@@ -31,6 +31,11 @@ use crate::values::{Args, js_literal, undef};
 
 pub const SCHEME: &str = "zalo-app";
 
+/// `location.origin` of the renderer pages of the origin host `host` (see [`crate::account::Account::page_origin`]).
+pub fn page_origin(host: &str) -> String {
+    if cfg!(windows) { format!("https://{SCHEME}.{host}") } else { format!("{SCHEME}://{host}") }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Page {
@@ -123,7 +128,8 @@ impl Host {
         });
         app.state::<Hosts>().insert(host.clone());
 
-        let init = scripts::compose(&registry);
+        let page_origin = host.account.page_origin();
+        let init = scripts::compose(&registry, &page_origin);
         let blank = url::Url::parse(&format!("{}/__compola/blank.html", host.account.origin())).unwrap();
         let nav_app = app.clone();
         let load_host = Arc::downgrade(&host);
@@ -134,11 +140,17 @@ impl Host {
             .visible(debug)
             .user_agent(&user_agent)
             .initialization_script_for_all_frames(init)
+            // Windows: serve zalo-app:// as https://zalo-app.<host> (no effect elsewhere).
+            .use_https_scheme(true)
             .background_throttling(tauri::utils::config::BackgroundThrottlingPolicy::Disabled)
             .devtools(true)
             .disable_drag_drop_handler()
             // Only the renderer's own pages load here; links open in the browser.
             .on_navigation(move |url| {
+                // Windows: the renderer's own pages are https://zalo-app.<host>/… (see `page_origin`).
+                if url.origin().ascii_serialization() == page_origin {
+                    return true;
+                }
                 match url.scheme() {
                     SCHEME | "about" | "blob" | "data" => true,
                     "http" | "https" => {
@@ -185,7 +197,8 @@ impl Host {
     pub fn load(&self, page: Page, query: &[(String, String)]) {
         let mut sorted = query.to_vec();
         sorted.sort();
-        let mut url = url::Url::parse(&format!("{}/{}", self.account.origin(), page.file())).unwrap();
+        // The page origin: wry rewrites only the first URL of a webview, not later navigations.
+        let mut url = url::Url::parse(&format!("{}/{}", self.account.page_origin(), page.file())).unwrap();
         url.query_pairs_mut().extend_pairs(sorted.iter().map(|(k, v)| (k.as_str(), v.as_str())));
         {
             let mut st = self.state.lock();

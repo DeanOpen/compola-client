@@ -10,7 +10,12 @@
   const native = { XHR: window.XMLHttpRequest, fetch: window.fetch.bind(window), WebSocket: window.WebSocket };
   window.__zaloNativeXHR = native.XHR; // bridge.js uses it for synchronous bridge calls
   const bridge = (msg) => window.webkit.messageHandlers.znet.postMessage(msg);
-  const isRemote = (url) => /^(https?|wss?):/i.test(String(url));
+  // The renderer's own files are https://zalo-app.<host>/… on Windows: those stay native (served by the scheme handler).
+  const ownOrigin = window.__compolaOrigin || '';
+  const isRemote = (url) => {
+    const u = String(url);
+    return /^(https?|wss?):/i.test(u) && !(ownOrigin && (u === ownOrigin || u.startsWith(ownOrigin + '/')));
+  };
   const absolute = (url) => new URL(String(url), location.href).href;
 
   const toBase64 = (bytes) => {

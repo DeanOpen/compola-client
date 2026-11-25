@@ -136,6 +136,13 @@ impl Account {
     pub fn origin(&self) -> String {
         format!("{}://{}", crate::host::SCHEME, self.paths.origin_host())
     }
+
+    /// The origin the renderer's pages actually have (`location.origin`, no trailing slash). WKWebView and WebKitGTK
+    /// load `zalo-app://<host>` as is; WebView2 has no custom schemes, so Windows serves the same handler as
+    /// `https://zalo-app.<host>` (wry's workaround; https keeps it a secure context for `crypto.subtle`).
+    pub fn page_origin(&self) -> String {
+        crate::host::page_origin(self.paths.origin_host())
+    }
 }
 
 /// The registry plus the accounts opened so far and their engines (managed app state).

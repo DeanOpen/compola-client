@@ -9,7 +9,11 @@
   'use strict';
   if (window.__compolaMH) return;
   const nativeFetch = window.fetch.bind(window);
-  const base = location.protocol === 'zalo-app:' ? '' : 'zalo-app://local';
+  // Same-origin pages post relative; about:blank / blob children post to the renderer's origin (`https://zalo-app.<host>`
+  // on Windows, where WebView2 has no custom schemes).
+  const origin = window.__compolaOrigin || 'zalo-app://local';
+  const base = location.protocol === 'zalo-app:' || location.origin === origin ? '' : origin;
+  window.__compolaSyncUrl = (location.protocol === 'zalo-app:' ? 'zalo-app://local' : origin) + '/__compola/bridge-sync';
   const handler = (name) => ({
     postMessage(msg) {
       let body;

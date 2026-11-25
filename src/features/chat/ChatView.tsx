@@ -2,14 +2,15 @@
 
 import { StrangerRequestBar } from '../contacts/StrangerRequestBar';
 import { openContactProfile } from '../contacts/hosts';
-import { useMessageJumpRequest } from '../../engine/messageJump';
+import { requestJumpToMessage, useMessageJumpRequest } from '../../engine/messageJump';
 import { SendPreviewSheet } from '../attach/SendPreviewSheet';
+import { openTransfer } from '../transfer/hosts';
 import { ReminderDetailHost } from './cards/ReminderCard';
 import { BellOff, Eye, MessageSquareDashed, PanelRight, Search, Upload, UserPlus, type LucideIcon } from 'lucide-react';
 import { CallButtons } from '../calls/CallButtons';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { onFileDrop } from '../../engine/backend';
-import { markRead, sendText, stashFailedDraft, takeFailedDraft } from '../../engine/chat';
+import { markRead, openConversation, sendText, stashFailedDraft, takeFailedDraft } from '../../engine/chat';
 import { clipboardFiles, reportComposer, sendPaths } from '../../engine/composer';
 import { pinnedMessage } from '../../engine/messageActions';
 import { useIsViewer } from '../../engine/remote';
@@ -87,6 +88,13 @@ export function ChatView({ conversation }: { conversation: ConversationSummary }
     jump.consume();
   }, [jump?.messageId]);
   const selfId = useEngine((s) => s.selfConversationId);
+  // A phone sync just finished: open the chat again so the official loader reads the synced history.
+  const transferDone = useEngine((s) => s.transfer?.phase === 'finished');
+  const wasTransferDone = useRef(transferDone);
+  useEffect(() => {
+    if (transferDone && !wasTransferDone.current) openConversation(id);
+    wasTransferDone.current = transferDone;
+  }, [transferDone, id]);
   const draftRef = useRef(draft);
   draftRef.current = draft;
   // Add-ons put text in the message box (a view's `compola.insertText`, a quick reply, "Sửa trước khi gửi").
@@ -189,12 +197,17 @@ export function ChatView({ conversation }: { conversation: ConversationSummary }
       if (item.kind === 'message') {
         const target = pinnedMessage(item, getEngine().messages[id] ?? []);
         if (target) setJumpTarget(target.id);
-        else showToast('Tin nhắn đã ghim chưa được tải. Kéo lên để xem tin nhắn cũ hơn.', id);
+        // Not loaded yet: read older pages until it is, then scroll to it (a toast when the history runs out first).
+        // 1-1 chats have no cloud history on PC: a pin older than this computer's history needs the phone sync.
+        else
+          void requestJumpToMessage(id, [item.msgId, item.cliMsgId], null, undefined, conversation.isGroup || id === getEngine().selfConversationId
+            ? 'Không tìm thấy tin nhắn đã ghim trong cuộc trò chuyện.'
+            : 'Tin nhắn đã ghim chưa có trên máy tính. Đồng bộ tin nhắn từ điện thoại để xem.');
       } else {
         showToast(item.title || pinnedLabel(item), id);
       }
     },
-    [id],
+    [id, conversation.isGroup],
   );
 
   const subtitle = typingName
@@ -222,7 +235,7 @@ export function ChatView({ conversation }: { conversation: ConversationSummary }
             icon={MessageSquareDashed}
             title="Chưa có tin nhắn"
             description={`Tin nhắn cũ nằm trên điện thoại của bạn. Đồng bộ để xem lịch sử trò chuyện với ${conversation.name} trên máy tính.`}
-            actions={canStartTransfer ? <button className="btn btn-prominent">Đồng bộ tin nhắn</button> : undefined}
+            actions={canStartTransfer ? <button className="btn btn-prominent" onClick={openTransfer}>Đồng bộ tin nhắn</button> : undefined}
           />
         ) : (
           <MessageList conversation={conversation} scrollToBottomTick={sendTick} jumpTarget={jumpTarget} onJumped={() => setJumpTarget(null)} onReply={reply} />

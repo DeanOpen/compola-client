@@ -365,8 +365,8 @@ impl MainProcess {
             reg.handle_sync("electron-store-get-data", move |_, _| {
                 Ok(json!({ "defaultCwd": p3.user_data.to_string_lossy(), "appVersion": p3.app_version }))
             });
-            // The account's own origin (WebKit storage is per origin).
-            let origin = self.account.origin();
+            // The account's own origin (WebKit storage is per origin), as the pages see it.
+            let origin = self.account.page_origin();
             let (child, viewer, dir) = (format!("{origin}/child.html"), format!("{origin}/popup-viewer.html"), format!("{origin}/"));
             reg.handle("get-child-url", move |_, _| {
                 let v = json!(child);

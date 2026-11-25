@@ -46,10 +46,15 @@ fn wrap(name: &str, source: &str) -> String {
     format!("try {{\n{}\n}} catch (e) {{ try {{ window.__compolaMH.zlog.postMessage('[host-script] {name} failed: ' + e); }} catch {{}} }}{tag}\n", rewrite(source))
 }
 
-pub fn compose(registry: &Registry) -> String {
+/// `page_origin`: the renderer pages' `location.origin` (`zalo-app://local`, or `https://zalo-app.local` on Windows).
+pub fn compose(registry: &Registry, page_origin: &str) -> String {
     let mut out = String::with_capacity(1 << 20);
-    // Only zalo-app:// documents (and their about:blank/srcdoc children) get the host; Tauri's own pages do not.
-    out.push_str("if (location.protocol === 'zalo-app:' || ((location.protocol === 'about:' || location.protocol === 'blob:') && (() => { try { return window.parent !== window && window.parent.location.protocol === 'zalo-app:'; } catch { return false; } })())) {\n");
+    let origin = serde_json::to_string(page_origin).unwrap_or_else(|_| "\"\"".into());
+    // Only zalo-app documents (and their about:blank/srcdoc children) get the host; Tauri's own pages do not.
+    // WebKit reports `zalo-app:` as the protocol; on Windows the pages are plain https at the page origin.
+    out.push_str(&format!(
+        "if ((() => {{ const own = (l) => l.protocol === 'zalo-app:' || l.origin === {origin}; return own(location) || ((location.protocol === 'about:' || location.protocol === 'blob:') && (() => {{ try {{ return window.parent !== window && own(window.parent.location); }} catch {{ return false; }} }})()); }})()) {{\nwindow.__compolaOrigin = {origin};\n"
+    ));
     if std::env::var_os("COMPOLA_TRACE_WORKERS").is_some() {
         out.push_str("window.__zaloTraceWorkers = true;\n");
     }

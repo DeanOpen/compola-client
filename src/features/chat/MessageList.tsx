@@ -8,7 +8,9 @@ import { loadOlderMessages, react } from '../../engine/chat';
 import type { ChatMessage } from '../../engine/models/chat';
 import { selfConversationTitle, type ConversationSummary } from '../../engine/models/conversations';
 import { ConversationAvatar } from '../conversations/ConversationRow';
+import { useRemote } from '../../engine/remote';
 import { useEngine } from '../../engine/store';
+import { openTransfer } from '../transfer/hosts';
 import { Spinner } from '../../ui/Spinner';
 import { daySeparator, time } from './format';
 import { MessageRow } from './MessageRow';
@@ -77,14 +79,27 @@ export function MessageList({
       setLoadingOlder(true);
       loadOlderMessages(id);
       clearTimeout(state.current.giveUp);
-      state.current.giveUp = setTimeout(() => setLoadingOlder(false), 6000); // give up the spinner if nothing arrives
+      // Give up the spinner if nothing arrives (and stop a short history from asking again until something changes).
+      state.current.giveUp = setTimeout(() => {
+        state.current.armed = false;
+        setLoadingOlder(false);
+      }, 6000);
     }, 250);
+  };
+
+  /** History too short to scroll: no scroll event can ever pull older pages, so it counts as being at the top. */
+  const fillIfShort = () => {
+    const el = scroller.current;
+    if (!el || el.scrollHeight - el.clientHeight >= topBand) return;
+    state.current.atTop = true;
+    state.current.armed = true;
   };
 
   // Initial position: the bottom.
   useLayoutEffect(() => {
     scrollToBottom(false);
     record();
+    fillIfShort();
     return () => {
       clearTimeout(state.current.pending);
       clearTimeout(state.current.giveUp);
@@ -117,6 +132,7 @@ export function MessageList({
     st.firstId = firstId;
     st.lastId = lastId;
     record();
+    fillIfShort();
   }, [msgs]);
 
   // Images settling change the height: stay pinned to the bottom while the reader is there.
@@ -146,7 +162,7 @@ export function MessageList({
   useEffect(() => {
     if (!hasMore) setLoadingOlder(false);
     maybeLoadOlder();
-  }, [hasMore, msgs.length]);
+  }, [hasMore, msgs.length, loadingOlder]);
 
   useEffect(() => {
     if (!jumpTarget) return;
@@ -240,6 +256,9 @@ export function MessageList({
 function ThreadStart({ conversation }: { conversation: ConversationSummary }) {
   const selfId = useEngine((s) => s.selfConversationId);
   const isSelf = conversation.id === selfId;
+  // Zalo PC reads older history from the cloud only for groups (and Cloud của tôi): a 1-1 chat holds what arrived on
+  // this computer plus what was synced from the phone, so the end of the local history is not the start of the chat.
+  if (!isSelf && !conversation.isGroup) return <PhoneHistoryNote />;
   const name = isSelf ? selfConversationTitle : conversation.name;
   const sub = isSelf
     ? 'Lưu trữ và truy cập nhanh những nội dung quan trọng'
@@ -256,6 +275,22 @@ function ThreadStart({ conversation }: { conversation: ConversationSummary }) {
       <div className="thread-start-note">
         {isSelf ? 'Đây là nơi bạn lưu tin nhắn, ảnh và tệp cho riêng mình.' : conversation.isGroup ? `Đây là khởi đầu của nhóm ${name}.` : `Đây là khởi đầu cuộc trò chuyện của bạn với ${name}.`}
       </div>
+    </div>
+  );
+}
+
+/** Top of a 1-1 chat whose local history is read to the end: older messages live on the phone. */
+function PhoneHistoryNote() {
+  const canStartTransfer = useEngine((s) => s.canStartTransfer);
+  const joined = useRemote((s) => s.mode === 'joined');
+  return (
+    <div className="thread-start thread-start-sync">
+      <div className="thread-start-note">Tin nhắn cũ hơn nằm trên điện thoại của bạn. Đồng bộ để xem trên máy tính.</div>
+      {!joined && canStartTransfer && (
+        <button type="button" className="btn btn-small" onClick={openTransfer}>
+          Đồng bộ tin nhắn
+        </button>
+      )}
     </div>
   );
 }

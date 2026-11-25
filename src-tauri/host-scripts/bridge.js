@@ -57,7 +57,7 @@
   }
   function callSync(path, args) {
     const xhr = new (window.__zaloNativeXHR || XMLHttpRequest)();
-    xhr.open('POST', 'zalo-app://local/__compola/bridge-sync', false);
+    xhr.open('POST', window.__compolaSyncUrl || 'zalo-app://local/__compola/bridge-sync', false);
     xhr.send(JSON.stringify({ path, args: encode(args) }));
     const res = JSON.parse(xhr.responseText || '{}');
     if (res.error) throw toError(res.error);
@@ -91,7 +91,7 @@
     send: (channel, args) => { post({ kind: 'send', channel, args: encode(args) }); },
     sendSync(channel, args) {
       const xhr = new (window.__zaloNativeXHR || XMLHttpRequest)();
-      xhr.open('POST', 'zalo-app://local/__compola/bridge-sync', false);
+      xhr.open('POST', window.__compolaSyncUrl || 'zalo-app://local/__compola/bridge-sync', false);
       xhr.send(JSON.stringify({ channel, args: encode(args) }));
       const res = JSON.parse(xhr.responseText || '{}');
       if (res.error) throw toError(res.error);
