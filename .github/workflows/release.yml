@@ -245,6 +245,16 @@ jobs:
         with:
           path: dist-release
           merge-multiple: true
+      - name: Fixed-name copies (README download buttons)
+        # releases/latest/download/<name> always serves the newest release: the README links these names.
+        if: env.TAG != 'edge'
+        run: |
+          VERSION="${TAG#v}"
+          cd dist-release
+          for kind in macos-universal.dmg windows-x64-setup.exe windows-x64.msi linux-x86_64.AppImage linux-amd64.deb linux-x86_64.rpm; do
+            if [ -f "Compola-$VERSION-$kind" ]; then cp "Compola-$VERSION-$kind" "Compola-$kind"; fi
+          done
+          ls -l
       - name: Checksums
         run: |
           ls dist-release/* >/dev/null 2>&1 || { echo "no platform built" >&2; exit 1; }
