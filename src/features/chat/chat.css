@@ -177,6 +177,7 @@
   padding: 8px 16px 12px;
 }
 
+
 .message-older {
   display: flex;
   justify-content: center;
@@ -858,9 +859,8 @@
   height: 46px;
   border-radius: 50%;
   color: #fff;
-  background: rgba(0, 0, 0, 0.35);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  /* A plain tint, not a backdrop blur: one blur per video in the list was repainted on every scroll frame. */
+  background: rgba(0, 0, 0, 0.5);
 }
 
 .is-tile .video-play {

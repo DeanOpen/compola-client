@@ -108,6 +108,8 @@ export function RemoteImage({
           src={src}
           alt={alt}
           draggable={false}
+          // Decoded off the main thread: photos coming into view while scrolling do not stall the frame.
+          decoding="async"
           style={{ objectFit: fit, opacity: phase.kind === 'ok' ? 1 : 0 }}
           onLoad={() => setPhase({ kind: 'ok', src })}
           onError={() => (stage.current === 'direct' ? void fallback(forced.current) : setPhase({ kind: 'failed', reason: 'unavailable' }))}

@@ -17,7 +17,7 @@ import {
   Trash2,
   Undo2,
 } from 'lucide-react';
-import { memo, type ReactNode, type RefObject } from 'react';
+import { memo, useState, type ReactNode, type RefObject } from 'react';
 import { copyPhoto, copyText, deleteForMe, pinMessage, recall, requestForward, requestUnpinMessage, setStarred } from '../../engine/messageActions';
 import { captionOf, copyableText, type ChatMessage } from '../../engine/models/chat';
 import { useIsViewer } from '../../engine/remote';
@@ -26,6 +26,7 @@ import { openContextMenu, openMenuBelow, type MenuItem } from '../../ui/Menu';
 import { BubbleContent } from './MessageContent';
 import { statusText } from './format';
 import { ECardView, NoticeRow } from './cards/Cards';
+import { listScroll } from './listScroll';
 import { ReactionChips } from './ReactionChips';
 import { openContactProfile } from '../contacts/hosts';
 
@@ -84,12 +85,22 @@ function BubbleRow({ message, firstInGroup, lastInGroup, showStatus, isGroup, al
   // Joined to a Compola Server as a viewer: read and copy only.
   const readOnly = useIsViewer();
   const menu = () => messageMenu(message, onReply, onReact, readOnly);
+  // The hover bar and the reaction strip exist only for the row under the pointer (or holding keyboard focus): drawn
+  // for every row they were about a third of the chat's DOM (~13 hidden nodes and 8 SVG paths a row), all restyled,
+  // laid out and hit-tested on every scroll frame.
+  const [active, setActive] = useState(false);
 
   return (
     <div
       className={`bubble-row ${mine ? 'is-mine' : ''} ${firstInGroup ? 'is-first' : ''} ${message.reactions.length ? 'has-reactions' : ''}`}
       data-message-id={message.id}
       onContextMenu={(e) => openContextMenu(e, menu())}
+      // Not while the list scrolls under a still pointer; the next real move over the row shows it.
+      onMouseEnter={() => !listScroll.active && setActive(true)}
+      onMouseMove={() => !active && !listScroll.active && setActive(true)}
+      onMouseLeave={() => setActive(false)}
+      onFocus={() => setActive(true)}
+      onBlur={(e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && setActive(false)}
     >
       {!mine && (
         <div className="bubble-avatar">
@@ -116,7 +127,8 @@ function BubbleRow({ message, firstInGroup, lastInGroup, showStatus, isGroup, al
               <Star size={9} fill="currentColor" strokeWidth={3} />
             </span>
           )}
-          {/* Actions beside the bubble, aligned with its top edge: like · reply · forward · ⋯ */}
+          {/* Actions beside the bubble, aligned with its top edge: like · reply · forward · ⋯ (only for the active row) */}
+          {active && (
           <div className="hover-bar" role="toolbar" aria-label="Thao tác tin nhắn">
             {/* Like: hovering it opens the six reactions. In the bar beside the bubble, so it never covers the time,
                 the reaction chips or the delivery status under the bubble. */}
@@ -161,6 +173,7 @@ function BubbleRow({ message, firstInGroup, lastInGroup, showStatus, isGroup, al
               <MoreHorizontal size={14} />
             </BarButton>
           </div>
+          )}
         </div>
         {mine && showStatus && <div className={`bubble-status-line ${message.status === 'failed' ? 'is-failed' : ''}`}>{statusText[message.status]}</div>}
       </div>

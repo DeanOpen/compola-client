@@ -192,7 +192,38 @@ const genericHistory = (c: MockConversation): Json[] => {
   ];
 };
 
-export const historyFor = (c: MockConversation): Json[] => (histories[c.id] ?? (() => genericHistory(c)))();
+/**
+ * `?mock=1&history=N`: N extra messages of every common kind before the scripted ones (scroll / render profiling).
+ * Images are inline SVG, so the numbers do not depend on the network.
+ */
+const stressCount = (() => {
+  try {
+    return Math.min(5000, Math.max(0, Number(new URLSearchParams(location.search).get('history')) || 0));
+  } catch {
+    return 0;
+  }
+})();
+const svgImage = (i: number, w: number, h: number) =>
+  `data:image/svg+xml;utf8,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><rect width="100%" height="100%" fill="hsl(${(i * 47) % 360} 60% 70%)"/><circle cx="${w / 2}" cy="${h / 2}" r="${Math.min(w, h) / 4}" fill="hsl(${(i * 91) % 360} 60% 45%)"/></svg>`)}`;
+const stressHistory = (c: MockConversation, n: number): Json[] => {
+  const people = c.isGroup ? [lan, huy, mai, tuan, pm, me] : [{ from: c.id, name: c.name, avatar: c.avatar }, me];
+  const lines = ['Ok em', 'Chiều nay họp lúc mấy giờ anh?', 'Gửi lại file giúp mình với nhé, bản hôm qua bị lỗi font 😅', 'Đã nhận', 'Cảm ơn bạn nhiều!', 'Bên mình đang kiểm tra lại số liệu tháng 11, có gì báo bạn sau nha. Nếu cần gấp thì gọi mình.', '👍', 'https://compola.vn/bang-gia'];
+  return Array.from({ length: n }, (_, i) => {
+    const who = people[i % people.length];
+    const ago = (n - i) * 7 * min + 10 * day;
+    const r = i % 10;
+    if (r === 3) return message(c.id, { ...who, text: '[Hình ảnh]', kind: { type: 'photo', url: svgImage(i, 1200, 800), width: 1200, height: 800 }, ago });
+    if (r === 6) return message(c.id, { ...who, text: '[Sticker]', kind: { type: 'sticker', url: svgImage(i, 260, 260) }, ago });
+    if (r === 8) return message(c.id, { ...who, text: '[Video]', kind: { type: 'video', thumbnail: svgImage(i, 520, 320), duration: 30 + i, url: '' }, ago });
+    if (r === 9 && i % 20 === 9) return message(c.id, { ...who, text: lines[7], kind: { type: 'link', title: 'Bảng giá Compola', url: lines[7], thumbnail: svgImage(i, 560, 300), description: 'Gói dành cho doanh nghiệp', source: 'compola.vn' }, ago });
+    return message(c.id, { ...who, text: lines[i % 7], ago, reactions: i % 13 === 0 ? [{ ...heart, count: 2, includesMe: true, names: ['Bạn', 'Lan'], people: 2 }] : [] });
+  });
+};
+
+export const historyFor = (c: MockConversation): Json[] => [
+  ...(stressCount ? stressHistory(c, stressCount) : []),
+  ...(histories[c.id] ?? (() => genericHistory(c)))(),
+];
 
 /** An older page for "load more" (two pages at most). */
 export const olderPage = (c: MockConversation, before: number, page: number): Json[] => {
