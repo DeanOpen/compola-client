@@ -61,6 +61,9 @@ argon2 = "0.5"
 include_dir = "0.7"
 ldap3 = { version = "0.11", default-features = false, features = ["tls-rustls"] }
 tauri-plugin-updater = "2"
+# Reads the Zalo Windows installer's app archive (no 7-Zip needed on the machine).
+sevenz-rust2 = { version = "0.25", default-features = false }
+crc32fast = "1"
 # Add-on runtime (embedded QuickJS, one sandboxed runtime per add-on) and .zip add-on packages.
 rquickjs = { version = "0.14", default-features = false, features = ["std"] }
 zip = { version = "4", default-features = false, features = ["deflate"] }
@@ -77,6 +80,10 @@ core-foundation = "0.10"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Threading"] }
+
+[dev-dependencies]
+# Tests build small 7z archives.
+sevenz-rust2 = { version = "0.25", default-features = false, features = ["compress", "util"] }
 
 [profile.release]
 codegen-units = 1

@@ -132,7 +132,8 @@ impl Installer {
         tokio::fs::create_dir_all(&self.work).await?;
         if cfg!(not(target_os = "macos")) {
             // Off macOS (the Linux server container): the official Windows installer of the pinned release. Its
-            // SHA-256 (checked in `fetch`) stands in for VNG's signature; 7-Zip extracts the renderer from it.
+            // SHA-256 (checked in `fetch`) stands in for VNG's signature; the renderer is read out of it in Rust
+            // (`windows_installer`), so nothing (7-Zip…) has to be installed on the machine.
             let release = runtime::pinned_windows();
             let setup = RemoveOnDrop(self.work.join(format!("ZaloSetup-{}.exe", uuid::Uuid::new_v4())));
             self.fetch(&release, &setup.0).await?;
@@ -205,28 +206,32 @@ impl Installer {
     /// `Contents/Resources/app.asar` with a minimal `Contents/Info.plist` carrying the version, like the Mac runtime.
     async fn extract_renderer(&self, setup: &Path, version: &str, destination: &Path) -> anyhow::Result<String> {
         (self.progress)(Step::Installing);
-        let seven_zip = ["7z", "7zz", "7za"]
-            .into_iter()
-            .find(|t| std::process::Command::new(t).arg("i").stdout(std::process::Stdio::null()).status().is_ok())
-            .ok_or_else(|| anyhow!("Cần 7-Zip (7z) để cài Zalo trên máy này."))?;
-        let unpacked = RemoveOnDrop(self.work.join(format!("unpacked-{}", uuid::Uuid::new_v4())));
-        let out = format!("-o{}", unpacked.0.display());
-        let setup_arg = setup.to_string_lossy().into_owned();
-        run(seven_zip, &["x", "-y", "-bd", &out, &setup_arg, "$PLUGINSDIR/app-*.7z"]).await?;
-        let archive = std::fs::read_dir(unpacked.0.join("$PLUGINSDIR"))?
-            .filter_map(|e| e.ok().map(|e| e.path()))
-            .find(|p| p.extension().is_some_and(|e| e == "7z"))
-            .ok_or_else(|| anyhow!("Bộ cài Zalo không có gói ứng dụng."))?;
-        let archive_arg = archive.to_string_lossy().into_owned();
-        run(seven_zip, &["x", "-y", "-bd", &out, &archive_arg, "*/resources/app.asar"]).await?;
-        let asar = std::fs::read_dir(&unpacked.0)?
-            .filter_map(|e| e.ok().map(|e| e.path().join("resources/app.asar")))
-            .find(|p| p.is_file())
-            .ok_or_else(|| anyhow!("Không tìm thấy app.asar trong bộ cài Zalo."))?;
         let staging = RemoveOnDrop(self.work.join(format!("staging-{}", uuid::Uuid::new_v4())));
         let target = staging.0.join("Contents/Resources/app.asar");
         tokio::fs::create_dir_all(target.parent().unwrap()).await?;
-        tokio::fs::rename(&asar, &target).await?;
+        let (setup_path, target_path) = (setup.to_owned(), target.clone());
+        let built_in = tokio::task::spawn_blocking(move || windows_installer::extract_asar(&setup_path, &target_path)).await?;
+        if let Err(e) = built_in {
+            // A future installer that compresses its app archive: 7-Zip (from PATH or where it installs) still can.
+            log::warn!("runtime: reading the Windows installer failed ({e:#}); trying 7-Zip");
+            let seven_zip = windows_installer::find_7zip().ok_or_else(|| e.context("Không đọc được bộ cài Zalo (và không tìm thấy 7-Zip)"))?;
+            let unpacked = RemoveOnDrop(self.work.join(format!("unpacked-{}", uuid::Uuid::new_v4())));
+            let seven = seven_zip.to_string_lossy().into_owned();
+            let out = format!("-o{}", unpacked.0.display());
+            let setup_arg = setup.to_string_lossy().into_owned();
+            run(&seven, &["x", "-y", "-bd", &out, &setup_arg, "$PLUGINSDIR/app-*.7z"]).await?;
+            let archive = std::fs::read_dir(unpacked.0.join("$PLUGINSDIR"))?
+                .filter_map(|e| e.ok().map(|e| e.path()))
+                .find(|p| p.extension().is_some_and(|e| e == "7z"))
+                .ok_or_else(|| anyhow!("Bộ cài Zalo không có gói ứng dụng."))?;
+            let archive_arg = archive.to_string_lossy().into_owned();
+            run(&seven, &["x", "-y", "-bd", &out, &archive_arg, "*/resources/app.asar"]).await?;
+            let asar = std::fs::read_dir(&unpacked.0)?
+                .filter_map(|e| e.ok().map(|e| e.path().join("resources/app.asar")))
+                .find(|p| p.is_file())
+                .ok_or_else(|| anyhow!("Không tìm thấy app.asar trong bộ cài Zalo."))?;
+            tokio::fs::rename(&asar, &target).await?;
+        }
         let mut info = plist::Dictionary::new();
         info.insert("CFBundleShortVersionString".into(), version.into());
         info.insert("CFBundleIdentifier".into(), "com.vng.zalo".into());
@@ -405,6 +410,252 @@ async fn run(tool: &str, args: &[&str]) -> anyhow::Result<()> {
     let message = String::from_utf8_lossy(&output.stderr).trim().to_owned();
     let code = output.status.code().map(|c| c.to_string()).unwrap_or_else(|| "signal".into());
     bail!("{name} lỗi {code}: {message}")
+}
+
+/// The Zalo Windows installer (electron-builder NSIS) read in Rust: electron-builder stores its `app-*.7z` in the NSIS
+/// data without compressing it again, so the archive is found by its signature (checked against the NSIS block length
+/// and the 7z start-header CRC) and read in place with a pure-Rust 7z decoder, which checks every CRC of `app.asar`.
+pub(crate) mod windows_installer {
+    use std::io::{Read, Seek, SeekFrom, Write};
+    use std::path::{Path, PathBuf};
+
+    use anyhow::{Context, anyhow, bail, ensure};
+
+    const SIGNATURE: [u8; 6] = [b'7', b'z', 0xBC, 0xAF, 0x27, 0x1C];
+    /// The NSIS block length's "compressed" flag.
+    const COMPRESSED: u32 = 0x8000_0000;
+
+    /// A 7z archive stored as is inside `file`: (offset, length). The largest one when there are several.
+    pub fn embedded_7z(file: &mut (impl Read + Seek)) -> anyhow::Result<Option<(u64, u64)>> {
+        let file_len = file.seek(SeekFrom::End(0))?;
+        file.seek(SeekFrom::Start(0))?;
+        let mut best: Option<(u64, u64)> = None;
+        let mut buf = vec![0u8; 8 << 20];
+        let mut carry: Vec<u8> = Vec::new();
+        let mut base = 0u64; // file offset of carry[0]
+        loop {
+            let n = file.read(&mut buf)?;
+            if n == 0 {
+                break;
+            }
+            let mut window = std::mem::take(&mut carry);
+            window.extend_from_slice(&buf[..n]);
+            let mut hits = Vec::new();
+            let mut from = 0;
+            while let Some(i) = window[from..].windows(SIGNATURE.len()).position(|w| w == SIGNATURE) {
+                hits.push(base + (from + i) as u64);
+                from += i + 1;
+            }
+            let pos = file.stream_position()?;
+            for at in hits {
+                if let Some(len) = check(file, at, file_len)? {
+                    if best.is_none_or(|b| len > b.1) {
+                        best = Some((at, len));
+                    }
+                }
+            }
+            file.seek(SeekFrom::Start(pos))?;
+            // Keep the tail so a signature across two reads is still seen.
+            let keep = window.len().min(SIGNATURE.len() - 1);
+            base += (window.len() - keep) as u64;
+            carry = window[window.len() - keep..].to_vec();
+        }
+        Ok(best)
+    }
+
+    /// The archive's length when a valid 7z start header sits at `at`, preceded by an uncompressed NSIS block of
+    /// exactly that length.
+    fn check(file: &mut (impl Read + Seek), at: u64, file_len: u64) -> anyhow::Result<Option<u64>> {
+        if at < 4 || at + 32 > file_len {
+            return Ok(None);
+        }
+        let mut head = [0u8; 36];
+        file.seek(SeekFrom::Start(at - 4))?;
+        file.read_exact(&mut head)?;
+        let block = u32::from_le_bytes(head[0..4].try_into()?);
+        let h = &head[4..];
+        if crc32fast::hash(&h[12..32]) != u32::from_le_bytes(h[8..12].try_into()?) {
+            return Ok(None);
+        }
+        let next_offset = u64::from_le_bytes(h[12..20].try_into()?);
+        let next_size = u64::from_le_bytes(h[20..28].try_into()?);
+        let Some(len) = 32u64.checked_add(next_offset).and_then(|l| l.checked_add(next_size)) else { return Ok(None) };
+        if block & COMPRESSED != 0 || u64::from(block) != len || at + len > file_len {
+            return Ok(None);
+        }
+        Ok(Some(len))
+    }
+
+    /// A part of a file seen as a whole one (the 7z reader seeks from its own start).
+    struct Window<R> {
+        inner: R,
+        start: u64,
+        len: u64,
+        pos: u64,
+    }
+
+    impl<R: Read + Seek> Read for Window<R> {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            let n = buf.len().min(self.len.saturating_sub(self.pos) as usize);
+            if n == 0 {
+                return Ok(0);
+            }
+            self.inner.seek(SeekFrom::Start(self.start + self.pos))?;
+            let read = self.inner.read(&mut buf[..n])?;
+            self.pos += read as u64;
+            Ok(read)
+        }
+    }
+
+    impl<R: Read + Seek> Seek for Window<R> {
+        fn seek(&mut self, to: SeekFrom) -> std::io::Result<u64> {
+            let pos = match to {
+                SeekFrom::Start(p) => p as i128,
+                SeekFrom::End(d) => self.len as i128 + d as i128,
+                SeekFrom::Current(d) => self.pos as i128 + d as i128,
+            };
+            if pos < 0 {
+                return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "seek before start"));
+            }
+            self.pos = pos as u64;
+            Ok(self.pos)
+        }
+    }
+
+    /// Writes `<…>/resources/app.asar` of the installer `setup` to `target`.
+    pub fn extract_asar(setup: &Path, target: &Path) -> anyhow::Result<()> {
+        let mut file = std::io::BufReader::with_capacity(1 << 20, std::fs::File::open(setup).context("mở bộ cài Zalo")?);
+        let (start, len) = embedded_7z(&mut file)?.ok_or_else(|| anyhow!("bộ cài không chứa gói 7z đọc trực tiếp được"))?;
+        let window = Window { inner: file, start, len, pos: 0 };
+        let mut reader = sevenz_rust2::ArchiveReader::new(window, sevenz_rust2::Password::empty()).map_err(|e| anyhow!("gói ứng dụng Zalo: {e}"))?;
+        let name = reader
+            .archive()
+            .files
+            .iter()
+            .map(|f| f.name.replace('\\', "/"))
+            .find(|n| n.ends_with("/resources/app.asar") || n == "resources/app.asar")
+            .ok_or_else(|| anyhow!("không tìm thấy app.asar trong bộ cài Zalo"))?;
+        let mut out = std::fs::File::create(target).with_context(|| format!("tạo {}", target.display()))?;
+        let mut written: Option<u64> = None;
+        reader
+            .for_each_entries_with_decision(|entry, data| {
+                if written.is_some() {
+                    return Ok(sevenz_rust2::EntryDecision::Stop);
+                }
+                if entry.name.replace('\\', "/") != name {
+                    return Ok(sevenz_rust2::EntryDecision::SkipBlock);
+                }
+                // Read to the end: `Continue` then checks the entry's CRC.
+                written = Some(std::io::copy(data, &mut out)?);
+                Ok(sevenz_rust2::EntryDecision::Continue)
+            })
+            .map_err(|e| anyhow!("giải nén app.asar: {e}"))?;
+        out.flush()?;
+        let size = written.ok_or_else(|| anyhow!("không đọc được app.asar"))?;
+        ensure!(size > 1 << 20, "app.asar quá nhỏ ({size} byte)");
+        let mut magic = [0u8; 4];
+        std::fs::File::open(target)?.read_exact(&mut magic)?;
+        if magic != [4, 0, 0, 0] {
+            bail!("app.asar không hợp lệ");
+        }
+        Ok(())
+    }
+
+    /// 7-Zip's command line: on PATH, or where its installers put it (the official installer does not add itself to
+    /// PATH on Windows).
+    pub fn find_7zip() -> Option<PathBuf> {
+        let names: &[&str] = if cfg!(windows) { &["7z.exe", "7zz.exe", "7za.exe"] } else { &["7z", "7zz", "7za"] };
+        let mut dirs: Vec<PathBuf> = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).collect()).unwrap_or_default();
+        if cfg!(windows) {
+            for var in ["ProgramFiles", "ProgramW6432", "ProgramFiles(x86)"] {
+                if let Some(d) = std::env::var_os(var) {
+                    dirs.push(PathBuf::from(d).join("7-Zip"));
+                }
+            }
+            if let Some(d) = std::env::var_os("LOCALAPPDATA") {
+                dirs.push(PathBuf::from(d).join("Programs").join("7-Zip"));
+            }
+            if let Some(d) = std::env::var_os("USERPROFILE") {
+                dirs.push(PathBuf::from(d).join("scoop").join("shims"));
+            }
+            if let Some(d) = std::env::var_os("ProgramData") {
+                dirs.push(PathBuf::from(d).join("chocolatey").join("bin"));
+            }
+        } else {
+            dirs.extend(["/usr/bin", "/usr/local/bin", "/opt/homebrew/bin"].map(PathBuf::from));
+        }
+        dirs.iter().flat_map(|d| names.iter().map(move |n| d.join(n))).find(|p| p.is_file())
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        /// A fake installer: junk, an NSIS block length, a stored 7z holding `Zalo-1.0.0/resources/app.asar`.
+        fn fake_installer(asar: &[u8]) -> Vec<u8> {
+            let dir = std::env::temp_dir().join(format!("compola-nsis-{}", uuid::Uuid::new_v4()));
+            std::fs::create_dir_all(dir.join("Zalo-1.0.0/resources")).unwrap();
+            std::fs::write(dir.join("Zalo-1.0.0/resources/app.asar"), asar).unwrap();
+            std::fs::write(dir.join("Zalo-1.0.0/LICENSE"), b"license").unwrap();
+            let archive = dir.with_extension("7z");
+            sevenz_rust2::compress_to_path(&dir, &archive).unwrap();
+            let seven = std::fs::read(&archive).unwrap();
+            let _ = std::fs::remove_dir_all(&dir);
+            let _ = std::fs::remove_file(&archive);
+            let mut exe = b"MZ fake stub ".repeat(1000);
+            // A stray signature with a bad header must be ignored.
+            exe.extend_from_slice(&SIGNATURE);
+            exe.extend_from_slice(&[0u8; 40]);
+            exe.extend_from_slice(&(seven.len() as u32).to_le_bytes());
+            exe.extend_from_slice(&seven);
+            exe.extend_from_slice(b"trailing NSIS data");
+            exe
+        }
+
+        fn asar_bytes() -> Vec<u8> {
+            let mut a = vec![4u8, 0, 0, 0];
+            a.extend((0..3_000_000u32).map(|i| (i % 251) as u8));
+            a
+        }
+
+        #[test]
+        fn reads_app_asar_without_7zip() {
+            let asar = asar_bytes();
+            let exe = fake_installer(&asar);
+            let dir = std::env::temp_dir().join(format!("compola-nsis-out-{}", uuid::Uuid::new_v4()));
+            std::fs::create_dir_all(&dir).unwrap();
+            let (setup, target) = (dir.join("ZaloSetup.exe"), dir.join("app.asar"));
+            std::fs::write(&setup, &exe).unwrap();
+            extract_asar(&setup, &target).unwrap();
+            assert_eq!(std::fs::read(&target).unwrap(), asar);
+            let _ = std::fs::remove_dir_all(dir);
+        }
+
+        #[test]
+        fn compressed_or_mismatched_blocks_are_not_used() {
+            let exe = fake_installer(&asar_bytes());
+            let at = exe.windows(6).rposition(|w| w == SIGNATURE).unwrap();
+            let mut flagged = exe.clone();
+            flagged[at - 1] |= 0x80;
+            assert!(embedded_7z(&mut std::io::Cursor::new(flagged)).unwrap().is_none());
+            let mut wrong = exe.clone();
+            wrong[at - 4] ^= 1;
+            assert!(embedded_7z(&mut std::io::Cursor::new(wrong)).unwrap().is_none());
+            assert_eq!(embedded_7z(&mut std::io::Cursor::new(exe)).unwrap().map(|x| x.0), Some(at as u64));
+            assert!(embedded_7z(&mut std::io::Cursor::new(b"no archive here".to_vec())).unwrap().is_none());
+        }
+
+        /// The real pinned installer: `COMPOLA_ZALO_WIN_SETUP=<ZaloSetup-26.10.20.exe> cargo test -- --ignored`.
+        #[test]
+        #[ignore]
+        fn reads_the_real_zalo_installer() {
+            let Some(setup) = std::env::var_os("COMPOLA_ZALO_WIN_SETUP") else { return };
+            let target = std::env::temp_dir().join(format!("compola-real-asar-{}", uuid::Uuid::new_v4()));
+            extract_asar(Path::new(&setup), &target).unwrap();
+            assert!(std::fs::metadata(&target).unwrap().len() > 100 << 20);
+            let _ = std::fs::remove_file(target);
+        }
+    }
 }
 
 /// A file or folder in `work` that goes away however the install ends (including a dropped future).
