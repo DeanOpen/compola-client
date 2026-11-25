@@ -1,0 +1,22 @@
+{
+  "id": "reply-radar",
+  "name": "Khách đang chờ",
+  "version": "1.0.0",
+  "description": "Theo dõi những khách có tin nhắn mới nhất chưa được trả lời: hiện thời gian chờ trong bảng thông tin của hội thoại, báo khi khách chờ quá lâu (trong giờ làm việc) và có trang danh sách khách đang chờ, ai chờ lâu nhất lên đầu.",
+  "author": "Compola",
+  "main": "main.js",
+  "permissions": ["messages:read", "ui", "notifications"],
+  "settings": [
+    { "key": "alertMinutes", "label": "Báo khi khách chờ quá (phút)", "type": "number", "default": 15 },
+    { "key": "workStart", "label": "Giờ bắt đầu làm việc", "type": "time", "default": "08:00" },
+    { "key": "workEnd", "label": "Giờ kết thúc làm việc", "type": "time", "default": "21:00" },
+    { "key": "includeGroups", "label": "Theo dõi cả nhóm chat", "type": "boolean", "default": false },
+    { "key": "notify", "label": "Gửi thông báo khi khách chờ quá lâu", "type": "boolean", "default": true }
+  ],
+  "contributes": {
+    "views": [
+      { "id": "waiting", "title": "Khách đang chờ", "location": "tab", "entry": "ui/waiting.html", "icon": "zap" }
+    ]
+  },
+  "limits": { "memoryMb": 48, "timeoutMs": 5000 }
+}

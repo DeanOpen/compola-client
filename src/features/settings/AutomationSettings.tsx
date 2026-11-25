@@ -1,13 +1,14 @@
 // Settings › Nâng cao: MCP (Compola's own MCP server + external MCP servers), Lịch tự động (cron / one-time schedules)
 // and Add-on. Backed by src/engine/automation.ts (Rust src-tauri/src/automation).
 
-import { AlertTriangle, CalendarClock, Check, ChevronDown, ChevronRight, Copy, FolderOpen, History, Package, Play, Plus, Puzzle, RefreshCw, RotateCw, Sparkles, Trash2, Wrench } from 'lucide-react';
+import { AlertTriangle, CalendarClock, Check, ChevronDown, ChevronRight, Copy, FolderOpen, History, Lock, Send, Package, Play, Plus, Puzzle, RefreshCw, RotateCw, Sparkles, Trash2, Wrench } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { addons as addonApi, useAddonCatalog, type AddonLimits, type AddonLogLine, type AddonPreview, type AiConfig } from '../../engine/addons';
 import { AddonFrame } from '../addons/AddonFrame';
 import {
   addonSettings,
   automation,
+  dataExits,
   cronPresets,
   describeSchedule,
   formatTime,
@@ -921,6 +922,7 @@ export function AddonSettings() {
 /** What the user agrees to before a package is installed. */
 function InstallConsent({ preview, busy, onCancel, onInstall }: { preview: AddonPreview; busy: boolean; onCancel: () => void; onInstall: () => void }) {
   const m = preview.manifest;
+  const exits = dataExits(m);
   const update = preview.installedVersion !== null;
   const lines = [
     `${m.name} ${m.version ? `v${m.version}` : ''}${m.author ? ` · ${m.author}` : ''}`,
@@ -928,7 +930,8 @@ function InstallConsent({ preview, busy, onCancel, onInstall }: { preview: Addon
     update ? `Cập nhật từ v${preview.installedVersion}${preview.downgrade ? ' (phiên bản cũ hơn!)' : ''}. Có thể khôi phục phiên bản trước.` : '',
     `Quyền: ${m.permissions.length ? m.permissions.map((p) => permissionTitles[p] ?? p).join(', ') : 'không có'}`,
     preview.newPermissions.length ? `Quyền mới so với bản đang cài: ${preview.newPermissions.map((p) => permissionTitles[p] ?? p).join(', ')}` : '',
-    m.hosts?.length ? `Chỉ truy cập: ${m.hosts.join(', ')}` : '',
+    preview.newHosts?.length ? `Địa chỉ mạng mới: ${preview.newHosts.join(', ')}` : '',
+    exits.length ? `Có thể đưa dữ liệu ra ngoài qua: ${exits.join('; ')}.` : '🔒 Không thể đưa dữ liệu ra khỏi Compola (không có quyền mạng, gửi tin hay MCP).',
     ...preview.warnings.map((w) => `⚠︎ ${w}`),
     `${preview.files} tệp · ${kb(preview.bytes)}`,
     'Chỉ cài add-on từ nguồn bạn tin tưởng.',
@@ -969,6 +972,7 @@ function AddonCard({ addon, onRemove }: { addon: Addon; onRemove: () => void }) 
         detail={
           <>
             {m.description}
+            <AddonPrivacy addon={addon} />
             <span className="st-auto-chips">
               {m.permissions.map((p) => (
                 <span key={p} className="st-chip" title={p}>
@@ -1050,6 +1054,26 @@ function AddonCard({ addon, onRemove }: { addon: Addon; onRemove: () => void }) 
         </div>
       )}
     </div>
+  );
+}
+
+/** What the add-on can do with what it reads: kept inside Compola, or where it could go. */
+function AddonPrivacy({ addon }: { addon: Addon }) {
+  const exits = dataExits(addon.manifest);
+  const ai = addon.manifest.permissions.includes('ai');
+  if (!exits.length) {
+    return (
+      <span className="st-addon-privacy is-safe" title="Add-on không có quyền mạng, gửi tin hay MCP: Compola chặn mọi đường gửi dữ liệu ra ngoài, kể cả từ giao diện HTML của nó.">
+        <Lock size={12} />
+        Không gửi dữ liệu ra ngoài{ai ? ' · AI chỉ qua nhà cung cấp bạn chọn' : ''}
+      </span>
+    );
+  }
+  return (
+    <span className="st-addon-privacy is-out" title="Compola chỉ cho phép đúng những đường này.">
+      <Send size={12} />
+      Có thể gửi ra: {exits.join(' · ')}
+    </span>
   );
 }
 
@@ -1291,6 +1315,28 @@ function AddonSettingsForm({ addon }: { addon: Addon }) {
         );
       case 'cron':
         return <CronField key={s.key} value={String(v ?? '')} onChange={(expr) => set(s.key, expr)} />;
+      case 'url': {
+        const text = String(v ?? '').trim();
+        let host = '';
+        try {
+          host = text ? new URL(text).host : '';
+        } catch {
+          host = '';
+        }
+        return (
+          <label className="st-field" key={s.key}>
+            <span>{s.label}</span>
+            <input className="st-input st-auto-mono" type="url" inputMode="url" spellCheck={false} placeholder="https://…" value={String(v ?? '')} onChange={(e) => set(s.key, e.target.value)} />
+            {text && !host ? (
+              <span className="st-bad">Địa chỉ chưa hợp lệ</span>
+            ) : host ? (
+              <span className="st-muted">Add-on chỉ được gửi dữ liệu tới {host}.</span>
+            ) : (
+              hint
+            )}
+          </label>
+        );
+      }
       default:
         return (
           <label className="st-field" key={s.key}>

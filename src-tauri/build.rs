@@ -3,6 +3,7 @@ fn main() {
     // The Compola Server admin console is embedded (`include_dir!`): rebuild when `npm run build:admin` changed it.
     println!("cargo:rerun-if-changed=admin-dist");
     println!("cargo:rerun-if-changed=web-dist");
+    println!("cargo:rerun-if-changed=addons");
     tauri_build::try_build(tauri_build::Attributes::new().windows_attributes(windows_attributes()))
         .expect("failed to run tauri-build");
 }

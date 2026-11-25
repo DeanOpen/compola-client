@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="dash">
+  <main class="page">
+    <div class="top">
+      <div>
+        <h1>Thống kê tin nhắn</h1>
+        <p class="sub" id="sub">Đang tải…</p>
+      </div>
+      <div class="seg" id="range" role="group" aria-label="Khoảng thời gian">
+        <button type="button" data-range="7">7 ngày</button>
+        <button type="button" data-range="14">14 ngày</button>
+        <button type="button" data-range="30">30 ngày</button>
+      </div>
+    </div>
+    <div class="banner" id="banner" hidden></div>
+    <section class="kpis" id="kpis"></section>
+    <section class="card">
+      <div class="card-head">
+        <h2 id="bars-title">Tin nhắn theo ngày</h2>
+        <div class="legend"><span><i class="swatch in"></i>Nhận</span><span><i class="swatch out"></i>Gửi</span></div>
+      </div>
+      <div class="chart" id="bars"></div>
+      <div class="card-head" style="margin: 6px 0 0"><span class="meta" id="bars-total"></span></div>
+    </section>
+    <div class="grid2">
+      <section class="card">
+        <div class="card-head">
+          <h2>Giờ khách nhắn nhiều</h2>
+          <span class="meta" id="heat-meta">Tin nhận, 4 tuần gần nhất</span>
+        </div>
+        <div class="heat" id="heat"></div>
+        <div class="heat-foot">
+          <span id="heat-peak"></span>
+          <span class="ramp" aria-hidden="true">Ít <i class="zero"></i><i style="opacity:.3"></i><i style="opacity:.6"></i><i></i> Nhiều</span>
+        </div>
+      </section>
+      <section class="card">
+        <div class="card-head">
+          <h2>Hội thoại sôi nổi nhất</h2>
+          <div class="legend"><span><i class="swatch in"></i>Nhận</span><span><i class="swatch out"></i>Gửi</span></div>
+        </div>
+        <ol class="toplist" id="top"></ol>
+      </section>
+    </div>
+  </main>
+  <script src="format.js"></script>
+  <script src="dashboard.js"></script>
+</body>
+</html>

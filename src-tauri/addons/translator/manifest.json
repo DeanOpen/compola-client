@@ -1,0 +1,27 @@
+{
+  "id": "translator",
+  "name": "Dịch nhanh",
+  "version": "1.0.0",
+  "description": "Cho shop chat với khách nước ngoài (Anh, Trung, Hàn, Nhật, Thái…): viết tiếng Việt, AI dịch sang ngôn ngữ của khách và chèn vào ô soạn tin để nhân viên gửi; dịch các tin gần đây của khách sang tiếng Việt trong bảng thông tin hội thoại. Tự nhận diện ngôn ngữ của khách. Cần bật AI trong Cài đặt › Add-on.",
+  "author": "Compola",
+  "main": "main.js",
+  "permissions": ["messages:read", "ai", "ui"],
+  "settings": [
+    { "key": "tone", "label": "Giọng văn khi dịch tin gửi khách", "type": "select", "default": "polite", "options": [
+      { "value": "polite", "label": "Lịch sự" },
+      { "value": "friendly", "label": "Thân thiện" },
+      { "value": "formal", "label": "Trang trọng" }
+    ] },
+    { "key": "autoPanel", "label": "Tự dịch tin tiếng nước ngoài của khách (chat 1-1) vào bảng Bản dịch", "type": "boolean", "default": false }
+  ],
+  "contributes": {
+    "views": [
+      { "id": "compose", "title": "Dịch nhanh", "location": "composer", "entry": "ui/composer.html", "height": 56 },
+      { "id": "translations", "title": "Bản dịch", "location": "inspector", "entry": "ui/inspector.html", "height": 360 }
+    ],
+    "actions": [
+      { "id": "translate-recent", "title": "Dịch tin gần đây", "context": "conversation" }
+    ]
+  },
+  "limits": { "memoryMb": 64, "timeoutMs": 5000 }
+}

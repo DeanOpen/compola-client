@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="page">
+    <header class="head">
+      <div class="title-row">
+        <h1>Khách đang chờ</h1>
+        <span class="live" id="live" title="Tự cập nhật"><i></i>Trực tiếp</span>
+      </div>
+      <p class="sub" id="sub">Đang tải…</p>
+      <div class="stats" id="stats"></div>
+    </header>
+    <div class="notice" id="notice" hidden></div>
+    <ul class="list" id="list"></ul>
+    <section class="empty" id="empty" hidden>
+      <div class="empty-icon">🎉</div>
+      <h2>Không có khách nào đang chờ 🎉</h2>
+      <p>Mọi tin nhắn của khách đều đã được trả lời. Danh sách tự cập nhật ngay khi có khách nhắn mới.</p>
+    </section>
+  </main>
+  <script src="waiting.js"></script>
+</body>
+</html>

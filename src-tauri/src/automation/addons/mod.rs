@@ -74,7 +74,8 @@ pub struct Manifest {
     pub main: String,
     #[serde(default)]
     pub permissions: Vec<String>,
-    /// Hosts `network` may reach (`api.x.com`, `*.x.com`); empty = any public host.
+    /// Hosts `network` may reach (`api.x.com`, `*.x.com`), plus the hosts of `url` settings the user fills in.
+    /// Nothing else: there is no "any host".
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub hosts: Vec<String>,
     #[serde(default)]
@@ -144,11 +145,24 @@ impl Manifest {
         if !self.contributes.views.is_empty() {
             warnings.push(format!("Add-on thêm {} giao diện HTML vào ứng dụng (chạy trong khung cách ly).", self.contributes.views.len()));
         }
-        if self.has("network") && self.hosts.is_empty() {
-            warnings.push("Add-on được truy cập mọi địa chỉ Internet công khai.".into());
+        let url_settings = self.settings.iter().filter(|s| s.get("type").and_then(Value::as_str) == Some("url")).count();
+        if self.has("network") && self.hosts.is_empty() && url_settings == 0 {
+            return Err("quyền \"network\" cần danh sách \"hosts\" (hoặc một tuỳ chỉnh kiểu \"url\" để người dùng tự nhập địa chỉ)".into());
+        }
+        if self.has("network") {
+            let mut to: Vec<String> = self.hosts.clone();
+            if url_settings > 0 {
+                to.push("địa chỉ bạn nhập trong tuỳ chỉnh".into());
+            }
+            warnings.push(format!("Add-on gửi được dữ liệu tới: {}.", to.join(", ")));
         }
         if self.has("messages:send") {
-            warnings.push("Add-on có thể tự gửi tin nhắn bằng tài khoản Zalo này (có giới hạn tần suất).".into());
+            warnings.push(
+                "Add-on có thể tự gửi tin Zalo, nhưng chỉ vào hội thoại vừa nhắn đến, hội thoại bạn chọn trong tuỳ chỉnh, hoặc nơi bạn vừa dùng add-on.".into(),
+            );
+        }
+        if self.has("mcp") {
+            warnings.push("Add-on dùng được các máy chủ MCP bạn đã cấu hình (chúng có thể gửi dữ liệu ra ngoài).".into());
         }
         if self.version.trim().is_empty() {
             warnings.push("Manifest không có \"version\".".into());
@@ -190,53 +204,71 @@ fn backup_dir(id: &str) -> PathBuf {
     dir().join(".previous").join(id)
 }
 
-struct Builtin {
-    id: &'static str,
-    manifest: &'static str,
-    main: &'static str,
-}
+/// Built-in add-ons: every file of `src-tauri/addons/<id>/` (manifest, main.js, lib/, ui/ …), compiled in.
+static BUILTIN_DIR: include_dir::Dir<'static> = include_dir::include_dir!("$CARGO_MANIFEST_DIR/addons");
 
-macro_rules! builtin {
-    ($id:literal) => {
-        Builtin {
-            id: $id,
-            manifest: include_str!(concat!("../../../addons/", $id, "/manifest.json")),
-            main: include_str!(concat!("../../../addons/", $id, "/main.js")),
-        }
-    };
-}
-
-const BUILTINS: &[Builtin] = &[
-    builtin!("auto-reply"),
-    builtin!("keyword-alert"),
-    builtin!("daily-digest"),
-    builtin!("ai-reply"),
-    builtin!("daily-summary"),
-    builtin!("quick-replies"),
+/// Bundled with the app, installed disabled on first launch and updated with the app.
+const BUILTINS: &[&str] = &[
+    "auto-reply",
+    "keyword-alert",
+    "daily-digest",
+    "ai-reply",
+    "daily-summary",
+    "quick-replies",
+    "reply-radar",
+    "insights",
+    "order-book",
+    "translator",
+    "mood-meter",
+    "webhook",
 ];
 
+/// The files of a built-in add-on, paths relative to its folder.
+pub(crate) fn builtin_files(id: &str) -> Vec<(String, Vec<u8>)> {
+    fn walk(d: &include_dir::Dir<'static>, root: &std::path::Path, out: &mut Vec<(String, Vec<u8>)>) {
+        for f in d.files() {
+            if let Ok(rel) = f.path().strip_prefix(root) {
+                out.push((rel.to_string_lossy().replace('\\', "/"), f.contents().to_vec()));
+            }
+        }
+        for sub in d.dirs() {
+            walk(sub, root, out);
+        }
+    }
+    let mut out = Vec::new();
+    if let Some(d) = BUILTIN_DIR.get_dir(id) {
+        walk(d, d.path(), &mut out);
+    }
+    out.sort();
+    out
+}
+
+fn builtin_manifest(id: &str) -> Option<String> {
+    BUILTIN_DIR.get_file(format!("{id}/manifest.json")).and_then(|f| f.contents_utf8()).map(str::to_owned)
+}
+
 pub fn is_builtin(id: &str) -> bool {
-    BUILTINS.iter().any(|b| b.id == id)
+    BUILTINS.contains(&id)
 }
 
 /// Copies built-in add-ons that were never installed (a removed one stays removed) and updates installed built-ins to a
 /// newer bundled version. Returns the ids copied for the first time.
 pub fn seed(already: &[String]) -> Vec<String> {
     let mut copied = Vec::new();
-    for b in BUILTINS {
-        let Ok(bundled) = serde_json::from_str::<Manifest>(b.manifest) else { continue };
-        let target = dir().join(b.id);
+    for &id in BUILTINS {
+        let Some(Ok(bundled)) = builtin_manifest(id).map(|m| serde_json::from_str::<Manifest>(&m)) else { continue };
+        let target = dir().join(id);
         let installed = read_manifest(&target).ok();
-        let first = !already.iter().any(|a| a == b.id);
+        let first = !already.iter().any(|a| a == id);
         let upgrade = installed.as_ref().is_some_and(|m| m.author == bundled.author && newer(&bundled.version, &m.version));
         if !(first && installed.is_none()) && !upgrade {
             continue;
         }
-        let files = vec![("manifest.json".to_owned(), b.manifest.as_bytes().to_vec()), ("main.js".to_owned(), b.main.as_bytes().to_vec())];
-        match write_package(b.id, &files, upgrade) {
-            Ok(()) if first => copied.push(b.id.to_owned()),
-            Ok(()) => log::info!("add-on {} updated to the bundled {}", b.id, bundled.version),
-            Err(e) => log::warn!("add-on {}: cannot install the bundled copy: {e}", b.id),
+        let files = builtin_files(id);
+        match write_package(id, &files, upgrade) {
+            Ok(()) if first => copied.push(id.to_owned()),
+            Ok(()) => log::info!("add-on {id} updated to the bundled {}", bundled.version),
+            Err(e) => log::warn!("add-on {id}: cannot install the bundled copy: {e}"),
         }
     }
     copied
@@ -343,6 +375,8 @@ pub struct Preview {
     pub installed_version: Option<String>,
     /// Permissions the installed version did not have.
     pub new_permissions: Vec<String>,
+    /// Hosts the installed version could not reach.
+    pub new_hosts: Vec<String>,
     pub downgrade: bool,
     pub replaces_builtin: bool,
 }
@@ -354,6 +388,10 @@ pub fn inspect(from: &Path) -> Result<Preview, String> {
         Some(a) => pkg.manifest.permissions.iter().filter(|p| !a.manifest.has(p)).cloned().collect(),
         None => Vec::new(),
     };
+    let new_hosts = match &installed {
+        Some(a) if pkg.manifest.has("network") => pkg.manifest.hosts.iter().filter(|h| !(a.manifest.has("network") && a.manifest.hosts.contains(h))).cloned().collect(),
+        _ => Vec::new(),
+    };
     Ok(Preview {
         downgrade: installed.as_ref().is_some_and(|a| newer(&a.manifest.version, &pkg.manifest.version)),
         installed_version: installed.as_ref().map(|a| a.manifest.version.clone()),
@@ -361,6 +399,7 @@ pub fn inspect(from: &Path) -> Result<Preview, String> {
         bytes: pkg.files.iter().map(|f| f.1.len() as u64).sum(),
         files: pkg.files.len(),
         new_permissions,
+        new_hosts,
         warnings: pkg.warnings,
         manifest: pkg.manifest,
     })
@@ -583,15 +622,34 @@ pub fn remove(id: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
     use std::io::Write;
 
     #[test]
     fn builtin_manifests_parse_and_validate() {
-        for b in BUILTINS {
-            let m: Manifest = serde_json::from_str(b.manifest).unwrap();
-            assert_eq!(m.id, b.id);
-            m.validate().unwrap_or_else(|e| panic!("{}: {e}", b.id));
+        let only = std::env::var("COMPOLA_SMOKE").unwrap_or_default();
+        for &id in BUILTINS.iter().filter(|id| only.is_empty() || only.split(',').any(|o| o == **id)) {
+            let m: Manifest = serde_json::from_str(&builtin_manifest(id).unwrap_or_else(|| panic!("{id}: no manifest.json"))).unwrap();
+            assert_eq!(m.id, id);
+            m.validate().unwrap_or_else(|e| panic!("{id}: {e}"));
+            // Every declared view's entry and its relative files are in the bundle.
+            let files: Vec<String> = builtin_files(id).into_iter().map(|f| f.0).collect();
+            assert!(files.contains(&m.main), "{id}: {} missing", m.main);
+            for v in views::declared(&m.contributes.views) {
+                let entry = v["entry"].as_str().unwrap();
+                assert!(files.iter().any(|f| f == entry), "{id}: view entry {entry} missing");
+            }
         }
+    }
+
+    #[test]
+    fn network_needs_explicit_hosts() {
+        let m = |v: Value| serde_json::from_value::<Manifest>(v).unwrap().validate();
+        assert!(m(json!({ "id": "a", "name": "A", "permissions": ["network"] })).is_err(), "no \"any host\"");
+        assert!(m(json!({ "id": "a", "name": "A", "permissions": ["network"], "hosts": ["*"] })).is_err());
+        assert!(m(json!({ "id": "a", "name": "A", "permissions": ["network"], "hosts": ["*.com"] })).is_err());
+        assert!(m(json!({ "id": "a", "name": "A", "permissions": ["network"], "hosts": ["api.x.com"] })).is_ok());
+        assert!(m(json!({ "id": "a", "name": "A", "permissions": ["network"], "settings": [{ "key": "hook", "type": "url" }] })).is_ok());
     }
 
     #[test]

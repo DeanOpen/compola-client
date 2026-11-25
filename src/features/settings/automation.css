@@ -569,3 +569,32 @@ input.st-input {
 .st-auto-multi .st-auto-chips {
   margin-top: 0;
 }
+
+/* Where an add-on's data can go (AddonPrivacy). */
+.st-addon-privacy {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  width: fit-content;
+  max-width: 100%;
+  margin-top: 6px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.st-addon-privacy svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+.st-addon-privacy.is-safe {
+  background: color-mix(in srgb, #1f9d5a 10%, transparent);
+  color: #1f9d5a;
+}
+
+.st-addon-privacy.is-out {
+  background: color-mix(in srgb, var(--warning, #c77700) 12%, transparent);
+  color: var(--warning, #a86400);
+}

@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<link rel="stylesheet" href="style.css">
+<style>
+  body { padding: 2px 0 6px; }
+  .top { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .top .sum { flex: 1; min-width: 0; font-size: 12px; color: var(--c-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .top .sum b { color: var(--c-fg); font-weight: 600; }
+  #new { padding: 3px 10px; font-size: 12px; }
+  .list { display: flex; flex-direction: column; gap: 4px; }
+  .o { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-rows: auto auto; column-gap: 8px; align-items: center;
+    width: 100%; text-align: left; padding: 6px 8px; background: var(--c-surface); border: 1px solid transparent; border-radius: var(--radius); }
+  .o:hover { border-color: var(--c-border); }
+  .o .chip { grid-row: 1; grid-column: 1; }
+  .o .what { grid-row: 1; grid-column: 2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
+  .o .total { grid-row: 1; grid-column: 3; font-weight: 600; font-size: 12.5px; }
+  .o .meta { grid-row: 2; grid-column: 1 / 4; font-size: 11.5px; color: var(--c-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 1px; }
+  .more { font-size: 12px; color: var(--c-muted); text-align: center; padding-top: 2px; }
+</style>
+</head>
+<body>
+  <div class="top">
+    <div class="sum" id="sum">Đơn hàng</div>
+    <button id="new" class="primary">+ Tạo đơn</button>
+  </div>
+  <div id="list" class="list"></div>
+  <div id="err" class="err hidden"></div>
+  <script src="../lib/format.js"></script>
+  <script src="orders.js"></script>
+</body>
+</html>

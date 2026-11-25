@@ -1,0 +1,16 @@
+{
+  "id": "insights",
+  "name": "Thống kê tin nhắn",
+  "version": "1.0.0",
+  "description": "Bảng thống kê tin nhắn của tài khoản: tin nhận và gửi mỗi ngày, giờ khách nhắn nhiều nhất trong tuần, hội thoại sôi nổi nhất và thời gian phản hồi khách. Thêm mục thống kê riêng cho từng hội thoại trong bảng thông tin.",
+  "author": "Compola",
+  "main": "main.js",
+  "permissions": ["messages:read", "ui"],
+  "contributes": {
+    "views": [
+      { "id": "dashboard", "title": "Thống kê", "location": "tab", "entry": "ui/dashboard.html", "icon": "chart" },
+      { "id": "conversation", "title": "Thống kê hội thoại", "location": "inspector", "entry": "ui/conversation.html", "height": 200 }
+    ]
+  },
+  "limits": { "memoryMb": 64, "timeoutMs": 5000 }
+}

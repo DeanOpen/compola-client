@@ -97,12 +97,14 @@ export interface Workspace {
 }
 
 export interface AddonPreview {
-  manifest: { id: string; name: string; version: string; description: string; author: string; permissions: string[]; hosts?: string[] };
+  manifest: { id: string; name: string; version: string; description: string; author: string; permissions: string[]; hosts?: string[]; settings?: { type: string }[] };
   warnings: string[];
   files: number;
   bytes: number;
   installedVersion: string | null;
   newPermissions: string[];
+  /** Hosts the installed version could not reach. */
+  newHosts: string[];
   downgrade: boolean;
   replacesBuiltin: boolean;
 }

@@ -1,0 +1,26 @@
+{
+  "id": "webhook",
+  "name": "Gửi sang Webhook",
+  "version": "1.0.0",
+  "description": "Gửi từng tin nhắn (dạng JSON) sang công cụ tự động hoá của bạn: n8n, Make, Zapier, Google Apps Script hoặc CRM. Nội dung tin nhắn chỉ được gửi tới đúng địa chỉ https bạn nhập, không đi đâu khác. Tự gửi lại khi mạng lỗi.",
+  "author": "Compola",
+  "main": "main.js",
+  "permissions": ["messages:read", "network", "ui"],
+  "settings": [
+    { "key": "url", "label": "Địa chỉ webhook (https://…)", "type": "url", "default": "" },
+    { "key": "token", "label": "Mã bí mật (gửi kèm dạng Authorization: Bearer …, có thể để trống)", "type": "secret", "default": "" },
+    { "key": "incoming", "label": "Gửi tin nhắn khách gửi đến", "type": "boolean", "default": true },
+    { "key": "outgoing", "label": "Gửi tin nhắn mình gửi đi", "type": "boolean", "default": false },
+    { "key": "includeGroups", "label": "Gửi cả tin nhắn trong nhóm", "type": "boolean", "default": false },
+    { "key": "only", "label": "Chỉ các hội thoại này (để trống = tất cả)", "type": "conversations", "default": [] }
+  ],
+  "contributes": {
+    "views": [
+      { "id": "status", "title": "Trạng thái gửi", "location": "settings", "entry": "ui/status.html" }
+    ],
+    "actions": [
+      { "id": "test", "title": "Gửi thử webhook", "context": "conversation", "description": "Gửi một yêu cầu thử tới địa chỉ webhook và báo kết quả" }
+    ]
+  },
+  "limits": { "memoryMb": 64, "timeoutMs": 5000 }
+}

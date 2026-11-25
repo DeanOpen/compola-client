@@ -37,6 +37,11 @@ const GLOBAL_SENDS_PER_MINUTE: usize = 60;
 /// A fromMe message matching an add-on's send within this window is tagged `sentBy`.
 const SENT_BY_WINDOW_MS: i64 = 120_000;
 const MAX_FETCH_BYTES: usize = 10 * 1024 * 1024;
+const MAX_REDIRECTS: usize = 5;
+/// `sendText` may answer a conversation this long after its last incoming message.
+const REPLY_WINDOW_MS: i64 = 24 * 3600 * 1000;
+/// … or one where a person used the add-on this recently.
+const TOUCH_WINDOW_MS: i64 = 3600 * 1000;
 const AI_CONCURRENCY: usize = 4;
 
 fn now() -> i64 {
@@ -66,6 +71,8 @@ struct Running {
     digest: String,
     permissions: Vec<String>,
     settings_key: String,
+    /// Current settings (with defaults): user-chosen conversations and URLs widen what the add-on may reach.
+    settings: Value,
     manifest: Manifest,
 }
 
@@ -132,6 +139,10 @@ pub struct AddonHost {
     http: reqwest::Client,
     /// Views waiting for their add-on's answer (`compola.call`).
     view_calls: Mutex<HashMap<String, tokio::sync::oneshot::Sender<Result<Value, String>>>>,
+    /// (account, conversation) → when someone last wrote there (not us): `sendText` may answer them.
+    inbound: Mutex<HashMap<(String, String), i64>>,
+    /// (add-on, conversation) → when a person last used the add-on there (action, view, suggestion).
+    touched: Mutex<HashMap<(String, String), i64>>,
 }
 
 /// The runtime's view of the host for one generation of one add-on.
@@ -220,6 +231,8 @@ impl AddonHost {
             ai_usage: Mutex::default(),
             ai_slots: tokio::sync::Semaphore::new(AI_CONCURRENCY),
             view_calls: Mutex::default(),
+            inbound: Mutex::default(),
+            touched: Mutex::default(),
             http: reqwest::Client::builder()
                 .timeout(Duration::from_secs(60))
                 .redirect(reqwest::redirect::Policy::limited(5))
@@ -425,6 +438,7 @@ impl AddonHost {
             };
             if let Some(r) = self.running.lock().get_mut(&id) {
                 r.settings_key = settings_key.clone();
+                r.settings = settings.clone();
             }
             if restart {
                 self.stop(&id, Status::Stopped);
@@ -487,6 +501,7 @@ impl AddonHost {
                 digest: addon.digest.clone(),
                 permissions,
                 settings_key: settings.to_string(),
+                settings: settings.clone(),
                 manifest: addon.manifest.clone(),
             },
         );
@@ -573,11 +588,13 @@ impl AddonHost {
             (r.manifest.clone(), super::dir().join(addon))
         };
         let v = super::views::declared(&manifest.contributes.views).into_iter().find(|v| v["id"] == view).ok_or("add-on không có giao diện này")?;
-        super::views::document(&folder, &v, manifest.has("network"))
+        let hosts = if manifest.has("network") { self.reachable_hosts(addon) } else { Vec::new() };
+        super::views::document(&folder, &v, &hosts)
     }
 
     /// A view's `compola.call(name, data)`: delivered to the add-on, answered by its `compola.views.handle`.
     pub async fn view_call(&self, addon: &str, name: &str, data: Value, context: Value) -> Result<Value, String> {
+        self.touch(addon, context.get("conversationId"));
         let request_id = uuid::Uuid::new_v4().to_string();
         let (tx, rx) = tokio::sync::oneshot::channel();
         self.view_calls.lock().insert(request_id.clone(), tx);
@@ -671,6 +688,16 @@ impl AddonHost {
             }
         }
         data["sentBy"] = sent_by;
+        if !from_me {
+            if let Some(conv) = message.get("conversationId").and_then(Value::as_str).filter(|c| !c.is_empty()) {
+                let t = now();
+                let mut inbound = self.inbound.lock();
+                if inbound.len() > 20_000 {
+                    inbound.retain(|_, at| *at > t - REPLY_WINDOW_MS);
+                }
+                inbound.insert((account.to_owned(), conv.to_owned()), t);
+            }
+        }
         self.dispatch("message", &data, Some("messages:read"), None);
     }
 
@@ -691,6 +718,7 @@ impl AddonHost {
 
     /// A person ran an add-on action (`{actionId, account, conversationId?, messageId?, text?, payload?, user}`).
     pub fn run_action(&self, addon: &str, data: Value) -> Result<(), String> {
+        self.touch(addon, data.get("conversationId"));
         let running = self.running.lock();
         let r = running.get(addon).ok_or("add-on không chạy")?;
         if !r.mailbox.event(Inbound::Event { name: "action".into(), data }) {
@@ -700,6 +728,47 @@ impl AddonHost {
     }
 
     // ---- helpers for the API ----
+
+    /// A person used `addon` in `conversation` (an action, a view, a suggestion they sent or edited).
+    fn touch(&self, addon: &str, conversation: Option<&Value>) {
+        if let Some(conv) = conversation.and_then(Value::as_str).filter(|c| !c.is_empty()) {
+            let t = now();
+            let mut touched = self.touched.lock();
+            if touched.len() > 5_000 {
+                touched.retain(|_, at| *at > t - TOUCH_WINDOW_MS);
+            }
+            touched.insert((addon.to_owned(), conv.to_owned()), t);
+        }
+    }
+
+    /// Where `sendText` may go, so an add-on cannot carry what it reads to someone else: a conversation that wrote in
+    /// the last 24 hours (a reply), one the user picked in the add-on's settings, or one where a person used the add-on
+    /// in the last hour.
+    fn send_allowed(&self, addon: &str, account: &str, conversation: &str) -> bool {
+        let t = now();
+        if self.inbound.lock().get(&(account.to_owned(), conversation.to_owned())).is_some_and(|at| *at > t - REPLY_WINDOW_MS) {
+            return true;
+        }
+        if self.touched.lock().get(&(addon.to_owned(), conversation.to_owned())).is_some_and(|at| *at > t - TOUCH_WINDOW_MS) {
+            return true;
+        }
+        let running = self.running.lock();
+        running.get(addon).is_some_and(|r| chosen_conversations(&r.manifest, &r.settings).iter().any(|c| c == conversation))
+    }
+
+    /// Hosts `fetch` (and a view's images) may reach: the manifest's `hosts` plus the hosts of the add-on's `url`
+    /// settings (what the user typed in).
+    pub fn reachable_hosts(&self, addon: &str) -> Vec<String> {
+        let running = self.running.lock();
+        match running.get(addon) {
+            Some(r) => {
+                let mut hosts = r.manifest.hosts.clone();
+                hosts.extend(setting_hosts(&r.manifest, &r.settings));
+                hosts
+            }
+            None => Vec::new(),
+        }
+    }
 
     fn need(manifest: &Manifest, permission: &str) -> Result<(), String> {
         if manifest.has(permission) { Ok(()) } else { Err(format!("add-on chưa khai báo quyền \"{permission}\"")) }
@@ -741,6 +810,10 @@ impl AddonHost {
                     return Err("tin nhắn trống".into());
                 }
                 let account = self.account_for(&automation, &opts, Some(&conv))?;
+                if !self.send_allowed(addon, &account, &conv) {
+                    self.log(addon, "warn", format!("chặn gửi tin vào {conv}: không phải hội thoại được phép"));
+                    return Err("add-on chỉ được gửi vào hội thoại vừa nhắn đến (24 giờ), hội thoại bạn chọn trong tuỳ chỉnh của add-on, hoặc nơi bạn vừa dùng add-on".into());
+                }
                 let limits = self.limits(addon);
                 {
                     let mut l = self.limiter.lock();
@@ -977,7 +1050,8 @@ impl AddonHost {
                 if !self.limiter.lock().allow(format!("{addon}|fetch"), 60_000, limits.fetch_per_minute) {
                     return Err(format!("vượt giới hạn {} yêu cầu mạng/phút", limits.fetch_per_minute));
                 }
-                self.fetch(&manifest, &arg_str(&args, 0), arg(&args, 1)).await
+                let hosts = self.reachable_hosts(addon);
+                self.fetch(&hosts, &arg_str(&args, 0), arg(&args, 1)).await
             }
 
             // storage
@@ -1054,49 +1128,84 @@ impl AddonHost {
         }
     }
 
-    /// `fetch` for add-ons: http(s) only, the manifest's hosts, no private / loopback addresses, bounded answers.
-    async fn fetch(&self, manifest: &Manifest, url: &str, init: &Value) -> Result<Value, String> {
-        let parsed = url::Url::parse(url).map_err(|_| format!("URL không hợp lệ: {url}"))?;
-        if !matches!(parsed.scheme(), "http" | "https") {
-            return Err("chỉ hỗ trợ http và https".into());
-        }
-        let host = parsed.host_str().ok_or("URL không có host")?.to_ascii_lowercase();
-        if !host_allowed(&manifest.hosts, &host) {
-            return Err(format!("host \"{host}\" không có trong \"hosts\" của manifest"));
-        }
-        let port = parsed.port_or_known_default().unwrap_or(443);
-        let addrs: Vec<std::net::SocketAddr> = tokio::net::lookup_host((host.as_str(), port)).await.map_err(|e| format!("không phân giải được {host}: {e}"))?.collect();
-        if addrs.is_empty() || addrs.iter().any(|a| private_ip(&a.ip())) {
-            return Err(format!("không được truy cập địa chỉ nội bộ ({host})"));
-        }
-        let method = reqwest::Method::from_bytes(opt_str(init, "method").unwrap_or("GET").to_ascii_uppercase().as_bytes()).map_err(|_| "method không hợp lệ")?;
+    /// `fetch` for add-ons: http(s) only, to the allowed hosts, never to loopback / private addresses, bounded
+    /// answers. The connection goes to the addresses that were checked (no second DNS lookup to rebind), and each
+    /// redirect is checked the same way before it is followed.
+    async fn fetch(&self, hosts: &[String], url: &str, init: &Value) -> Result<Value, String> {
+        let mut target = url::Url::parse(url).map_err(|_| format!("URL không hợp lệ: {url}"))?;
+        let mut method = reqwest::Method::from_bytes(opt_str(init, "method").unwrap_or("GET").to_ascii_uppercase().as_bytes()).map_err(|_| "method không hợp lệ")?;
+        let mut body = init.get("body").and_then(Value::as_str).map(str::to_owned);
         let timeout = init.get("timeoutMs").and_then(Value::as_u64).unwrap_or(30_000).clamp(1000, 120_000);
-        let mut req = self.http.request(method, parsed.clone()).timeout(Duration::from_millis(timeout));
-        if let Some(headers) = init.get("headers").and_then(Value::as_object) {
-            for (k, v) in headers {
-                if let Some(v) = v.as_str() {
-                    req = req.header(k.as_str(), v);
+        for _hop in 0..=MAX_REDIRECTS {
+            if !matches!(target.scheme(), "http" | "https") {
+                return Err("chỉ hỗ trợ http và https".into());
+            }
+            if !target.username().is_empty() || target.password().is_some() {
+                return Err("URL không được chứa tên đăng nhập / mật khẩu".into());
+            }
+            let host = target.host_str().ok_or("URL không có host")?.trim_end_matches('.').to_ascii_lowercase();
+            if !host_allowed(hosts, &host) {
+                return Err(if hosts.is_empty() {
+                    "add-on chưa khai báo \"hosts\" nên không được truy cập mạng".into()
+                } else {
+                    format!("host \"{host}\" không nằm trong các địa chỉ add-on được phép truy cập")
+                });
+            }
+            let port = target.port_or_known_default().unwrap_or(443);
+            let addrs: Vec<std::net::SocketAddr> = tokio::net::lookup_host((host.as_str(), port)).await.map_err(|e| format!("không phân giải được {host}: {e}"))?.collect();
+            if addrs.is_empty() || addrs.iter().any(|a| private_ip(&a.ip())) {
+                return Err(format!("không được truy cập địa chỉ nội bộ ({host})"));
+            }
+            // A client pinned to the checked addresses, no automatic redirects.
+            let client = reqwest::Client::builder()
+                .redirect(reqwest::redirect::Policy::none())
+                .resolve_to_addrs(&host, &addrs)
+                .no_proxy()
+                .user_agent("Compola-Addon/1")
+                .build()
+                .map_err(|e| e.to_string())?;
+            let mut req = client.request(method.clone(), target.clone()).timeout(Duration::from_millis(timeout));
+            if let Some(headers) = init.get("headers").and_then(Value::as_object) {
+                for (k, v) in headers {
+                    if k.eq_ignore_ascii_case("host") {
+                        continue;
+                    }
+                    if let Some(v) = v.as_str() {
+                        req = req.header(k.as_str(), v);
+                    }
                 }
             }
-        }
-        if let Some(body) = init.get("body").and_then(Value::as_str) {
-            req = req.body(body.to_owned());
-        }
-        let mut resp = req.send().await.map_err(|e| format!("yêu cầu thất bại: {e}"))?;
-        let status = resp.status();
-        let final_url = resp.url().to_string();
-        let headers: Map<String, Value> = resp.headers().iter().filter_map(|(k, v)| v.to_str().ok().map(|v| (k.as_str().to_ascii_lowercase(), json!(v)))).collect();
-        let mut body = Vec::new();
-        while let Some(chunk) = resp.chunk().await.map_err(|e| e.to_string())? {
-            if body.len() + chunk.len() > MAX_FETCH_BYTES {
-                return Err(format!("phản hồi quá lớn (tối đa {} MB)", MAX_FETCH_BYTES / 1024 / 1024));
+            if let Some(b) = &body {
+                req = req.body(b.clone());
             }
-            body.extend_from_slice(&chunk);
+            let mut resp = req.send().await.map_err(|e| format!("yêu cầu thất bại: {e}"))?;
+            let status = resp.status();
+            if status.is_redirection() {
+                if let Some(next) = resp.headers().get(reqwest::header::LOCATION).and_then(|l| l.to_str().ok()).and_then(|l| target.join(l).ok()) {
+                    // 303 (and 301/302 after a POST, like browsers) continue as a GET without a body.
+                    if status == reqwest::StatusCode::SEE_OTHER || (method == reqwest::Method::POST && matches!(status.as_u16(), 301 | 302)) {
+                        method = reqwest::Method::GET;
+                        body = None;
+                    }
+                    target = next;
+                    continue;
+                }
+            }
+            let final_url = resp.url().to_string();
+            let headers: Map<String, Value> = resp.headers().iter().filter_map(|(k, v)| v.to_str().ok().map(|v| (k.as_str().to_ascii_lowercase(), json!(v)))).collect();
+            let mut data = Vec::new();
+            while let Some(chunk) = resp.chunk().await.map_err(|e| e.to_string())? {
+                if data.len() + chunk.len() > MAX_FETCH_BYTES {
+                    return Err(format!("phản hồi quá lớn (tối đa {} MB)", MAX_FETCH_BYTES / 1024 / 1024));
+                }
+                data.extend_from_slice(&chunk);
+            }
+            return Ok(json!({
+                "status": status.as_u16(), "statusText": status.canonical_reason().unwrap_or_default(), "url": final_url,
+                "headers": headers, "body": String::from_utf8_lossy(&data),
+            }));
         }
-        Ok(json!({
-            "status": status.as_u16(), "statusText": status.canonical_reason().unwrap_or_default(), "url": final_url,
-            "headers": headers, "body": String::from_utf8_lossy(&body),
-        }))
+        Err(format!("quá nhiều lần chuyển hướng (tối đa {MAX_REDIRECTS})"))
     }
 
     // ---- what people do (commands) ----
@@ -1142,6 +1251,9 @@ impl AddonHost {
             }
         }
         self.emit_workspace("suggestions", &s.account, Some(conversation));
+        if outcome != "dismissed" {
+            self.touch(&s.addon_id, Some(&json!(s.conversation_id)));
+        }
         let data = json!({ "id": s.id, "outcome": outcome, "account": s.account, "conversationId": s.conversation_id, "text": s.text, "user": user });
         self.dispatch("suggestion", &data, None, Some(&s.addon_id));
         Ok(())
@@ -1190,14 +1302,39 @@ pub fn settings_with_defaults(manifest: &Manifest, saved: &Map<String, Value>) -
     out
 }
 
-fn host_allowed(patterns: &[String], host: &str) -> bool {
-    if patterns.is_empty() {
-        return true;
-    }
+/// `patterns`: `api.x.com` or `*.x.com` (x.com and its subdomains). None = no host.
+pub fn host_allowed(patterns: &[String], host: &str) -> bool {
     patterns.iter().any(|p| match p.strip_prefix("*.") {
         Some(base) => host == base || host.ends_with(&format!(".{base}")),
         None => host == p,
     })
+}
+
+/// Conversation ids the user picked in the add-on's settings (`conversation` / `conversations` settings).
+fn chosen_conversations(manifest: &Manifest, settings: &Value) -> Vec<String> {
+    let mut out = Vec::new();
+    for s in &manifest.settings {
+        let (Some(key), Some(kind)) = (s.get("key").and_then(Value::as_str), s.get("type").and_then(Value::as_str)) else { continue };
+        match (kind, settings.get(key)) {
+            ("conversation", Some(Value::String(id))) if !id.is_empty() => out.push(id.clone()),
+            ("conversations", Some(Value::Array(ids))) => out.extend(ids.iter().filter_map(Value::as_str).filter(|i| !i.is_empty()).map(str::to_owned)),
+            _ => {}
+        }
+    }
+    out
+}
+
+/// Hosts of the add-on's `url` settings (a webhook address the user typed in).
+pub fn setting_hosts(manifest: &Manifest, settings: &Value) -> Vec<String> {
+    manifest
+        .settings
+        .iter()
+        .filter(|s| s.get("type").and_then(Value::as_str) == Some("url"))
+        .filter_map(|s| settings.get(s.get("key")?.as_str()?)?.as_str())
+        .filter_map(|v| url::Url::parse(v.trim()).ok())
+        .filter(|u| matches!(u.scheme(), "http" | "https"))
+        .filter_map(|u| u.host_str().map(|h| h.trim_end_matches('.').to_ascii_lowercase()))
+        .collect()
 }
 
 fn private_ip(ip: &std::net::IpAddr) -> bool {
@@ -1217,7 +1354,7 @@ mod tests {
 
     #[test]
     fn hosts_and_private_addresses() {
-        assert!(host_allowed(&[], "anything.com"));
+        assert!(!host_allowed(&[], "anything.com"), "no hosts = no network");
         let p = vec!["api.x.com".to_owned(), "*.y.org".to_owned()];
         assert!(host_allowed(&p, "api.x.com") && host_allowed(&p, "a.b.y.org") && host_allowed(&p, "y.org"));
         assert!(!host_allowed(&p, "x.com") && !host_allowed(&p, "evily.org"));
@@ -1227,6 +1364,23 @@ mod tests {
         for ip in ["8.8.8.8", "1.1.1.1", "2606:4700::1111"] {
             assert!(!private_ip(&ip.parse().unwrap()), "{ip}");
         }
+    }
+
+    #[test]
+    fn user_choices_widen_the_scope() {
+        let m: Manifest = serde_json::from_value(json!({
+            "id": "x", "name": "X", "permissions": ["network", "messages:send"],
+            "settings": [
+                { "key": "to", "type": "conversation" }, { "key": "many", "type": "conversations" },
+                { "key": "hook", "type": "url" }, { "key": "note", "type": "text" }
+            ]
+        }))
+        .unwrap();
+        let settings = json!({ "to": "g1", "many": ["u1", "", "u2"], "hook": "https://Hooks.Example.com/a?b", "note": "https://not-a-url-setting.com" });
+        assert_eq!(chosen_conversations(&m, &settings), ["g1", "u1", "u2"]);
+        assert_eq!(setting_hosts(&m, &settings), ["hooks.example.com"]);
+        assert!(setting_hosts(&m, &json!({ "hook": "file:///etc/passwd" })).is_empty());
+        assert!(chosen_conversations(&m, &json!({})).is_empty());
     }
 
     #[test]

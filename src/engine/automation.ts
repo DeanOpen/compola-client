@@ -56,7 +56,7 @@ export interface RunLog {
 export interface AddonSetting {
   key: string;
   label: string;
-  type: 'text' | 'textarea' | 'number' | 'boolean' | 'select' | 'secret' | 'time' | 'conversation' | 'conversations' | 'cron';
+  type: 'text' | 'textarea' | 'number' | 'boolean' | 'select' | 'secret' | 'time' | 'conversation' | 'conversations' | 'cron' | 'url';
   default?: unknown;
   /** `select`: the choices. */
   options?: { value: string; label: string }[];
@@ -211,6 +211,22 @@ export const permissionTitles: Record<string, string> = {
   notes: 'Ghi chú hội thoại',
   ui: 'Giao diện trong ứng dụng',
   ai: 'Dùng AI',
+};
+
+/**
+ * Where an add-on could carry what it reads (the host enforces each limit: add-ons/host.rs). Empty: nowhere — it can
+ * read and show things inside Compola, but has no way to send them out.
+ */
+export const dataExits = (m: Pick<AddonManifest, 'permissions' | 'hosts'> & { settings?: { type: string }[] }): string[] => {
+  const out: string[] = [];
+  if (m.permissions.includes('network')) {
+    const to = [...(m.hosts ?? [])];
+    if (m.settings?.some((s) => s.type === 'url')) to.push('địa chỉ bạn nhập trong tuỳ chỉnh');
+    out.push(`Internet: ${to.join(', ') || 'không địa chỉ nào'}`);
+  }
+  if (m.permissions.includes('messages:send')) out.push('tin Zalo, chỉ vào hội thoại vừa nhắn đến, hội thoại bạn chọn hoặc nơi bạn vừa dùng add-on');
+  if (m.permissions.includes('mcp')) out.push('các máy chủ MCP bạn đã cấu hình');
+  return out;
 };
 
 export const describeSchedule = (s: Schedule): string => (s.kind === 'cron' ? `cron ${s.expr}` : `một lần · ${formatTime(s.at)}`);

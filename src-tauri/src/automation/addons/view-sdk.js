@@ -4,6 +4,61 @@
 (function () {
   'use strict';
   if (window.compola) return;
+
+  // ---- Ways out the CSP cannot close (defence in depth; the CSP and the app's frame-src do the rest) ----
+  // WebRTC: ICE / STUN traffic is not covered by connect-src, so a peer connection could carry data out.
+  ['RTCPeerConnection', 'webkitRTCPeerConnection', 'mozRTCPeerConnection', 'RTCDataChannel', 'RTCIceTransport', 'RTCSctpTransport'].forEach(function (name) {
+    try { Object.defineProperty(window, name, { value: undefined, writable: false, configurable: false }); } catch (e) { /* already locked */ }
+  });
+  // A nested frame is a fresh window with its own WebRTC: nested frames are removed the moment they appear (the
+  // package's markup has none: views.rs renames those tags). Connection hints are removed too.
+  var BLOCKED = 'iframe,frame,frameset,object,embed,portal,fencedframe,link[rel~="dns-prefetch" i],link[rel~="preconnect" i],link[rel~="prefetch" i],link[rel~="prerender" i]';
+  var roots = [document];
+  function purge() {
+    for (var r = 0; r < roots.length; r++) {
+      var found = roots[r].querySelectorAll(BLOCKED);
+      for (var i = 0; i < found.length; i++) {
+        var el = found[i];
+        if (el.parentNode) el.parentNode.removeChild(el);
+        console.warn('Compola: ' + el.tagName.toLowerCase() + ' không được phép trong giao diện add-on');
+      }
+    }
+  }
+  function guard(proto, name) {
+    var d = proto && Object.getOwnPropertyDescriptor(proto, name);
+    if (!d) return;
+    if (typeof d.value === 'function') {
+      var fn = d.value;
+      // Cheap check first: `window.length` counts nested browsing contexts, so most DOM work costs nothing extra.
+      d.value = function () { var out = fn.apply(this, arguments); if (window.length) purge(); return out; };
+    } else if (d.set) {
+      var set = d.set;
+      d.set = function (v) { set.call(this, v); if (window.length) purge(); };
+    } else return;
+    try { Object.defineProperty(proto, name, d); } catch (e) { /* not configurable */ }
+  }
+  [[Node.prototype, ['appendChild', 'insertBefore', 'replaceChild']],
+   [Element.prototype, ['append', 'prepend', 'before', 'after', 'replaceWith', 'replaceChildren', 'insertAdjacentElement', 'moveBefore', 'insertAdjacentHTML', 'innerHTML', 'outerHTML', 'setHTMLUnsafe']],
+   [typeof DocumentFragment !== 'undefined' && DocumentFragment.prototype, ['append', 'prepend', 'replaceChildren']],
+   [typeof ShadowRoot !== 'undefined' && ShadowRoot.prototype, ['innerHTML', 'setHTMLUnsafe']],
+   [Document.prototype, ['write', 'writeln', 'append', 'prepend', 'replaceChildren', 'execCommand']],
+   [typeof Range !== 'undefined' && Range.prototype, ['insertNode', 'surroundContents']],
+  ].forEach(function (pair) { (pair[1] || []).forEach(function (n) { guard(pair[0], n); }); });
+  var attachShadow = Element.prototype.attachShadow;
+  if (attachShadow) {
+    Element.prototype.attachShadow = function () { var root = attachShadow.apply(this, arguments); roots.push(root); return root; };
+  }
+  ['contentWindow', 'contentDocument'].forEach(function (name) {
+    [typeof HTMLIFrameElement !== 'undefined' && HTMLIFrameElement.prototype, typeof HTMLFrameElement !== 'undefined' && HTMLFrameElement.prototype,
+     typeof HTMLObjectElement !== 'undefined' && HTMLObjectElement.prototype, typeof HTMLEmbedElement !== 'undefined' && HTMLEmbedElement.prototype].forEach(function (proto) {
+      if (proto && Object.getOwnPropertyDescriptor(proto, name)) {
+        try { Object.defineProperty(proto, name, { get: function () { return null; }, configurable: false }); } catch (e) { /* ignore */ }
+      }
+    });
+  });
+  if (typeof MutationObserver === 'function') {
+    new MutationObserver(purge).observe(document, { childList: true, subtree: true, attributes: true, attributeFilter: ['rel'] });
+  }
   var parentWin = window.parent;
   var pending = new Map();
   var listeners = Object.create(null);
@@ -54,7 +109,9 @@
   // Inline views (inspector, composer, settings) grow with their content.
   var lastHeight = 0;
   function reportHeight() {
-    var h = Math.ceil(Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0));
+    // The content's own height (the <html> box), not scrollHeight: that is never less than the frame, so a view that
+    // started tall could never shrink to fit.
+    var h = Math.ceil(document.documentElement.getBoundingClientRect().height);
     if (h && Math.abs(h - lastHeight) > 1) {
       lastHeight = h;
       send({ type: 'resize', payload: { height: h } });
@@ -66,6 +123,12 @@
   } else {
     setInterval(reportHeight, 500);
   }
+  // Browsers pause rendering work (ResizeObserver included) in frames that are off screen, such as a view further
+  // down the info panel: DOM changes still report, so it already has the right height when it scrolls into view.
+  if (typeof MutationObserver === 'function') {
+    new MutationObserver(reportHeight).observe(document.documentElement, { childList: true, subtree: true, characterData: true, attributes: true });
+  }
+  window.addEventListener('load', reportHeight);
 
   window.compola = {
     /** {addonId, viewId, location, account, conversationId, conversationName, isGroup, theme, user, params} */

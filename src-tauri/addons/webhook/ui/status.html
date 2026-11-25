@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <style>
+    :root { --ok: #30a46c; --warn: #f08c00; }
+    :root[data-theme="dark"] { --ok: #4cc38a; --warn: #ffa94d; }
+    * { box-sizing: border-box; }
+    body { padding: 2px 0 8px; }
+    .state { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: var(--radius); background: var(--c-surface);
+      font-size: 13px; min-width: 0; }
+    .state .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--c-muted); }
+    .state.ok .dot { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent); }
+    .state.warn .dot { background: var(--warn); }
+    .state.off .dot { background: var(--c-muted); }
+    .state span.txt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 8px; }
+    .stat { padding: 7px 8px; border: 1px solid var(--c-border); border-radius: var(--radius); min-width: 0; }
+    .stat small { display: block; color: var(--c-muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .stat b { font-size: 17px; font-variant-numeric: tabular-nums; }
+    .stat.bad b { color: var(--c-danger); }
+    .lines { margin-top: 8px; font-size: 12px; display: grid; gap: 3px; }
+    .lines div { display: flex; gap: 6px; min-width: 0; }
+    .lines .k { color: var(--c-muted); flex: none; min-width: 108px; }
+    .lines .v { min-width: 0; overflow-wrap: anywhere; }
+    .lines .v.err { color: var(--c-danger); }
+    .actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; align-items: center; }
+    .actions button { font-size: 12px; padding: 4px 12px; }
+    button:disabled { opacity: .55; cursor: default; }
+    button.danger { color: var(--c-danger); }
+    button.danger.armed { background: var(--c-danger); border-color: var(--c-danger); color: #fff; }
+    .result { font-size: 12px; margin-top: 6px; min-height: 0; }
+    .result.ok { color: var(--ok); }
+    .result.bad { color: var(--c-danger); }
+    .note { font-size: 11px; color: var(--c-muted); margin-top: 8px; }
+    @media (max-width: 380px) {
+      .stats { grid-template-columns: repeat(2, 1fr); }
+      .lines .k { min-width: 92px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="state off" id="state"><span class="dot"></span><span class="txt" id="stateText">Đang tải…</span></div>
+  <div class="stats">
+    <div class="stat"><small>Đang chờ gửi</small><b id="queue">0</b></div>
+    <div class="stat"><small>Đã gửi</small><b id="sent">0</b></div>
+    <div class="stat" id="failedBox"><small>Bị từ chối</small><b id="failed">0</b></div>
+    <div class="stat" id="droppedBox"><small>Bỏ do đầy</small><b id="dropped">0</b></div>
+  </div>
+  <div class="lines">
+    <div><span class="k">Gửi được lần cuối</span><span class="v" id="lastOk">—</span></div>
+    <div id="retryRow" hidden><span class="k">Thử lại lúc</span><span class="v" id="retry"></span></div>
+    <div id="errRow" hidden><span class="k">Lỗi gần nhất</span><span class="v err" id="lastErr"></span></div>
+  </div>
+  <div class="actions">
+    <button class="primary" id="test" type="button">Gửi thử</button>
+    <button class="danger" id="clear" type="button">Xoá hàng đợi</button>
+  </div>
+  <div class="result" id="result"></div>
+  <div class="note">Nội dung tin nhắn chỉ được gửi tới địa chỉ webhook bạn nhập ở trên.</div>
+  <script src="status.js"></script>
+</body>
+</html>

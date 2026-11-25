@@ -1,0 +1,26 @@
+{
+  "id": "mood-meter",
+  "name": "Nhiệt kế khách hàng",
+  "version": "1.0.0",
+  "description": "AI đọc tin nhắn gần đây để đánh giá cảm xúc của khách (từ 😡 đến 😄), hiện ngay trong bảng thông tin hội thoại và báo khi có khách đang bực cần xử lý gấp. Tab \"Cảm xúc khách\" xếp các hội thoại đáng lo nhất lên đầu. Cần bật AI trong Cài đặt › Add-on.",
+  "author": "Compola",
+  "main": "main.js",
+  "permissions": ["messages:read", "ai", "ui", "notifications"],
+  "settings": [
+    { "key": "debounceSeconds", "label": "Chờ khách nhắn xong rồi mới đánh giá (giây)", "type": "number", "default": 90 },
+    { "key": "maxPerHour", "label": "Số lần đánh giá tự động tối đa mỗi giờ", "type": "number", "default": 30 },
+    { "key": "includeGroups", "label": "Đánh giá cả hội thoại nhóm", "type": "boolean", "default": false },
+    { "key": "notifyAngry", "label": "Thông báo khi khách không hài lòng và cần xử lý gấp", "type": "boolean", "default": true },
+    { "key": "conversations", "label": "Chỉ các hội thoại này (để trống = tất cả)", "type": "conversations", "default": [] }
+  ],
+  "contributes": {
+    "views": [
+      { "id": "board", "title": "Cảm xúc khách", "location": "tab", "entry": "ui/board.html", "icon": "star" },
+      { "id": "gauge", "title": "Cảm xúc", "location": "inspector", "entry": "ui/gauge.html", "height": 160 }
+    ],
+    "actions": [
+      { "id": "rate-now", "title": "Đánh giá cảm xúc", "context": "conversation", "description": "AI đánh giá lại cảm xúc của khách từ các tin nhắn gần đây" }
+    ]
+  },
+  "limits": { "memoryMb": 64, "timeoutMs": 5000 }
+}

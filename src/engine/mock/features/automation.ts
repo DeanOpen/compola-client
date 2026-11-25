@@ -2,17 +2,12 @@
 // preview: the real built-in add-on manifests, in the shape `automation_state` returns.
 
 import { registerMockCommand } from '../registry';
-import aiReply from '../../../../src-tauri/addons/ai-reply/manifest.json';
-import dailySummary from '../../../../src-tauri/addons/daily-summary/manifest.json';
-import quickReplies from '../../../../src-tauri/addons/quick-replies/manifest.json';
-import autoReply from '../../../../src-tauri/addons/auto-reply/manifest.json';
-import keywordAlert from '../../../../src-tauri/addons/keyword-alert/manifest.json';
-import dailyDigest from '../../../../src-tauri/addons/daily-digest/manifest.json';
+import { builtinPackages } from './builtinAddons';
 
 type Manifest = { id: string; settings?: { key: string; type?: string; default?: unknown }[] } & Record<string, unknown>;
 
 const limits = { sendPerMinute: 20, sendPerConversationHour: 30, aiPerHour: 300, fetchPerMinute: 120 };
-const enabled = new Set(['quick-replies', 'ai-reply']);
+const enabled = new Set(['quick-replies', 'ai-reply', ...builtinPackages.filter((p) => (p.manifest.contributes?.views ?? []).length > 0).map((p) => p.id)]);
 const saved: Record<string, Record<string, unknown>> = {};
 
 const view = (m: Manifest) => {
@@ -34,7 +29,7 @@ const view = (m: Manifest) => {
   };
 };
 
-const manifests = [aiReply, dailySummary, quickReplies, autoReply, keywordAlert, dailyDigest] as Manifest[];
+const manifests = builtinPackages.map((p) => p.manifest) as unknown as Manifest[];
 
 registerMockCommand('automation_state', () => ({
   server: { config: { enabled: false, port: 39217, token: 'mock', allowSend: false, allowSchedules: true, exposeExternal: false }, running: false, url: null, error: null },

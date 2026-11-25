@@ -526,6 +526,114 @@ mod tests {
         panic!("no log containing {needle:?}");
     }
 
+    /// Answers every API with plausible data, like a busy shop account.
+    struct SmokeBridge {
+        mailbox: Arc<Mailbox>,
+        logs: mpsc::Sender<String>,
+    }
+
+    impl Bridge for SmokeBridge {
+        fn call(&self, _addon: &str, id: u64, method: String, args: Value) {
+            let now = chrono::Utc::now().timestamp_millis();
+            let msgs = json!([
+                { "id": "m1", "conversationId": "u1", "conversationName": "Chị An", "senderName": "Chị An", "fromMe": false,
+                  "text": "Shop ơi cho mình 2 áo thun size M màu trắng, giao 12 Lê Lợi Q1, sđt 0901234567", "date": now - 600_000 },
+                { "id": "m2", "conversationId": "u1", "conversationName": "Chị An", "senderName": "Shop", "fromMe": true,
+                  "text": "Dạ shop gửi chị 2 áo 350k ạ", "date": now - 300_000 },
+                { "id": "m3", "conversationId": "u1", "conversationName": "Chị An", "senderName": "Chị An", "fromMe": false,
+                  "text": "Sao lâu vậy shop, mình đợi mãi", "date": now - 60_000 },
+            ]);
+            let value = match method.as_str() {
+                "conversations" => json!([{ "id": "u1", "name": "Chị An", "isGroup": false, "unread": 1, "account": "acc" },
+                                          { "id": "g1", "name": "Nhóm sỉ", "isGroup": true, "unread": 0, "account": "acc" }]),
+                "messages" | "history" => msgs,
+                "activeConversations" => json!([{ "id": "u1", "name": "Chị An", "isGroup": false, "count": 3, "lastDate": now, "account": "acc" }]),
+                "search" => json!([]),
+                "accounts" => json!([{ "id": "acc", "name": "Shop", "phone": "0900000000" }]),
+                "aiAvailable" => json!(true),
+                "aiComplete" => json!({ "text": "{}", "json": {}, "model": "test", "usage": { "inputTokens": 1, "outputTokens": 1 } }),
+                "notesList" => json!([]),
+                "notesAdd" | "suggest" => json!("n1"),
+                "fetch" => json!({ "status": 200, "statusText": "OK", "url": args[0], "headers": {}, "body": "{}" }),
+                "schedulesList" | "mcpServers" | "mcpTools" => json!([]),
+                "scheduleSave" => json!({ "id": "j1" }),
+                _ => Value::Null,
+            };
+            let mb = self.mailbox.clone();
+            std::thread::spawn(move || mb.control(Inbound::Reply { id, ok: true, value }));
+        }
+        fn log(&self, addon: &str, level: &str, text: String) {
+            let _ = self.logs.send(format!("{addon} {level}: {text}"));
+        }
+        fn subscribe(&self, _addon: &str, _events: Vec<String>) {}
+        fn tools(&self, _addon: &str, _tools: Vec<Value>) {}
+        fn tool_result(&self, _request_id: String, _ok: bool, _result: Value) {}
+        fn view_result(&self, request_id: String, ok: bool, result: Value) {
+            if !ok {
+                let _ = self.logs.send(format!("view-call {request_id} error: {result}"));
+            }
+        }
+    }
+
+    /// Every built-in add-on starts, handles messages, its actions and a schedule tick without an error.
+    #[test]
+    fn builtins_run_without_errors() {
+        let only = std::env::var("COMPOLA_SMOKE").unwrap_or_default();
+        for &id in super::super::BUILTINS.iter().filter(|id| only.is_empty() || only.split(',').any(|o| o == **id)) {
+            let files = super::super::builtin_files(id);
+            if files.is_empty() {
+                panic!("{id}: not bundled");
+            }
+            let folder = std::env::temp_dir().join(format!("compola-smoke-{id}-{}", uuid::Uuid::new_v4()));
+            for (rel, bytes) in &files {
+                let p = folder.join(rel);
+                std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+                std::fs::write(p, bytes).unwrap();
+            }
+            let manifest: super::super::Manifest = serde_json::from_slice(&std::fs::read(folder.join("manifest.json")).unwrap()).unwrap();
+            let settings = Value::Object(super::super::host::settings_with_defaults(&manifest, &Default::default()));
+            let (tx, rx) = mpsc::channel();
+            let mailbox = Mailbox::new(64);
+            let bridge = Arc::new(SmokeBridge { mailbox: mailbox.clone(), logs: tx });
+            let spec = Spec {
+                id: id.into(),
+                source: String::from_utf8(std::fs::read(folder.join(&manifest.main)).unwrap()).unwrap(),
+                main: manifest.main.clone(),
+                folder: folder.clone(),
+                manifest: serde_json::to_value(&manifest).unwrap(),
+                settings,
+                storage: json!({}),
+                memory_bytes: manifest.memory_bytes(),
+                timeout_ms: manifest.timeout_ms(),
+            };
+            let mb = mailbox.clone();
+            let handle = std::thread::spawn(move || run(spec, mb, bridge, Arc::default()));
+            std::thread::sleep(Duration::from_millis(300));
+            let now = chrono::Utc::now().timestamp_millis();
+            let incoming = json!({ "account": "acc", "id": "m9", "conversationId": "u1", "conversationName": "Chị An", "isGroup": false,
+                                   "senderName": "Chị An", "fromMe": false, "sentBy": null, "text": "Hàng giao chậm quá, tôi muốn huỷ đơn!", "date": now });
+            mailbox.event(Inbound::Event { name: "message".into(), data: incoming });
+            let mine = json!({ "account": "acc", "id": "m10", "conversationId": "u1", "conversationName": "Chị An", "isGroup": false,
+                               "senderName": "Shop", "fromMe": true, "sentBy": null, "text": "Dạ shop xin lỗi chị ạ", "date": now + 1 });
+            mailbox.event(Inbound::Event { name: "message".into(), data: mine });
+            for a in &manifest.contributes.actions {
+                if let Some(aid) = a.get("id").and_then(Value::as_str) {
+                    let data = json!({ "actionId": aid, "account": "acc", "conversationId": "u1", "text": "", "payload": null,
+                                       "user": { "kind": "local", "id": "me", "name": "Tôi" } });
+                    mailbox.event(Inbound::Event { name: "action".into(), data });
+                }
+            }
+            mailbox.event(Inbound::Event { name: "schedule".into(), data: json!({}) });
+            std::thread::sleep(Duration::from_millis(1500));
+            mailbox.stop();
+            let exit = handle.join().unwrap();
+            let errors: Vec<String> = rx.try_iter().filter(|l| l.contains("error:")).collect();
+            let _ = std::fs::remove_dir_all(&folder);
+            assert!(errors.is_empty(), "{id}: {errors:#?}");
+            assert_eq!(exit, Exit::Stopped, "{id}");
+        }
+    }
+
     #[test]
     fn events_rpc_timers_and_storage() {
         let (mb, rx, handle, bridge) = start(
@@ -626,7 +734,7 @@ mod tests {
         let pkg = super::super::load(&folder).expect("example package loads");
         assert_eq!(pkg.manifest.contributes.views.len(), 3);
         for v in super::super::views::declared(&pkg.manifest.contributes.views) {
-            let doc = super::super::views::document(&folder, &v, false).unwrap();
+            let doc = super::super::views::document(&folder, &v, &[]).unwrap();
             assert!(doc.contains("window.compola") && !doc.contains("src=\"card.js\"") && !doc.contains("href=\"shared.css\""), "{}", v["id"]);
         }
         let (tx, rx) = mpsc::channel();

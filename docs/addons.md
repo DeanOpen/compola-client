@@ -64,21 +64,41 @@ To build a zip: `scripts/pack-addon.sh <folder>`.
 ```
 
 Setting types: `text`, `textarea`, `number`, `boolean`, `select` (`options`), `secret`, `time` (HH:MM), `conversation`,
-`conversations` (a list), `cron`.
+`conversations` (a list), `cron`, `url` (its host becomes reachable with `network`: a webhook address the user types in).
 
 ### Permissions
 
 | Permission | Allows |
 |---|---|
 | `messages:read` | `message` events, `conversations`, `messages`, `history`, `activeConversations`, `search`, `accounts` |
-| `messages:send` | `sendText` (rate-limited) |
+| `messages:send` | `sendText` (rate-limited), only into a conversation that wrote in the last 24 hours, one the user picked in the add-on's `conversation` / `conversations` settings, or one where a person used the add-on in the last hour |
 | `notes` | `notes.*`: comments on a conversation, shown in its info panel |
 | `ui` | `ui.suggest`, `ui.panel`, `ui.toast`, `ui.openView`, `quickReplies.set`, `actions.set`, `views.*`, HTML views |
 | `ai` | `ai.complete` through the provider set in Settings (the add-on never sees the API key) |
 | `schedules` | its own cron or one-time schedules (`schedule` event) |
 | `mcp` | external MCP servers configured in Settings |
-| `network` | `fetch` to `hosts` (any public host when empty). Never to loopback or private addresses. Responses up to 10 MB |
+| `network` | `fetch` to `hosts` and to the hosts of the add-on's `url` settings, nothing else (required: a manifest with `network` but no `hosts` and no `url` setting is refused). Never to loopback or private addresses; the connection goes to the addresses that were checked, and each redirect is checked again. Responses up to 10 MB |
 | `notifications` | system notifications |
+
+## Data protection
+
+An add-on reads what its permissions allow; what matters is where it could carry it. Compola closes every way out
+except the ones the manifest declares, and Settings shows the result on each card and before install: **🔒 Không gửi
+dữ liệu ra ngoài**, or **Có thể gửi ra: …** with the exact channels.
+
+| Way out | How it is closed |
+|---|---|
+| Network from the backend | No socket or HTTP of its own (QuickJS, no I/O). `fetch` only with `network`, only to declared hosts / hosts of `url` settings; private and loopback addresses refused, DNS pinned (no rebinding), redirects re-checked |
+| Zalo messages | `sendText` only with `messages:send`, only to the conversations above (not to an arbitrary contact), rate-limited per add-on, per conversation and for all add-ons together |
+| MCP servers | Only with `mcp` (the servers the user configured), shown as a way out |
+| AI | Only to the provider the user set (the add-on never sees the key or the URL, and cannot add tools to the request) |
+| HTML views | Sandboxed `srcdoc` iframe, opaque origin. CSP first in the document: no `connect-src`, no forms, no workers beyond `blob:`, images/media only from `data:`/`blob:` (plus the add-on's own hosts with `network`). The app's `frame-src` stops a view from navigating itself to another address with data in the URL. Nested frames, `<object>`/`<embed>` and connection hints (`preconnect`, `dns-prefetch`, `prefetch`) are stripped from the markup and removed at runtime; DNS prefetching is off; WebRTC (`RTCPeerConnection`) is removed |
+| Other add-ons, the app | Each add-on has its own runtime, storage and notes; views cannot reach the app, its storage or Tauri |
+| Notes, panels, suggestions | Plain text in the UI (no HTML, no remote images) |
+| Updates | An update that adds permissions or hosts lists them before it installs |
+
+Residual risk worth knowing: a person can always be persuaded to send a suggestion or a reply an add-on prepared, and an
+add-on with `messages:send` may answer anyone who wrote in the last day. Install add-ons from sources you trust.
 
 ## Backend API (`main.js`)
 
@@ -116,7 +136,7 @@ await compola.views.post(name, data, { viewId, conversationId })  // to open vie
 
 compola.storage.get(key) / storage.all() / await storage.set(key, value) / storage.remove(key)
 compola.assets.read('prompt.md');  require('./lib/util.js')
-await fetch(url, { method, headers, body, timeoutMs })     // `network`
+await fetch(url, { method, headers, body, timeoutMs })     // `network`: `hosts` + hosts of `url` settings only
 await compola.schedules.save({ cron | at, name, payload }) / list() / remove(id) / runNow(id)
 await compola.mcp.servers() / mcp.tools(id) / mcp.call(id, tool, args)
 compola.tools.register({ name, description, inputSchema }, handler)   // offered to AI apps by Compola's MCP server
@@ -141,9 +161,10 @@ Panel blocks (no HTML): `{type:'text', text, muted}`, `{type:'heading', text}`, 
 
 The entry HTML and its relative `<script src>`, `<link rel=stylesheet>`, images and CSS `url()` are inlined into one
 document, shown in `<iframe sandbox="allow-scripts allow-forms">`. The view has an opaque origin, so it cannot reach the
-app, its storage or Tauri. Its CSP blocks the network, and remote images are allowed only for add-ons with `network`. A view
-gets data only through its add-on, so it can do exactly what the add-on's permissions allow. Remote `<script src>` is
-dropped: bundle libraries into the package. The view runs in every Compola UI (host, joined app, web client).
+app, its storage or Tauri. Its CSP blocks the network, and remote images are allowed only from the add-on's own hosts when
+it has `network`. A view gets data only through its add-on, so it can do exactly what the add-on's permissions allow.
+Remote `<script src>` is dropped: bundle libraries into the package. `<iframe>`, `<object>`, `<embed>` and WebRTC are
+not available (see *Data protection*). The view runs in every Compola UI (host, joined app, web client).
 
 Injected in every view (`window.compola`):
 
@@ -175,7 +196,27 @@ Installed disabled:
   plain). Optionally sends a report to a conversation. Also has the action *Tóm tắt hôm nay* and the MCP tool
   `summarize_conversation`.
 - **Tin nhắn nhanh**: `/shortcut | text` lines become quick replies (type `/` in the message box).
+- **Khách đang chờ** (`reply-radar`): customers whose last message is still unanswered, longest wait first (a tab), a
+  panel with the wait time, a notification after N minutes within working hours. Nothing leaves Compola.
+- **Thống kê tin nhắn** (`insights`): a dashboard tab (today vs. yesterday, 7/14/30-day in/out chart, busiest
+  weekday × hour heatmap, top conversations, median response time) and per-conversation stats in the info panel.
+  Nothing leaves Compola.
+- **Sổ đơn hàng** (`order-book`): *Tạo đơn* opens an order form the AI fills in from the chat (name, phone, address,
+  items, shipping); saved orders become a pinned note, show in the info panel and in an *Đơn hàng* tab with statuses,
+  search, revenue and CSV. *Lưu và chèn xác nhận* puts a confirmation in the message box.
+- **Dịch nhanh** (`translator`): a strip above the message box translates what you write into the customer's language
+  (detected per conversation) and inserts it; *Dịch tin gần đây* and the info panel translate the customer's messages.
+- **Nhiệt kế khách hàng** (`mood-meter`): after a customer stops typing, AI rates their mood (−2…+2) with a reason;
+  a panel, an info-panel gauge with history, a tab of unhappy customers first, and a notification for urgent ones.
+- **Gửi sang Webhook** (`webhook`): posts messages as JSON to the https address you enter (n8n, Make, Zapier, Apps
+  Script, a CRM), with a retrying queue and a status page in its settings. The only add-on here that sends data out,
+  and only to that address.
 - **Trả lời tự động**, **Cảnh báo từ khoá**, **Tóm tắt hằng ngày**: as before.
+
+Built-ins live in `src-tauri/addons/<id>/` (every file is bundled, HTML views included). `cargo test --lib builtin`
+boots each one in the real runtime with sample data (`COMPOLA_SMOKE=<ids>` to pick some). In the browser preview
+(`npm run dev`, `?mock=1`) the built-ins with views run for real in Web Workers with canned AI answers
+(`src/engine/mock/features/builtinAddons.ts`).
 
 ## AI provider
 

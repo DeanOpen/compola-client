@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<link rel="stylesheet" href="style.css">
+<style>
+  html, body { height: 100%; }
+  body { display: flex; flex-direction: column; overflow: hidden; }
+  #scroll { flex: 1; overflow-y: auto; padding: 4px 16px 12px; }
+  label.f { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--c-muted); margin-bottom: 10px; min-width: 0; }
+  label.f input, label.f select, label.f textarea { width: 100%; color: var(--c-fg); font-size: 13px; }
+  textarea { resize: vertical; min-height: 38px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .hint { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--c-muted); background: var(--c-surface);
+    border-radius: var(--radius); padding: 6px 10px; margin: 2px 0 12px; }
+  .hint b { color: var(--c-fg); font-weight: 500; }
+  .head { display: flex; align-items: center; gap: 8px; margin: 2px 0 12px; font-size: 12.5px; }
+  .head strong { font-size: 14px; }
+  .loading { display: flex; align-items: center; justify-content: center; gap: 8px; color: var(--c-muted); padding: 48px 0; }
+  .sec { display: flex; align-items: baseline; justify-content: space-between; font-size: 12px; color: var(--c-muted); margin: 2px 0 4px; }
+  .items { border: 1px solid var(--c-border); border-radius: var(--radius); overflow: hidden; margin-bottom: 6px; }
+  .irow { display: grid; grid-template-columns: minmax(0, 1fr) 52px 100px 92px 28px; gap: 6px; align-items: center; padding: 5px 6px; }
+  .irow + .irow { border-top: 1px solid var(--c-border); }
+  .irow.th { background: var(--c-surface); font-size: 11.5px; color: var(--c-muted); padding-top: 4px; padding-bottom: 4px; }
+  .irow input { width: 100%; padding: 4px 6px; }
+  .irow .qty, .irow .price { text-align: right; }
+  .irow .line { text-align: right; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .irow .x { padding: 2px 0; width: 26px; font-size: 15px; line-height: 1; }
+  #addItem { margin-bottom: 12px; padding-left: 4px; color: var(--c-accent); }
+  .totals { border-top: 1px dashed var(--c-border); padding-top: 8px; margin-top: 2px; font-size: 12.5px; }
+  .totals div { display: flex; justify-content: space-between; padding: 1px 0; color: var(--c-muted); }
+  .totals .grand { color: var(--c-fg); font-size: 15px; font-weight: 600; padding-top: 4px; }
+  footer { border-top: 1px solid var(--c-border); padding: 10px 16px 12px; background: var(--c-bg); }
+  footer .err { margin-bottom: 6px; }
+  .btns { display: flex; gap: 6px; align-items: center; }
+  .btns .grow { flex: 1; }
+  @media (max-width: 440px) {
+    .irow { grid-template-columns: minmax(0, 1fr) 44px 86px 26px; }
+    .irow .line { display: none; }
+    .grid2 { grid-template-columns: 1fr; gap: 0; }
+    .btns { flex-wrap: wrap; }
+  }
+</style>
+</head>
+<body>
+  <div id="scroll">
+    <div id="loading" class="loading"><span class="spinner"></span><span id="loadingText">Đang đọc hội thoại…</span></div>
+    <form id="form" class="hidden" autocomplete="off" novalidate>
+      <div id="hint" class="hint hidden"></div>
+      <div id="head" class="head hidden"></div>
+      <div class="grid2">
+        <label class="f">Tên khách<input id="customerName" maxlength="120"></label>
+        <label class="f">Số điện thoại<input id="phone" inputmode="tel" maxlength="40"></label>
+      </div>
+      <label class="f">Địa chỉ giao hàng<input id="address" maxlength="300"></label>
+      <div class="sec"><span>Sản phẩm</span><span id="count"></span></div>
+      <div class="items" id="items">
+        <div class="irow th"><span>Tên sản phẩm</span><span style="text-align:right">SL</span><span style="text-align:right">Đơn giá</span><span class="line">Thành tiền</span><span></span></div>
+      </div>
+      <button type="button" id="addItem" class="ghost">+ Thêm sản phẩm</button>
+      <div class="grid2">
+        <label class="f">Phí giao hàng (₫)<input id="shippingFee" class="num" inputmode="numeric" placeholder="0"></label>
+        <label class="f">Trạng thái<select id="status"></select></label>
+      </div>
+      <label class="f">Ghi chú<textarea id="note" rows="2" maxlength="500" placeholder="Giờ giao, gói quà, đã cọc…"></textarea></label>
+      <div class="totals num">
+        <div><span>Tạm tính</span><span id="subtotal">0 ₫</span></div>
+        <div><span>Phí giao hàng</span><span id="ship">0 ₫</span></div>
+        <div class="grand"><span>Tổng cộng</span><span id="total">0 ₫</span></div>
+      </div>
+    </form>
+  </div>
+  <footer>
+    <div id="err" class="err hidden"></div>
+    <div class="btns">
+      <button type="button" id="remove" class="ghost danger hidden">Xoá đơn</button>
+      <span class="grow"></span>
+      <button type="button" id="cancel">Huỷ</button>
+      <button type="button" id="save" disabled>Lưu đơn</button>
+      <button type="button" id="saveInsert" class="primary" disabled>Lưu và chèn xác nhận</button>
+    </div>
+  </footer>
+  <script src="../lib/format.js"></script>
+  <script src="order.js"></script>
+</body>
+</html>

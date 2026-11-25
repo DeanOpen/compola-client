@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<link rel="stylesheet" href="style.css">
+<style>
+  body { padding: 6px 0; }
+  form { display: flex; align-items: center; gap: 6px; margin: 0; }
+  .field { flex: 1; min-width: 0; position: relative; display: flex; align-items: center; }
+  .field .icon { position: absolute; left: 9px; color: var(--c-muted); font-size: 13px; pointer-events: none; }
+  #text { width: 100%; padding: 6px 10px 6px 28px; height: 32px; }
+  #lang { height: 32px; max-width: 176px; padding: 4px 6px; flex: 0 1 auto; min-width: 0; }
+  #go { height: 32px; flex: 0 0 auto; }
+  @media (max-width: 420px) {
+    #lang { max-width: 104px; }
+    .field .icon { display: none; }
+    #text { padding-left: 10px; }
+  }
+</style>
+</head>
+<body>
+  <form id="form" autocomplete="off">
+    <div class="field">
+      <span class="icon" aria-hidden="true">文</span>
+      <input id="text" placeholder="Viết tiếng Việt…" maxlength="4000" aria-label="Nội dung tiếng Việt cần dịch">
+    </div>
+    <select id="lang" title="Dịch sang" aria-label="Dịch sang"></select>
+    <button id="go" class="primary" type="submit">Dịch &amp; chèn</button>
+  </form>
+  <script src="../lib/lang.js"></script>
+  <script src="composer.js"></script>
+</body>
+</html>

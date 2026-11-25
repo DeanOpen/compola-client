@@ -1,0 +1,15 @@
+/* Dịch nhanh — shared view styles (base styles and --c-* variables come from Compola). */
+* { box-sizing: border-box; }
+body { -webkit-font-smoothing: antialiased; }
+.muted { color: var(--c-muted); }
+.hidden { display: none !important; }
+.err { color: var(--c-danger); font-size: 12px; }
+button { white-space: nowrap; transition: background .12s, border-color .12s, opacity .12s; }
+button:hover:not(:disabled) { border-color: var(--c-accent); }
+button.primary:hover:not(:disabled) { opacity: .92; }
+button:disabled { opacity: .55; cursor: default; }
+input:focus, select:focus { outline: none; border-color: var(--c-accent); box-shadow: 0 0 0 2px rgba(0, 104, 255, .18); }
+input::placeholder { color: var(--c-muted); opacity: .8; }
+.spinner { display: inline-block; width: 11px; height: 11px; border: 2px solid currentColor; border-right-color: transparent;
+  border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -1px; margin-right: 5px; }
+@keyframes spin { to { transform: rotate(360deg); } }

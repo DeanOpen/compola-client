@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<link rel="stylesheet" href="style.css">
+<style>
+  body { padding: 2px 0 6px; }
+  .top { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .lang { flex: 1; min-width: 0; font-size: 12px; color: var(--c-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chip { display: inline-block; padding: 1px 8px; border-radius: 999px; background: rgba(0, 104, 255, .12); color: var(--c-accent);
+    font-weight: 500; font-size: 11.5px; margin-left: 2px; }
+  #again { padding: 3px 10px; font-size: 12px; }
+  .list { display: flex; flex-direction: column; gap: 6px; }
+  .t { background: var(--c-surface); border-radius: var(--radius); padding: 6px 9px; }
+  .t .orig { font-size: 12px; color: var(--c-muted); white-space: pre-wrap; word-break: break-word; }
+  .t .vi { font-size: 13px; margin-top: 2px; white-space: pre-wrap; word-break: break-word; }
+  .t .vi.none { color: var(--c-muted); font-style: italic; }
+  .t .when { float: right; font-size: 11px; color: var(--c-muted); margin-left: 6px; }
+  .empty { color: var(--c-muted); font-size: 12.5px; padding: 8px 2px; }
+  .foot { font-size: 11px; color: var(--c-muted); margin-top: 6px; }
+</style>
+</head>
+<body>
+  <div class="top">
+    <div class="lang" id="lang">Ngôn ngữ của khách: …</div>
+    <button id="again">Dịch lại</button>
+  </div>
+  <div id="list" class="list"></div>
+  <div id="err" class="err hidden"></div>
+  <div id="foot" class="foot hidden"></div>
+  <script src="inspector.js"></script>
+</body>
+</html>

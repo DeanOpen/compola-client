@@ -1,0 +1,28 @@
+{
+  "id": "order-book",
+  "name": "Sổ đơn hàng",
+  "version": "1.0.0",
+  "description": "Tạo đơn ngay trong hội thoại: AI đọc tin nhắn và điền sẵn tên, số điện thoại, địa chỉ, sản phẩm; nhân viên kiểm tra rồi lưu. Mỗi đơn được ghim thành ghi chú của hội thoại, xem trong bảng thông tin khách và trong tab Đơn hàng (lọc theo trạng thái, tìm kiếm, doanh thu hôm nay / 7 ngày, xuất CSV). Không có AI vẫn dùng được với form trống.",
+  "author": "Compola",
+  "main": "main.js",
+  "permissions": ["messages:read", "ai", "notes", "ui"],
+  "settings": [
+    {
+      "key": "confirmTemplate",
+      "label": "Mẫu tin xác nhận đơn ({{name}}, {{items}}, {{total}}, {{address}}, {{phone}}, {{shipping}}, {{code}})",
+      "type": "textarea",
+      "default": "Dạ shop xin xác nhận đơn hàng của {{name}}:\n{{items}}\nTổng thanh toán: {{total}}\nGiao đến: {{address}}\nAnh/chị kiểm tra giúp shop thông tin trên nhé, cần sửa gì cứ nhắn shop ạ. Cảm ơn anh/chị! 🙏"
+    }
+  ],
+  "contributes": {
+    "views": [
+      { "id": "order", "title": "Tạo đơn hàng", "location": "modal", "entry": "ui/order.html", "width": 520, "height": 620 },
+      { "id": "orders", "title": "Đơn hàng", "location": "inspector", "entry": "ui/orders.html", "height": 220 },
+      { "id": "book", "title": "Đơn hàng", "location": "tab", "entry": "ui/book.html", "icon": "cart" }
+    ],
+    "actions": [
+      { "id": "new-order", "title": "Tạo đơn", "context": "conversation", "view": "order" }
+    ]
+  },
+  "limits": { "memoryMb": 64, "timeoutMs": 5000 }
+}
