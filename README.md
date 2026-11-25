@@ -1,172 +1,173 @@
 # Compola
 
-**A native macOS client for Zalo, built for teams.** Compola runs the official Zalo PC engine headless and puts a
-fast, keyboard-friendly UI on top. It also ships **Compola Server**: one Compola shares its Zalo account with your
-staff, each with their own sign-in, role and conversation scope, managed from a web admin console.
+**Ứng dụng Zalo gốc cho macOS, làm cho làm việc nhóm.** Compola chạy ẩn bộ máy Zalo PC chính thức và đặt lên trên một
+giao diện nhanh, dùng tốt bằng bàn phím. Compola còn có **Compola Server**: một Compola chia sẻ tài khoản Zalo của mình
+cho nhân viên, mỗi người có tài khoản đăng nhập, vai trò và phạm vi hội thoại riêng, quản lý qua trang quản trị trên web.
 
-Rust + Tauri 2 · React 19 · macOS 11+ (Apple silicon and Intel) · port of `zalo-swift-re`
+Rust + Tauri 2 · React 19 · macOS 11+ (Apple silicon và Intel) · bản chuyển từ `zalo-swift-re`
 
 ---
 
-## Contents
+## Mục lục
 
-- [Features](#features)
-- [How it works](#how-it-works)
-- [Repository layout](#repository-layout)
-- [Getting started](#getting-started)
-- [Add-ons](#add-ons)
+- [Tính năng](#tính-năng)
+- [Cách hoạt động](#cách-hoạt-động)
+- [Cấu trúc mã nguồn](#cấu-trúc-mã-nguồn)
+- [Bắt đầu](#bắt-đầu)
+- [Add-on](#add-on)
 - [Compola Server](#compola-server)
-- [Testing](#testing)
-- [Building the app](#building-the-app)
-- [Releasing](#releasing)
-- [CI and releases on GitHub](#ci-and-releases-on-github)
-- [Deploying the gateway (Docker, Kubernetes)](#deploying-the-gateway-docker-kubernetes)
-- [Configuration reference](#configuration-reference)
-- [Documentation](#documentation)
-- [Data, privacy and third-party code](#data-privacy-and-third-party-code)
+- [Kiểm thử](#kiểm-thử)
+- [Đóng gói ứng dụng](#đóng-gói-ứng-dụng)
+- [Phát hành](#phát-hành)
+- [CI và phát hành trên GitHub](#ci-và-phát-hành-trên-github)
+- [Triển khai gateway (Docker, Kubernetes)](#triển-khai-gateway-docker-kubernetes)
+- [Biến cấu hình](#biến-cấu-hình)
+- [Tài liệu](#tài-liệu)
+- [Dữ liệu, quyền riêng tư và mã của bên thứ ba](#dữ-liệu-quyền-riêng-tư-và-mã-của-bên-thứ-ba)
 
-## Features
+## Tính năng
 
-**Messaging client**
-- Zalo PC look and feel: conversations, chat, reactions, replies, pins, polls, reminders, stickers, cloud (My
-  Documents), shared media, contacts, group creation and group members.
-- QR sign-in, native notifications, voice/video calls through Zalo's call helper, file transfer and downloads.
-- ⌘K quick switcher, a command palette and hover actions on messages.
-- **Multiple Zalo accounts** in one app, with an account switcher on the rail (`docs/multi-account.md`).
+**Ứng dụng nhắn tin**
+- Giao diện và cách dùng như Zalo PC: hội thoại, trò chuyện, cảm xúc, trả lời, ghim, bình chọn, nhắc hẹn, sticker,
+  Cloud của tôi, kho ảnh / tệp / liên kết, danh bạ, tạo nhóm và thành viên nhóm.
+- Đăng nhập bằng mã QR, thông báo của hệ thống, gọi thoại / video qua trình gọi của Zalo, chuyển và tải tệp.
+- Chuyển nhanh hội thoại bằng ⌘K, bảng lệnh và các thao tác khi rê chuột lên tin nhắn.
+- **Nhiều tài khoản Zalo** trong một ứng dụng, chuyển tài khoản ngay trên thanh bên (`docs/multi-account.md`).
 
-**Compola Server (sharing one account with a team)**
-- Per-person sign-in: local passwords (argon2id), **LDAP / Active Directory** and **SSO** (OpenID Connect, OAuth 2).
-- Role-based access: *viewer* (read only) or *agent* (read and act), scoped to all conversations or to chosen
-  conversations and Zalo labels, granted to people or groups.
-- Device sign-in for joined apps, session management and remote sign-out.
-- Audit log plus per-person activity tracking and statistics, all with CSV export.
-- An **admin console** at `/admin` (users and groups, permissions, sign-in providers, devices, audit log, activity,
-  statistics, the Zalo account and server settings), with light and dark themes. Staff can also use a web client at
-  `/web`.
+**Compola Server (chia sẻ một tài khoản cho cả nhóm)**
+- Mỗi người đăng nhập riêng: mật khẩu cục bộ (argon2id), **LDAP / Active Directory** và **SSO** (OpenID Connect,
+  OAuth 2).
+- Phân quyền theo vai trò: *viewer* (chỉ xem) hoặc *agent* (xem và thao tác), áp dụng cho mọi hội thoại hoặc chỉ những
+  hội thoại và thẻ phân loại Zalo được chọn, cấp cho từng người hoặc nhóm người.
+- Đăng nhập thiết bị cho ứng dụng kết nối vào máy chủ, quản lý phiên và đăng xuất từ xa.
+- Nhật ký kiểm tra, theo dõi hoạt động và thống kê theo từng người, đều xuất được CSV.
+- **Trang quản trị** tại `/admin` (người dùng và nhóm, phân quyền, cách đăng nhập, thiết bị, nhật ký, hoạt động, thống
+  kê, tài khoản Zalo và cài đặt máy chủ), có giao diện sáng và tối. Nhân viên cũng có thể dùng bản web tại `/web`.
 
-**Automation**
-- An MCP server so AI apps can read and act on Compola, scheduled jobs (cron) and add-ons (`docs/automation.md`).
-- Add-ons installed from a `.zip`: AI replies, daily customer summaries as notes, quick replies, and their own HTML
-  tabs, panels and dialogs, each in a sandbox with limits ([Add-ons](#add-ons), `docs/addons.md`).
+**Tự động hoá**
+- Máy chủ MCP để các ứng dụng AI đọc và thao tác trên Compola, lịch tự động (cron) và add-on (`docs/automation.md`).
+- Add-on cài từ tệp `.zip`: trả lời bằng AI, tóm tắt khách hàng hằng ngày thành ghi chú, tin nhắn nhanh, và giao diện
+  HTML riêng (tab, bảng, hộp thoại). Mỗi add-on chạy trong vùng cách ly có giới hạn ([Add-on](#add-on),
+  `docs/addons.md`).
 
-## How it works
+## Cách hoạt động
 
 ```
 ┌──────────────────────────── Compola.app ────────────────────────────┐
 │                                                                     │
-│  UI window (React, src/)          Rust core (src-tauri/)            │
-│  ─ chat, settings, admin   ◀────▶ ─ preload + main-process stand-in │
-│                            Tauri  ─ net proxy, cookies, media cache │
-│                                   ─ notifications, calls, sqlite    │
+│  Cửa sổ giao diện (React, src/)   Lõi Rust (src-tauri/)             │
+│  ─ chat, cài đặt, quản trị ◀────▶ ─ preload + thay main process     │
+│                            Tauri  ─ proxy mạng, cookie, cache media │
+│                                   ─ thông báo, cuộc gọi, sqlite     │
 │                                   ─ Compola Server (remote/)        │
 │                                        ▲                            │
-│  Hidden renderer webview ──────────────┘                            │
-│  (official Zalo PC renderer, downloaded from VNG on first start)    │
+│  Webview renderer chạy ẩn ─────────────┘                            │
+│  (renderer Zalo PC chính thức, tải từ VNG ở lần mở đầu tiên)        │
 └─────────────────────────────────────────────────────────────────────┘
          ▲ HTTP / WebSocket (Compola Server)
          │
-  Joined Compola apps · admin console (/admin) · web client (/web)
+  Ứng dụng Compola kết nối · trang quản trị (/admin) · bản web (/web)
 ```
 
-- The **official Zalo PC renderer** runs in a hidden webview. Rust plays the parts Electron's preload and main process
-  play in the real app (`bridge-table.json` maps each bridge member to its IPC channel).
-- The **UI window** never talks to Zalo directly. It reads the renderer's state through Rust and loads media through
-  the `compola-media` scheme, which fetches with the official client's headers, cookies and TLS fingerprint
+- **Renderer Zalo PC chính thức** chạy trong một webview ẩn. Rust đóng vai phần preload và main process của Electron
+  trong ứng dụng thật (`bridge-table.json` ghép từng thành phần bridge với kênh IPC của nó).
+- **Cửa sổ giao diện** không bao giờ nói chuyện trực tiếp với Zalo. Nó đọc trạng thái của renderer qua Rust và tải
+  media qua scheme `compola-media`, scheme này tải với header, cookie và dấu vân tay TLS của ứng dụng chính thức
   (`docs/media.md`).
-- The **fingerprint helper** (`fingerprint-helper/`, Go) is a sidecar that gives outgoing requests Chromium's TLS
-  fingerprint.
-- **Compola Server** is part of the same app. A *host* Compola serves its account over HTTP/WebSocket, and *joined*
-  apps sign in to it instead of running their own engine.
+- **Fingerprint helper** (`fingerprint-helper/`, Go) là tiến trình đi kèm, giúp các yêu cầu gửi ra có dấu vân tay TLS
+  của Chromium.
+- **Compola Server** nằm ngay trong ứng dụng. Một Compola *máy chủ (host)* phục vụ tài khoản của nó qua
+  HTTP/WebSocket; các ứng dụng *kết nối (joined)* đăng nhập vào đó thay vì chạy bộ máy Zalo của riêng mình.
 
-## Repository layout
+## Cấu trúc mã nguồn
 
-| Path | What |
+| Đường dẫn | Nội dung |
 |---|---|
-| `src/` | UI (React + Vite): `shell/` (window, rail), `features/` (chat, conversations, settings, accounts, remote …), `engine/` (state and backend calls; `mock/` for browser-only development), `ui/` (shared components), `styles/` |
-| `src-tauri/src/` | Rust core: `engine.rs`, `main_process.rs`, `bridge/`, `host/`, `net/`, `media/`, `notifications/`, `calls/`, `downloads.rs`, `installer.rs` (Zalo runtime download and verification), `account.rs` (multi-account), `automation/`, `remote/` (Compola Server) |
-| `admin/` | Compola Server admin console (React + Vite), built into `src-tauri/admin-dist/` and embedded in the app |
-| `fingerprint-helper/` | Go TLS-fingerprint sidecar |
-| `scripts/` | `make-app.sh`, `release.sh`, `build-fingerprint-helper.sh` |
-| `deploy/` | Gateway image (`gateway/`), Docker Compose and the Helm chart (`helm/compola-gateway/`) |
-| `.github/workflows/` | CI, the macOS release and the gateway image |
-| `docs/` | Design documents and UI references (see [Documentation](#documentation)) |
+| `src/` | Giao diện (React + Vite): `shell/` (cửa sổ, thanh bên), `features/` (trò chuyện, hội thoại, cài đặt, tài khoản, remote …), `engine/` (trạng thái và lời gọi backend; `mock/` để phát triển chỉ trên trình duyệt), `ui/` (thành phần dùng chung), `styles/` |
+| `src-tauri/src/` | Lõi Rust: `engine.rs`, `main_process.rs`, `bridge/`, `host/`, `net/`, `media/`, `notifications/`, `calls/`, `downloads.rs`, `installer.rs` (tải và kiểm tra bộ Zalo), `account.rs` (nhiều tài khoản), `automation/`, `remote/` (Compola Server) |
+| `admin/` | Trang quản trị Compola Server (React + Vite), build vào `src-tauri/admin-dist/` và nhúng vào ứng dụng |
+| `fingerprint-helper/` | Tiến trình đi kèm (Go) tạo dấu vân tay TLS |
+| `scripts/` | `make-app.sh`, `release.sh`, `build-fingerprint-helper.sh`, `pack-addon.sh` |
+| `deploy/` | Image gateway (`gateway/`), Docker Compose và Helm chart (`helm/compola-gateway/`) |
+| `examples/addons/` | Add-on mẫu |
+| `.github/workflows/` | CI, phát hành và image gateway |
+| `docs/` | Tài liệu thiết kế và tham khảo giao diện (xem [Tài liệu](#tài-liệu)) |
 
-## Getting started
+## Bắt đầu
 
-### Requirements
+### Yêu cầu
 
-- macOS 11 or later
+- macOS 11 trở lên
 - Rust (stable), Node.js + npm, Xcode command line tools
-- Go, for the fingerprint helper. Without Go the build still works, but requests fall back to reqwest's TLS
-  fingerprint instead of Chromium's.
+- Go, để build fingerprint helper. Không có Go thì vẫn build được, nhưng các yêu cầu sẽ dùng dấu vân tay TLS của
+  reqwest thay vì của Chromium.
 
-### Run in development
+### Chạy khi phát triển
 
 ```sh
 npm install
 npx tauri dev
 ```
 
-On first start Compola downloads the official Zalo PC runtime from VNG and checks its signature. To use an installed
-Zalo instead, set `COMPOLA_ZALO_APP=/Applications/Zalo.app`.
+Ở lần mở đầu tiên, Compola tải bộ Zalo PC chính thức từ VNG và kiểm tra chữ ký. Muốn dùng Zalo đã cài sẵn trên máy thì
+đặt `COMPOLA_ZALO_APP=/Applications/Zalo.app`.
 
-`src-tauri/build.rs` builds the fingerprint helper for your machine the first time
-(`scripts/build-fingerprint-helper.sh`).
+`src-tauri/build.rs` tự build fingerprint helper cho máy bạn ở lần đầu (`scripts/build-fingerprint-helper.sh`).
 
-> Only one Compola may run per data folder: the dev build and an installed app share
-> `~/Library/Application Support/Compola`. Quit one before opening the other, or give the dev build its own folder
-> with `COMPOLA_DATA_DIR`.
+> Mỗi thư mục dữ liệu chỉ chạy được một Compola: bản dev và bản đã cài dùng chung
+> `~/Library/Application Support/Compola`. Hãy thoát một bản trước khi mở bản kia, hoặc cho bản dev thư mục riêng bằng
+> `COMPOLA_DATA_DIR`.
 
-### UI only, in a browser (mock data)
+### Chỉ giao diện, trên trình duyệt (dữ liệu giả)
 
-No Rust, no Zalo account:
+Không cần Rust, không cần tài khoản Zalo:
 
 ```sh
 npm run dev                    # http://localhost:1420/?mock=1
-npm run dev:admin              # http://localhost:1430/admin/?mock=1  (sign in as admin, lan or minh)
+npm run dev:admin              # http://localhost:1430/admin/?mock=1  (đăng nhập bằng admin, lan hoặc minh)
 ```
 
-The UI falls back to its mock backend whenever it isn't running inside Tauri.
+Khi không chạy trong Tauri, giao diện tự chuyển sang backend giả (mock).
 
-## Add-ons
+## Add-on
 
-Add-ons extend Compola with code and UI. Install a `.zip` in *Settings › Nâng cao › Add-on › Cài từ tệp .zip…*. You see
-the permissions it asks for before it installs. Built in (off until you enable them): **Trả lời bằng AI** (reply
-suggestions, or auto replies with human handoff), **Tóm tắt khách hàng hằng ngày** (an AI summary note on every
-conversation of the day) and **Tin nhắn nhanh** (`/shortcut` quick replies). The AI provider (Claude or an
-OpenAI-compatible server such as Ollama) is set once in the same page.
+Add-on mở rộng Compola bằng mã và giao diện. Cài tệp `.zip` tại *Cài đặt › Nâng cao › Add-on › Cài từ tệp .zip…*. Trước
+khi cài, bạn thấy các quyền mà add-on yêu cầu. Có sẵn (tắt cho đến khi bạn bật): **Trả lời bằng AI** (gợi ý câu trả
+lời, hoặc tự trả lời và chuyển cho người thật khi cần), **Tóm tắt khách hàng hằng ngày** (ghi chú tóm tắt bằng AI cho
+mỗi hội thoại trong ngày) và **Tin nhắn nhanh** (mẫu trả lời gõ bằng `/lệnh`). Nhà cung cấp AI (Claude hoặc máy chủ
+tương thích OpenAI như Ollama) được cài một lần ngay trên trang đó.
 
-Each add-on runs in the Compola core in its own QuickJS sandbox, with limits on memory, CPU time, message rate and AI
-usage. It restarts on errors and stops after repeated crashes. It can:
-- write **notes** on a conversation and suggest **replies** above the message box;
-- show **its own HTML UI** in a sidebar tab, a card in the conversation's info panel, a strip above the message box, its
-  settings page, or a dialog (a sandboxed iframe that talks only to its add-on);
-- add quick replies, actions and panels, use AI, schedules, MCP servers and allow-listed HTTP.
+Mỗi add-on chạy trong lõi Compola, trong vùng cách ly QuickJS riêng, có giới hạn bộ nhớ, thời gian xử lý, số tin nhắn
+gửi và lượng dùng AI. Add-on tự khởi động lại khi lỗi và bị tạm dừng nếu lỗi liên tục. Add-on có thể:
+- viết **ghi chú** cho hội thoại và **gợi ý câu trả lời** phía trên ô soạn tin;
+- hiển thị **giao diện HTML riêng** dưới dạng tab ở thanh bên, mục trong bảng thông tin hội thoại, thanh phía trên ô
+  soạn tin, trang cài đặt của nó hoặc hộp thoại (iframe cách ly, chỉ nói chuyện với add-on của nó);
+- thêm tin nhắn nhanh, nút thao tác và bảng thông tin, dùng AI, lịch tự động, máy chủ MCP và HTTP tới các địa chỉ được
+  cho phép.
 
-| Conversation info panel: notes, actions, a panel and an HTML view | Reply suggestion and `/` quick replies |
+| Bảng thông tin hội thoại: ghi chú, thao tác, bảng và giao diện HTML | Gợi ý trả lời và tin nhắn nhanh `/` |
 |---|---|
-| ![Info panel](docs/addons/inspector.png) | ![Quick replies](docs/addons/quick-replies.png) |
-| **An add-on's tab (HTML)** | **An add-on's dialog (HTML)** |
-| ![Tab](docs/addons/tab-view.png) | ![Dialog](docs/addons/modal-view.png) |
+| ![Bảng thông tin](docs/addons/inspector.png) | ![Tin nhắn nhanh](docs/addons/quick-replies.png) |
+| **Tab của add-on (HTML)** | **Hộp thoại của add-on (HTML)** |
+| ![Tab](docs/addons/tab-view.png) | ![Hộp thoại](docs/addons/modal-view.png) |
 
-Write your own: `docs/addons.md` (manifest, API, views, permissions), example `examples/addons/crm-demo`, packed with
-`scripts/pack-addon.sh examples/addons/crm-demo`.
+Tự viết add-on: xem `docs/addons.md` (manifest, API, giao diện, quyền) và ví dụ `examples/addons/crm-demo`, đóng gói
+bằng `scripts/pack-addon.sh examples/addons/crm-demo`.
 
 ## Compola Server
 
-1. **Host:** in the Compola that is signed in to Zalo, open *Settings › Compola Server*, turn the server on, and
-   choose the port and whether the LAN may connect. Open the admin console (`http://<host>:<port>/admin/`) and set the
-   server's public address in *Cài đặt máy chủ*.
-2. **People:** add users (or connect LDAP / SSO under *Đăng nhập*), then grant access under *Phân quyền*: a role plus
-   a scope of conversations or labels, for a person or a group.
-3. **Joined apps:** in another Compola, open the *Compola Server* tab on the sign-in screen, enter the address and
-   sign in. With SSO, the app shows
-   a code that the person approves in the browser.
+1. **Máy chủ:** trên Compola đang đăng nhập Zalo, mở *Cài đặt › Compola Server*, bật máy chủ, chọn cổng và có cho mạng
+   LAN kết nối hay không. Mở trang quản trị (`http://<máy-chủ>:<cổng>/admin/`) và đặt địa chỉ công khai của máy chủ
+   trong *Cài đặt máy chủ*.
+2. **Người dùng:** thêm người dùng (hoặc kết nối LDAP / SSO trong *Đăng nhập*), rồi cấp quyền trong *Phân quyền*: một
+   vai trò kèm phạm vi hội thoại hoặc thẻ phân loại, cho một người hoặc một nhóm.
+3. **Ứng dụng kết nối:** trên một Compola khác, mở thẻ *Compola Server* ở màn hình đăng nhập, nhập địa chỉ và đăng nhập.
+   Với SSO, ứng dụng hiện một mã để người dùng xác nhận trên trình duyệt.
 
-Everything a joined person does goes through the host's policy (`src-tauri/src/remote/policy.rs`) and is audited.
-The full design and HTTP contract is in `docs/compola-server.md`.
+Mọi thao tác của người kết nối đều qua chính sách của máy chủ (`src-tauri/src/remote/policy.rs`) và được ghi nhật ký.
+Thiết kế đầy đủ và giao thức HTTP nằm trong `docs/compola-server.md`.
 
-To develop the server without touching your real session, run a second instance with its own data folder:
+Để phát triển phần máy chủ mà không động vào phiên Zalo thật, chạy thêm một bản với thư mục dữ liệu riêng:
 
 ```sh
 COMPOLA_DATA_DIR=/tmp/compola-host \
@@ -175,21 +176,22 @@ COMPOLA_SERVER_ADMIN=admin:changeme \
 npx tauri dev
 ```
 
-`COMPOLA_SERVER_ADMIN` (debug builds only) creates that admin user on start. Build the console before Cargo, or
-`/admin` will be empty: `npm run build:admin`.
+`COMPOLA_SERVER_ADMIN` (chỉ bản debug) tạo sẵn tài khoản quản trị đó khi khởi động. Hãy build trang quản trị trước khi
+chạy Cargo, nếu không `/admin` sẽ trống: `npm run build:admin`.
 
-## Testing
+## Kiểm thử
 
 ```sh
-npx tsc --noEmit               # UI type check
+npx tsc --noEmit               # kiểm tra kiểu của giao diện
 npm run build && npm run build:admin
 cd src-tauri && cargo test --lib
 ```
 
-Some installer tests are ignored by default. They need the official Zalo DMG on disk:
-`COMPOLA_ZALO_DMG=/path/to/ZaloSetup.dmg cargo test -- --ignored`.
+Một số bài kiểm thử bộ cài mặc định bị bỏ qua vì cần bộ cài Zalo chính thức trên máy:
+`COMPOLA_ZALO_DMG=/đường/dẫn/ZaloSetup.dmg cargo test -- --ignored` (bản macOS), hoặc
+`COMPOLA_ZALO_WIN_SETUP=/đường/dẫn/ZaloSetup-26.10.20.exe cargo test -- --ignored` (bản Windows).
 
-## Building the app
+## Đóng gói ứng dụng
 
 ```sh
 scripts/make-app.sh                 # src-tauri/target/release/bundle/macos/Compola.app
@@ -197,140 +199,142 @@ scripts/make-app.sh --dmg           # + bundle/dmg/Compola_<version>_<arch>.dmg
 scripts/make-app.sh --universal     # arm64 + x86_64 (src-tauri/target/universal-apple-darwin/…)
 ```
 
-The script wraps `npx tauri build`, which builds the UI and the admin console first. Packaging is configured in:
+Script này gọi `npx tauri build`, lệnh này build giao diện và trang quản trị trước. Cấu hình đóng gói nằm ở:
 
 - `src-tauri/tauri.conf.json` → `bundle.macOS`:
-  - bundle id `app.compola.desktop`, minimum macOS 11.0;
-  - hardened runtime and entitlements;
-  - `signingIdentity: "-"`, which signs local builds ad hoc. With `null` Tauri leaves the binary only linker-signed,
-    without entitlements or a sealed bundle.
-- `src-tauri/Entitlements.plist`: JIT, plus microphone and camera for the call helper (`ZaloCall`), which macOS holds
-  Compola responsible for.
-- `src-tauri/Info.plist`: keys merged into the generated Info.plist (the microphone and camera prompt texts).
-- `bundle.externalBin`: the fingerprint helper, at `Contents/MacOS/compola-fingerprint-helper`.
+  - bundle id `app.compola.desktop`, tối thiểu macOS 11.0;
+  - hardened runtime và entitlements;
+  - `signingIdentity: "-"`, ký ad hoc cho bản build trên máy. Nếu để `null`, Tauri chỉ để chữ ký của linker, không có
+    entitlements và bundle không được niêm phong.
+- `src-tauri/Entitlements.plist`: JIT, cùng micro và camera cho trình gọi (`ZaloCall`), vì macOS coi Compola là ứng dụng
+  chịu trách nhiệm cho nó.
+- `src-tauri/Info.plist`: các khoá được gộp vào Info.plist sinh ra (lời nhắc xin quyền micro và camera).
+- `bundle.externalBin`: fingerprint helper, tại `Contents/MacOS/compola-fingerprint-helper`.
 
-Notifications go through `UNUserNotificationCenter` only inside the bundle. `npx tauri dev` runs an unbundled binary,
-which falls back to the older notification API.
+Thông báo chỉ dùng `UNUserNotificationCenter` khi chạy trong bundle. `npx tauri dev` chạy tệp thực thi chưa đóng gói nên
+dùng API thông báo cũ hơn.
 
-## Releasing
+## Phát hành
 
 ```sh
-APPLE_SIGNING_IDENTITY="Developer ID Application: <Name> (<TEAMID>)" scripts/release.sh
+APPLE_SIGNING_IDENTITY="Developer ID Application: <Tên> (<TEAMID>)" scripts/release.sh
 ```
 
-`scripts/release.sh` does the following:
+`scripts/release.sh` làm các việc sau:
 
-1. Builds a universal app and signs it with the Developer ID (hardened runtime, secure timestamp, sidecar included).
-2. Verifies the signature and entitlements.
-3. Notarizes and staples the app.
-4. Builds, signs, notarizes and staples a drag-to-Applications DMG.
-5. Runs the Gatekeeper checks.
+1. Build ứng dụng universal và ký bằng Developer ID (hardened runtime, dấu thời gian an toàn, ký cả tiến trình đi kèm).
+2. Kiểm tra chữ ký và entitlements.
+3. Gửi Apple công chứng (notarize) và gắn kết quả (staple) vào ứng dụng.
+4. Build, ký, công chứng và gắn kết quả cho tệp DMG kéo-thả-vào-Applications.
+5. Chạy kiểm tra Gatekeeper.
 
-Output goes to `src-tauri/target/dist/Compola-<version>.{dmg,zip}`.
+Kết quả nằm ở `src-tauri/target/dist/Compola-<version>.{dmg,zip}`.
 
-Notarization credentials, first match wins:
+Thông tin công chứng, dùng cái đầu tiên tìm thấy:
 
-1. A notarytool keychain profile (`COMPOLA_NOTARY_PROFILE`, default `compola-notary`):
+1. Hồ sơ notarytool trong keychain (`COMPOLA_NOTARY_PROFILE`, mặc định `compola-notary`):
    `xcrun notarytool store-credentials compola-notary --apple-id <apple-id> --team-id <team-id>`
-2. `APPLE_ID`, `APPLE_PASSWORD` (an app-specific password) and `APPLE_TEAM_ID`
-3. `APPLE_API_KEY`, `APPLE_API_ISSUER` and `APPLE_API_KEY_PATH`
+2. `APPLE_ID`, `APPLE_PASSWORD` (mật khẩu dành riêng cho ứng dụng) và `APPLE_TEAM_ID`
+3. `APPLE_API_KEY`, `APPLE_API_ISSUER` và `APPLE_API_KEY_PATH`
 
-`COMPOLA_VERSION=x.y.z` overrides the version in `tauri.conf.json`. `COMPOLA_SKIP_NOTARIZE=1` only signs the build.
+`COMPOLA_VERSION=x.y.z` thay phiên bản trong `tauri.conf.json`. `COMPOLA_SKIP_NOTARIZE=1` chỉ ký, không công chứng.
 
-## CI and releases on GitHub
+## CI và phát hành trên GitHub
 
-| Workflow | When | What |
+| Workflow | Khi nào | Làm gì |
 |---|---|---|
-| `ci.yml` | every push to `main` and every pull request | type check, UI + admin console + web client builds, `cargo test --lib` on macOS, Helm lint and a gateway image build |
-| `release.yml` | a `v*` tag (or run it by hand with a tag); every push to `main` refreshes the `edge` pre-release | macOS (universal DMG + zip), Windows (NSIS + MSI), Linux (deb, rpm, AppImage), signed update bundles and `latest.json` for auto-update, `SHA256SUMS.txt` |
-| `docker.yml` | `main` and `v*` tags | the gateway image for `linux/amd64` + `linux/arm64` on `ghcr.io/<owner>/compola-gateway` |
+| `ci.yml` | mỗi lần push lên `main` và mỗi pull request | kiểm tra kiểu, build giao diện + trang quản trị + bản web, `cargo test --lib` trên macOS, kiểm tra Helm và build image gateway |
+| `release.yml` | khi có tag `v*` (hoặc chạy tay với một tag); mỗi lần push lên `main` làm mới bản thử nghiệm `edge` | macOS (DMG universal + zip), Windows (NSIS + MSI), Linux (deb, rpm, AppImage), gói cập nhật đã ký và `latest.json` để tự cập nhật, `SHA256SUMS.txt` |
+| `docker.yml` | `main` và tag `v*` | image gateway cho `linux/amd64` + `linux/arm64` tại `ghcr.io/<owner>/compola-gateway` |
 
-To cut a release:
+Để phát hành một phiên bản:
 
 ```sh
 git tag v0.2.0 && git push origin v0.2.0
 ```
 
-The version in `tauri.conf.json` is taken from the tag. Installed apps update themselves (`tauri-plugin-updater`,
-`src-tauri/src/updater.rs`): a release build follows the latest `v*` release, an edge build (`0.1.5-21`) follows the
-`edge` pre-release (both publish a `latest.json`). The app checks 20 s after launch and then every hour, signed in to
-Zalo or not; *Settings › Cài đặt chung › Cập nhật* checks and installs on demand. Update bundles are signed with the
-`TAURI_SIGNING_PRIVATE_KEY` secret and checked against `plugins.updater.pubkey`.
+Phiên bản trong `tauri.conf.json` được lấy từ tag. Ứng dụng đã cài tự cập nhật (`tauri-plugin-updater`,
+`src-tauri/src/updater.rs`): bản phát hành theo bản `v*` mới nhất, bản edge (`0.1.5-21`) theo bản thử nghiệm `edge` (cả
+hai đều có `latest.json`). Ứng dụng kiểm tra 20 giây sau khi mở rồi mỗi giờ một lần, dù đã đăng nhập Zalo hay chưa;
+*Cài đặt › Cài đặt chung › Cập nhật* cho phép kiểm tra và cài ngay. Gói cập nhật được ký bằng secret
+`TAURI_SIGNING_PRIVATE_KEY` và kiểm tra bằng `plugins.updater.pubkey`.
 
-### Signing macOS releases
+### Ký bản phát hành macOS
 
-Without Apple secrets the macOS build is **ad-hoc signed**: macOS asks users to confirm the first launch (right-click
-`Compola.app` › *Open*). With them, `release.yml` runs `scripts/release.sh`: Developer ID signed, notarized and stapled
-app and DMG, and the update bundle made from the stapled app. Repository secrets (*Settings › Secrets and variables ›
-Actions*):
+Khi không có các secret của Apple, bản macOS chỉ được **ký ad hoc**: macOS sẽ hỏi người dùng xác nhận ở lần mở đầu tiên
+(chuột phải vào `Compola.app` › *Mở*). Khi có, `release.yml` chạy `scripts/release.sh`: ứng dụng và DMG được ký Developer
+ID, công chứng và gắn kết quả, và gói cập nhật được tạo từ ứng dụng đã gắn kết quả. Các secret của repository (*Settings
+› Secrets and variables › Actions*):
 
-| Secret | What |
+| Secret | Nội dung |
 |---|---|
-| `APPLE_CERTIFICATE` | Your **Developer ID Application** certificate with its private key, exported from Keychain Access as `.p12`, base64: `base64 -i DeveloperID.p12 \| pbcopy` |
-| `APPLE_CERTIFICATE_PASSWORD` | The password chosen when exporting the `.p12` |
-| `APPLE_SIGNING_IDENTITY` | Optional: the full identity name, when the `.p12` holds more than one |
+| `APPLE_CERTIFICATE` | Chứng chỉ **Developer ID Application** kèm khoá riêng, xuất từ Keychain Access thành `.p12`, mã hoá base64: `base64 -i DeveloperID.p12 \| pbcopy` |
+| `APPLE_CERTIFICATE_PASSWORD` | Mật khẩu đã đặt khi xuất `.p12` |
+| `APPLE_SIGNING_IDENTITY` | Không bắt buộc: tên đầy đủ của danh tính ký, khi `.p12` chứa nhiều hơn một |
 
-Notarization, either an App Store Connect API key (recommended):
+Công chứng, dùng khoá API App Store Connect (khuyên dùng):
 
-| Secret | What |
+| Secret | Nội dung |
 |---|---|
-| `APPLE_API_KEY` | Key ID (App Store Connect › Users and Access › Integrations › Team Keys, role *Developer*) |
-| `APPLE_API_ISSUER` | Issuer ID (same page) |
-| `APPLE_API_KEY_P8` | Contents of the downloaded `AuthKey_<KEYID>.p8` |
+| `APPLE_API_KEY` | Key ID (App Store Connect › Users and Access › Integrations › Team Keys, vai trò *Developer*) |
+| `APPLE_API_ISSUER` | Issuer ID (cùng trang) |
+| `APPLE_API_KEY_P8` | Nội dung tệp `AuthKey_<KEYID>.p8` đã tải về |
 
-or an Apple ID: `APPLE_ID`, `APPLE_PASSWORD` (an app-specific password from account.apple.com) and `APPLE_TEAM_ID`.
+hoặc Apple ID: `APPLE_ID`, `APPLE_PASSWORD` (mật khẩu dành riêng cho ứng dụng, tạo tại account.apple.com) và
+`APPLE_TEAM_ID`.
 
-The certificate needs a paid Apple Developer Program membership; only the Account Holder can create a Developer ID
-Application certificate (developer.apple.com › Certificates › + › *Developer ID Application*, G2 Sub-CA).
+Chứng chỉ cần tài khoản Apple Developer Program trả phí; chỉ Account Holder mới tạo được chứng chỉ Developer ID
+Application (developer.apple.com › Certificates › + › *Developer ID Application*, G2 Sub-CA).
 
-## Deploying the gateway (Docker, Kubernetes)
+## Triển khai gateway (Docker, Kubernetes)
 
-Compola Server runs inside the app on a Mac, because it drives the macOS Zalo renderer. The **gateway** is the part that
-runs in Docker or Kubernetes: Caddy with automatic HTTPS. It serves the admin console and the web client from the
-image and proxies the API, WebSocket, media and uploads to the Mac.
+Compola Server chạy bên trong ứng dụng trên máy Mac, vì nó điều khiển renderer Zalo của macOS. **Gateway** là phần chạy
+trong Docker hoặc Kubernetes: Caddy với HTTPS tự động. Nó phục vụ trang quản trị và bản web từ image, và chuyển tiếp
+API, WebSocket, media và tệp tải lên tới máy Mac.
 
 ```sh
-cp deploy/.env.example deploy/.env       # COMPOLA_UPSTREAM=http://<mac-ip>:39218, SITE_ADDRESS=compola.example.com
+cp deploy/.env.example deploy/.env       # COMPOLA_UPSTREAM=http://<ip-máy-mac>:39218, SITE_ADDRESS=compola.example.com
 docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d
 
-helm install compola deploy/helm/compola-gateway --set upstream.url=http://<mac-ip>:39218 --set ingress.enabled=true
+helm install compola deploy/helm/compola-gateway --set upstream.url=http://<ip-máy-mac>:39218 --set ingress.enabled=true
 ```
 
-Details, including TLS, ingress, image tags and the host's public-address setting, are in
+Chi tiết về TLS, ingress, tag của image và cách đặt địa chỉ công khai của máy chủ nằm trong
 [`deploy/README.md`](deploy/README.md).
 
-## Configuration reference
+## Biến cấu hình
 
-| Variable | Effect |
+| Biến | Tác dụng |
 |---|---|
-| `COMPOLA_ZALO_APP` | Use this Zalo.app (or an unpacked runtime) instead of downloading one |
-| `COMPOLA_DATA_DIR` | Data folder instead of `~/Library/Application Support/Compola` (run instances side by side) |
-| `COMPOLA_DEBUG=1` | Debug log; `COMPOLA_DEBUG_RESPONSES=1` also logs response bodies |
-| `COMPOLA_SHOW_RENDERER=1` | Show the hidden Zalo renderer windows |
-| `COMPOLA_NO_FINGERPRINT_HELPER=1` | Don't start the TLS-fingerprint sidecar |
-| `COMPOLA_NO_SHARED_WORKER=1`, `COMPOLA_TRACE_WORKERS=1` | Disable / trace the renderer's shared worker |
-| `COMPOLA_STORAGE` | Force the renderer's storage backend |
-| `COMPOLA_QR_OUT=<file.png>` | Also write the sign-in QR to a file (sign in without the UI) |
-| `COMPOLA_SERVER_ADMIN=user:pass` | Debug builds: create this Compola Server admin on start |
-| `COMPOLA_VERSION`, `COMPOLA_NOTARY_PROFILE`, `COMPOLA_SKIP_NOTARIZE` | Release script, see above |
+| `COMPOLA_ZALO_APP` | Dùng Zalo.app này (hoặc bộ runtime đã giải nén) thay vì tải về |
+| `COMPOLA_DATA_DIR` | Thư mục dữ liệu thay cho `~/Library/Application Support/Compola` (chạy nhiều bản cùng lúc) |
+| `COMPOLA_DEBUG=1` | Nhật ký gỡ lỗi; `COMPOLA_DEBUG_RESPONSES=1` ghi cả nội dung phản hồi |
+| `COMPOLA_SHOW_RENDERER=1` | Hiện các cửa sổ renderer Zalo đang chạy ẩn |
+| `COMPOLA_NO_FINGERPRINT_HELPER=1` | Không khởi động tiến trình dấu vân tay TLS |
+| `COMPOLA_NO_SHARED_WORKER=1`, `COMPOLA_TRACE_WORKERS=1` | Tắt / theo dõi shared worker của renderer |
+| `COMPOLA_STORAGE` | Ép kiểu lưu trữ của renderer |
+| `COMPOLA_QR_OUT=<tệp.png>` | Ghi thêm mã QR đăng nhập ra tệp (đăng nhập không cần giao diện) |
+| `COMPOLA_SERVER_ADMIN=user:pass` | Bản debug: tạo tài khoản quản trị Compola Server này khi khởi động |
+| `COMPOLA_DISABLE_UPDATER=1` | Tắt tự cập nhật |
+| `COMPOLA_VERSION`, `COMPOLA_NOTARY_PROFILE`, `COMPOLA_SKIP_NOTARIZE` | Script phát hành, xem ở trên |
 
-## Documentation
+## Tài liệu
 
-| Document | Covers |
+| Tài liệu | Nội dung |
 |---|---|
-| `docs/compola-server.md` | Compola Server: concepts, HTTP API, policy, activity tracking, web client |
-| `docs/multi-account.md` | Several Zalo accounts in one Compola: account model, isolation, UI and server hooks |
-| `docs/media.md` | The `compola-media` scheme: how the UI loads Zalo media |
-| `docs/automation.md` | MCP server, scheduled jobs, search |
-| `docs/addons.md` | Add-ons: packages, sandbox, API, HTML views, built-ins, AI provider |
-| `docs/zalo-pc-style.md` | UI style decisions (Zalo PC look) |
-| `docs/design-refs/` | Mobbin references behind each screen, including the admin console |
+| `docs/compola-server.md` | Compola Server: khái niệm, HTTP API, chính sách quyền, theo dõi hoạt động, bản web |
+| `docs/multi-account.md` | Nhiều tài khoản Zalo trong một Compola: mô hình tài khoản, cách ly, giao diện và kết nối máy chủ |
+| `docs/media.md` | Scheme `compola-media`: cách giao diện tải media của Zalo |
+| `docs/automation.md` | Máy chủ MCP, lịch tự động, tìm kiếm |
+| `docs/addons.md` | Add-on: gói cài, vùng cách ly, API, giao diện HTML, add-on có sẵn, nhà cung cấp AI |
+| `docs/zalo-pc-style.md` | Các quyết định về giao diện (phong cách Zalo PC) |
+| `docs/design-refs/` | Ảnh tham khảo từ Mobbin cho từng màn hình, gồm cả trang quản trị |
 
-## Data, privacy and third-party code
+## Dữ liệu, quyền riêng tư và mã của bên thứ ba
 
-- Compola keeps everything on your Mac, in `~/Library/Application Support/Compola`: the Zalo runtime, session
-  cookies, caches, the multi-account registry (`accounts.json`) and, for a host, the Compola Server database. None of
-  this is in the repository.
-- The **Zalo PC runtime is VNG's software.** Compola downloads it from VNG on first start and verifies its signature;
-  it is never bundled or committed here. Do not commit files extracted from it.
-- This is a private project with no license file; all rights reserved unless stated otherwise.
+- Compola giữ mọi thứ trên máy Mac của bạn, trong `~/Library/Application Support/Compola`: bộ Zalo, cookie phiên đăng
+  nhập, bộ đệm, danh sách tài khoản (`accounts.json`) và, với máy chủ, cơ sở dữ liệu Compola Server. Không thứ gì trong
+  số này nằm trong repository.
+- **Bộ Zalo PC là phần mềm của VNG.** Compola tải nó từ VNG ở lần mở đầu tiên và kiểm tra chữ ký; nó không bao giờ được
+  đóng gói kèm hay commit vào đây. Đừng commit các tệp giải nén từ nó.
+- Đây là dự án riêng, không có tệp giấy phép; mọi quyền được bảo lưu trừ khi ghi khác.
