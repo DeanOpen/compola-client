@@ -1,7 +1,7 @@
 // Settings › Nâng cao: MCP (Compola's own MCP server + external MCP servers), Lịch tự động (cron / one-time schedules)
 // and Add-on. Backed by src/engine/automation.ts (Rust src-tauri/src/automation).
 
-import { AlertTriangle, CalendarClock, Check, ChevronDown, ChevronRight, Copy, History, Package, Play, Plus, Puzzle, RefreshCw, RotateCw, Sparkles, Trash2, Wrench } from 'lucide-react';
+import { AlertTriangle, CalendarClock, Check, ChevronDown, ChevronRight, Copy, FolderOpen, History, Package, Play, Plus, Puzzle, RefreshCw, RotateCw, Sparkles, Trash2, Wrench } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { addons as addonApi, useAddonCatalog, type AddonLimits, type AddonLogLine, type AddonPreview, type AiConfig } from '../../engine/addons';
 import { AddonFrame } from '../addons/AddonFrame';
@@ -71,12 +71,12 @@ function Problem({ text }: { text: string | null }) {
 }
 
 /** A conversation picker over the conversation list the UI already has. */
-function ConversationSelect({ value, onChange, allowEmpty = false }: { value: string; onChange: (id: string, name: string) => void; allowEmpty?: boolean }) {
+function ConversationSelect({ value, onChange, allowEmpty = false, placeholder }: { value: string; onChange: (id: string, name: string) => void; allowEmpty?: boolean; placeholder?: string }) {
   const conversations = useEngine(visibleConversations);
   const known = conversations.some((c) => c.id === value);
   return (
     <select className="st-input" value={value} onChange={(e) => onChange(e.target.value, conversations.find((c) => c.id === e.target.value)?.name ?? '')}>
-      {(allowEmpty || !value) && <option value="">{allowEmpty ? '— Không —' : 'Chọn hội thoại…'}</option>}
+      {(allowEmpty || !value) && <option value="">{placeholder ?? (allowEmpty ? '— Không —' : 'Chọn hội thoại…')}</option>}
       {value && !known && <option value={value}>{value}</option>}
       {conversations.map((c) => (
         <option key={c.id} value={c.id}>
@@ -1003,40 +1003,49 @@ function AddonCard({ addon, onRemove }: { addon: Addon; onRemove: () => void }) 
         </div>
       </Row>
       {open && (
-        <div className="st-auto-sub">
-          {settingsViews.map((v) => (
-            <div key={v.id} className="st-field">
-              <span>{v.title}</span>
-              <div className="st-addon-view">
-                <AddonFrame view={v} minHeight={60} />
-              </div>
-            </div>
-          ))}
-          {m.settings.length > 0 ? <AddonSettingsForm addon={addon} /> : settingsViews.length === 0 && <div className="st-muted">Add-on này không có tuỳ chỉnh.</div>}
+        <div className="st-addon-detail">
+          {settingsViews.length > 0 || m.settings.length > 0 ? (
+            <AddonBlock title="Tuỳ chỉnh">
+              {settingsViews.map((v) => (
+                <div key={v.id} className="st-field">
+                  <span>{v.title}</span>
+                  <div className="st-addon-view">
+                    <AddonFrame view={v} minHeight={60} />
+                  </div>
+                </div>
+              ))}
+              {m.settings.length > 0 && <AddonSettingsForm addon={addon} />}
+            </AddonBlock>
+          ) : (
+            <div className="st-muted">Add-on này không có tuỳ chỉnh.</div>
+          )}
           <AddonHealth addon={addon} />
           <AddonLimitsForm addon={addon} />
           <AddonLog addon={addon} />
           <Problem text={problem} />
-          <div className="st-auto-actions">
-            <span className="st-muted st-auto-mono truncate" title={addon.path}>
-              {addon.path}
+          <div className="st-addon-footer">
+            <span className="st-addon-path selectable" title={addon.path}>
+              <FolderOpen size={13} />
+              <span className="st-auto-mono truncate">{addon.path}</span>
             </span>
-            {addon.enabled && (
-              <button className="st-button" onClick={() => act(addonApi.restart(m.id))}>
-                <RotateCw size={14} />
-                Khởi động lại
+            <div className="st-auto-actions">
+              {addon.enabled && (
+                <button className="st-button" onClick={() => act(addonApi.restart(m.id))}>
+                  <RotateCw size={14} />
+                  Khởi động lại
+                </button>
+              )}
+              {addon.hasBackup && (
+                <button className="st-button" onClick={() => act(addonApi.rollback(m.id))} title="Quay về phiên bản trước lần cập nhật cuối">
+                  <History size={14} />
+                  Khôi phục bản trước
+                </button>
+              )}
+              <button className="st-button is-danger" onClick={onRemove}>
+                <Trash2 size={14} />
+                Gỡ add-on
               </button>
-            )}
-            {addon.hasBackup && (
-              <button className="st-button" onClick={() => act(addonApi.rollback(m.id))} title="Quay về phiên bản trước lần cập nhật cuối">
-                <History size={14} />
-                Khôi phục bản trước
-              </button>
-            )}
-            <button className="st-button is-danger" onClick={onRemove}>
-              <Trash2 size={14} />
-              Gỡ add-on
-            </button>
+            </div>
           </div>
         </div>
       )}
@@ -1044,36 +1053,52 @@ function AddonCard({ addon, onRemove }: { addon: Addon; onRemove: () => void }) 
   );
 }
 
+/** One titled group inside an expanded add-on card. */
+function AddonBlock({ title, hint, action, children }: { title: string; hint?: string; action?: ReactNode; children: ReactNode }) {
+  return (
+    <section className="st-addon-block">
+      <header className="st-addon-block-head">
+        <span className="st-addon-block-title">{title}</span>
+        {hint && <span className="st-addon-block-hint">{hint}</span>}
+        {action && <span className="st-addon-block-action">{action}</span>}
+      </header>
+      {children}
+    </section>
+  );
+}
+
 function AddonHealth({ addon }: { addon: Addon }) {
   const s = addon.stats;
   if (!addon.enabled) return null;
-  const items: [string, string][] = [
-    ['Sự kiện', String(s.events ?? 0)],
-    ['Lệnh gọi', String(s.calls ?? 0)],
-    ['Lỗi', String(s.errors ?? 0)],
-    ['Bộ nhớ', s.memory ? kb(s.memory) : '—'],
-    ['Thời gian xử lý', `${s.busyMs ?? 0} ms`],
-    ['Sự kiện bị bỏ', String(s.dropped ?? 0)],
-    ['Yêu cầu AI', s.aiRequests ? `${s.aiRequests} (${(s.aiInputTokens ?? 0) + (s.aiOutputTokens ?? 0)} token)` : '0'],
+  const items: { label: string; value: string; tone?: 'bad' | 'warn' }[] = [
+    { label: 'Sự kiện', value: String(s.events ?? 0) },
+    { label: 'Lệnh gọi', value: String(s.calls ?? 0) },
+    { label: 'Lỗi', value: String(s.errors ?? 0), tone: s.errors ? 'bad' : undefined },
+    { label: 'Bộ nhớ', value: s.memory ? kb(s.memory) : '—' },
+    { label: 'Thời gian xử lý', value: `${s.busyMs ?? 0} ms` },
+    { label: 'Sự kiện bị bỏ', value: String(s.dropped ?? 0), tone: s.dropped ? 'warn' : undefined },
+    { label: 'Yêu cầu AI', value: String(s.aiRequests ?? 0) },
   ];
+  const tokens = (s.aiInputTokens ?? 0) + (s.aiOutputTokens ?? 0);
+  if (tokens) items.push({ label: 'Token AI', value: tokens.toLocaleString('vi-VN') });
   return (
-    <div className="st-field">
-      <span>Tình trạng</span>
-      <div className="st-auto-stats">
-        {items.map(([k, v]) => (
-          <div key={k} className="st-auto-stat">
-            <span className="st-muted">{k}</span>
-            <span className="nums">{v}</span>
+    <AddonBlock title="Tình trạng">
+      <div className="st-addon-stats">
+        {items.map((i) => (
+          <div key={i.label} className={`st-addon-stat${i.tone ? ` is-${i.tone}` : ''}`}>
+            <span className="st-addon-stat-label">{i.label}</span>
+            <span className="st-addon-stat-value nums">{i.value}</span>
           </div>
         ))}
       </div>
-    </div>
+    </AddonBlock>
   );
 }
 
 function AddonLimitsForm({ addon }: { addon: Addon }) {
   const [limits, setLimits] = useState<AddonLimits>(addon.limits);
   const [saved, setSaved] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
   const dirty = JSON.stringify(limits) !== JSON.stringify(addon.limits);
   const fields: [keyof AddonLimits, string, string | null][] = [
     ['sendPerMinute', 'Tin nhắn gửi / phút', 'messages:send'],
@@ -1083,15 +1108,23 @@ function AddonLimitsForm({ addon }: { addon: Addon }) {
   ];
   const shown = fields.filter(([, , perm]) => !perm || addon.manifest.permissions.includes(perm));
   if (!shown.length) return null;
+  const save = () =>
+    void addonApi
+      .setLimits(addon.manifest.id, limits)
+      .then(() => {
+        setSaved(true);
+        setProblem(null);
+        return refreshAutomation();
+      })
+      .catch((e) => setProblem(errorText(e)));
   return (
-    <div className="st-field">
-      <span>Giới hạn (bảo vệ tài khoản Zalo và chi phí AI)</span>
-      <div className="st-auto-limits">
+    <AddonBlock title="Giới hạn" hint="Bảo vệ tài khoản Zalo và chi phí AI">
+      <div className="st-addon-limits">
         {shown.map(([k, label]) => (
-          <label key={k} className="st-auto-limit">
-            <span className="st-muted">{label}</span>
+          <label key={k} className="st-field">
+            <span>{label}</span>
             <input
-              className="st-input is-narrow nums"
+              className="st-input nums"
               type="number"
               min={0}
               value={limits[k]}
@@ -1102,12 +1135,19 @@ function AddonLimitsForm({ addon }: { addon: Addon }) {
             />
           </label>
         ))}
-        <button className="st-button" disabled={!dirty} onClick={() => void addonApi.setLimits(addon.manifest.id, limits).then(() => (setSaved(true), refreshAutomation()))}>
-          {saved ? <Check size={14} /> : null}
+      </div>
+      <Problem text={problem} />
+      <div className="st-auto-actions is-end">
+        {saved && !dirty && (
+          <span className="st-ok st-addon-saved">
+            <Check size={13} /> Đã lưu
+          </span>
+        )}
+        <button className="st-button is-primary" disabled={!dirty} onClick={save}>
           Lưu giới hạn
         </button>
       </div>
-    </div>
+    </AddonBlock>
   );
 }
 
@@ -1124,13 +1164,16 @@ function AddonLog({ addon }: { addon: Addon }) {
     };
   }, [addon.manifest.id]);
   return (
-    <div className="st-field">
-      <span className="st-auto-title">
-        Nhật ký
-        <button className="st-chip is-button" onClick={() => void addonApi.clearLogs(addon.manifest.id).then(() => setLines([]))}>
-          Xoá
-        </button>
-      </span>
+    <AddonBlock
+      title="Nhật ký"
+      action={
+        lines.length > 0 && (
+          <button className="st-link" onClick={() => void addonApi.clearLogs(addon.manifest.id).then(() => setLines([]))}>
+            Xoá nhật ký
+          </button>
+        )
+      }
+    >
       <pre className="st-snippet selectable st-auto-log">
         {lines.length
           ? lines
@@ -1141,7 +1184,7 @@ function AddonLog({ addon }: { addon: Addon }) {
             ? 'Chưa có dòng nào.'
             : 'Add-on đang tắt.'}
       </pre>
-    </div>
+    </AddonBlock>
   );
 }
 
@@ -1156,9 +1199,9 @@ function ConversationsField({ value, onChange }: { value: string[]; onChange: (i
             {name(id)} ✕
           </button>
         ))}
-        {value.length === 0 && <span className="st-muted">Tất cả</span>}
+        {value.length === 0 && <span className="st-chip">Tất cả hội thoại</span>}
       </div>
-      <ConversationSelect allowEmpty value="" onChange={(id) => id && !value.includes(id) && onChange([...value, id])} />
+      <ConversationSelect allowEmpty placeholder="+ Thêm hội thoại…" value="" onChange={(id) => id && !value.includes(id) && onChange([...value, id])} />
     </div>
   );
 }
@@ -1263,7 +1306,11 @@ function AddonSettingsForm({ addon }: { addon: Addon }) {
       {addon.manifest.settings.map(field)}
       <Problem text={problem} />
       <div className="st-auto-actions is-end">
-        {saved && <span className="st-ok">Đã lưu</span>}
+        {saved && !dirty && (
+          <span className="st-ok st-addon-saved">
+            <Check size={13} /> Đã lưu
+          </span>
+        )}
         <button
           className="st-button is-primary"
           disabled={!dirty}
@@ -1328,36 +1375,47 @@ function AiSection({ config }: { config: AiConfig }) {
             onChange={(provider) => setC({ ...c, provider, model: provider === 'anthropic' ? 'claude-opus-5-5' : c.model === 'claude-opus-5-5' ? 'qwen3' : c.model })}
           />
         </div>
-        <label className="st-field">
-          <span>Model</span>
-          <input className="st-input st-auto-mono" value={c.model} onChange={(e) => setC({ ...c, model: e.target.value })} spellCheck={false} />
-        </label>
-        {c.provider === 'anthropic' && (
+        <div className="st-form-grid">
           <label className="st-field">
-            <span>Mức suy nghĩ</span>
-            <select className="st-input" value={c.effort} onChange={(e) => setC({ ...c, effort: e.target.value })}>
-              {efforts.map((e) => (
-                <option key={e.value} value={e.value}>
-                  {e.label}
-                </option>
-              ))}
-            </select>
+            <span>Model</span>
+            <input className="st-input st-auto-mono" value={c.model} onChange={(e) => setC({ ...c, model: e.target.value })} spellCheck={false} />
           </label>
-        )}
+          {c.provider === 'anthropic' && (
+            <label className="st-field">
+              <span>Mức suy nghĩ</span>
+              <select className="st-input" value={c.effort} onChange={(e) => setC({ ...c, effort: e.target.value })}>
+                {efforts.map((e) => (
+                  <option key={e.value} value={e.value}>
+                    {e.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+        </div>
         <label className="st-field">
-          <span>Khoá API {config.hasKey && <span className="st-muted">(đã lưu — để trống để giữ)</span>}</span>
+          <span>
+            Khoá API {config.hasKey && <span className="st-ok">· đã lưu, để trống để giữ</span>}
+          </span>
           <input className="st-input" type="password" autoComplete="off" value={c.apiKey} placeholder={config.hasKey ? '••••••••' : c.provider === 'anthropic' ? 'sk-ant-…' : 'không bắt buộc'} onChange={(e) => setC({ ...c, apiKey: e.target.value })} />
         </label>
-        <label className="st-field">
-          <span>Địa chỉ máy chủ (để trống = mặc định)</span>
-          <input className="st-input st-auto-mono" value={c.url} placeholder={c.provider === 'anthropic' ? 'https://api.anthropic.com' : 'http://127.0.0.1:11434/v1'} onChange={(e) => setC({ ...c, url: e.target.value })} spellCheck={false} />
-        </label>
-        <label className="st-field">
-          <span>Token trả lời tối đa mỗi yêu cầu</span>
-          <input className="st-input is-narrow nums" type="number" value={c.maxTokens} onChange={(e) => setC({ ...c, maxTokens: Number(e.target.value) || 0 })} />
-        </label>
-        {status && <div className={status.ok ? 'st-ok' : 'st-bad'}>{status.text}</div>}
-        <div className="st-auto-actions is-end">
+        <div className="st-form-grid is-wide-first">
+          <label className="st-field">
+            <span>Địa chỉ máy chủ (để trống = mặc định)</span>
+            <input className="st-input st-auto-mono" value={c.url} placeholder={c.provider === 'anthropic' ? 'https://api.anthropic.com' : 'http://127.0.0.1:11434/v1'} onChange={(e) => setC({ ...c, url: e.target.value })} spellCheck={false} />
+          </label>
+          <label className="st-field">
+            <span>Token trả lời tối đa</span>
+            <input className="st-input nums" type="number" min={1} value={c.maxTokens} onChange={(e) => setC({ ...c, maxTokens: Number(e.target.value) || 0 })} />
+          </label>
+        </div>
+        <div className="st-auto-actions st-form-footer">
+          {status && (
+            <span className={`st-status-pill ${status.ok ? 'is-ok' : 'is-bad'}`} title={status.text}>
+              {status.ok ? <Check size={13} /> : <AlertTriangle size={13} />}
+              <span className="truncate">{status.text}</span>
+            </span>
+          )}
           <button
             className="st-button"
             disabled={busy}

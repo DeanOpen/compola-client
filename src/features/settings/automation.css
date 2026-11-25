@@ -107,8 +107,21 @@
   width: 200px;
 }
 
+/* The native macOS popup ignores height and padding, so a select drew shorter than the inputs next to it. */
 select.st-input {
-  appearance: auto;
+  height: 32px;
+  padding-right: 30px;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238a919c' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 15 5 5 5-5'/%3E%3Cpath d='m7 9 5-5 5 5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 12px;
+  cursor: pointer;
+  text-overflow: ellipsis;
+}
+
+input.st-input {
+  height: 32px;
 }
 
 .st-auto-mono,
@@ -362,4 +375,197 @@ select.st-input {
   flex-direction: column;
   gap: 2px;
   text-align: left;
+}
+
+/* Add-on card, expanded (AddonCard): titled blocks over a faint panel, stats as tiles, limits as a grid. */
+.st-addon-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 16px 14px;
+  border-top: 1px solid var(--st-border);
+  background: color-mix(in srgb, var(--st-subtle) 35%, transparent);
+}
+
+.st-addon-detail .st-auto-error {
+  margin: 0;
+}
+
+.st-addon-block {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.st-addon-block-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-height: 18px;
+}
+
+.st-addon-block-title {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.st-addon-block-hint {
+  font-size: 12px;
+  color: var(--text-tertiary, var(--text-secondary));
+}
+
+.st-addon-block-action {
+  margin-left: auto;
+  font-size: 12.5px;
+}
+
+.st-addon-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+  gap: 8px;
+}
+
+.st-addon-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--st-border);
+  border-radius: 8px;
+  background: var(--st-bg);
+}
+
+.st-addon-stat-label {
+  overflow: hidden;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.st-addon-stat-value {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.st-addon-stat.is-bad .st-addon-stat-value {
+  color: var(--danger);
+}
+
+.st-addon-stat.is-warn .st-addon-stat-value {
+  color: var(--warning);
+}
+
+.st-addon-limits {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px 12px;
+}
+
+.st-addon-limits .st-field > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.st-addon-saved {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12.5px;
+}
+
+.st-addon-footer {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  padding-top: 14px;
+  border-top: 1px solid var(--st-border);
+}
+
+.st-addon-path {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 180px;
+  min-width: 0;
+  color: var(--text-secondary);
+}
+
+.st-addon-path svg {
+  flex: none;
+}
+
+.st-addon-footer .st-auto-actions {
+  margin-left: auto;
+}
+
+.st-addon-detail .st-addon-view {
+  border-radius: 8px;
+  background: var(--st-bg);
+}
+
+/* Two fields side by side, stacking when the pane is narrow (Settings › Add-on › AI). */
+.st-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.st-form-grid.is-wide-first {
+  grid-template-columns: minmax(0, 2fr) minmax(140px, 1fr);
+}
+
+@media (max-width: 640px) {
+  .st-form-grid.is-wide-first {
+    grid-template-columns: 1fr;
+  }
+}
+
+.st-form-footer {
+  justify-content: flex-end;
+}
+
+.st-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 200px;
+  min-width: 0;
+  max-width: max-content;
+  margin-right: auto;
+  padding: 5px 10px;
+  border-radius: 6px;
+  font-size: 12.5px;
+}
+
+.st-status-pill svg {
+  flex: none;
+}
+
+.st-status-pill.is-ok {
+  background: color-mix(in srgb, #1f9d5a 10%, transparent);
+  color: #1f9d5a;
+}
+
+.st-status-pill.is-bad {
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  color: var(--danger);
+}
+
+.st-auto-multi {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.st-auto-multi .st-auto-chips {
+  margin-top: 0;
 }
