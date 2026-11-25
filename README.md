@@ -313,23 +313,22 @@ APPLE_SIGNING_IDENTITY="Developer ID Application: <Tên> (<TEAMID>)" scripts/rel
 </details>
 
 <details>
-<summary><b>Triển khai máy chủ (Docker, Kubernetes)</b></summary>
+<summary><b>Triển khai máy chủ (Docker, Kubernetes) — không cần Mac</b></summary>
 
-**Compola Server trên Linux** (không cần Mac): image `ghcr.io/deanopen/compola-server` chạy cả bộ máy Zalo, API, trang
-quản trị và bản web trong một container (`deploy/server/`, cổng 39218, dữ liệu ở `/data`, quản trị viên đầu tiên đặt
-bằng `COMPOLA_ADMIN=user:pass`).
-
-**Gateway** (khi máy chủ là một máy Mac): Caddy với HTTPS tự động, phục vụ trang quản trị và bản web, chuyển tiếp API,
-WebSocket, media và tệp tải lên tới máy Mac.
+Compola Server chạy trên Linux: container `compola-server` chứa bộ máy Zalo, API, trang quản trị và bản web; gateway
+`compola-gateway` (Caddy) đứng trước, cấp HTTPS tự động.
 
 ```sh
-cp deploy/.env.example deploy/.env       # COMPOLA_UPSTREAM=http://<ip-máy-mac>:39218, SITE_ADDRESS=compola.example.com
+cp deploy/.env.example deploy/.env       # đặt COMPOLA_ADMIN; với HTTPS thêm SITE_ADDRESS và COMPOLA_PUBLIC_URL
 docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d
 
-helm install compola deploy/helm/compola-gateway --set upstream.url=http://<ip-máy-mac>:39218 --set ingress.enabled=true
+helm install compola deploy/helm/compola-gateway --set server.admin='admin:<mật-khẩu>' \
+  --set ingress.enabled=true --set ingress.hosts[0].host=compola.example.com
 ```
 
-Chi tiết: [`deploy/README.md`](deploy/README.md).
+Mở `/admin/`, đăng nhập bằng `COMPOLA_ADMIN`, rồi quét mã QR Zalo trong *Tài khoản Zalo*. Gateway cũng có thể đứng
+trước một máy cài ứng dụng Compola làm máy chủ (macOS, Windows hoặc Linux). Chi tiết:
+[`deploy/README.md`](deploy/README.md).
 </details>
 
 <details>

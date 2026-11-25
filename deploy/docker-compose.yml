@@ -1,23 +1,51 @@
-# Compola gateway with Docker Compose. Copy .env.example to .env, set COMPOLA_UPSTREAM (and SITE_ADDRESS for HTTPS),
-# then:  docker compose -f deploy/docker-compose.yml up -d
+# Compola Server on Linux behind an HTTPS gateway — no Mac needed.
+#   server   the whole Compola Server (Zalo engine, API, /admin, /web) in one Linux container (deploy/server/)
+#   gateway  Caddy: HTTPS (automatic Let's Encrypt with a domain), compression, admin console + web client
+#
+#   cp deploy/.env.example deploy/.env    # set COMPOLA_ADMIN (first start), SITE_ADDRESS and COMPOLA_PUBLIC_URL
+#   docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d
+#   → https://<your-domain>/admin/  (or http://<server>:8080/admin/), then sign in to Zalo with the QR code there.
+#
+# Gateway only, in front of a Compola desktop app acting as host (Mac, Windows or Linux): set COMPOLA_UPSTREAM to that
+# machine and start just the gateway:  docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d gateway
 name: compola
 
 services:
+  server:
+    image: ghcr.io/deanopen/compola-server:${COMPOLA_TAG:-latest}
+    build:
+      context: ..
+      dockerfile: deploy/server/Dockerfile
+    restart: unless-stopped
+    environment:
+      # First admin, created only while there is none (change the password in /admin afterwards).
+      COMPOLA_ADMIN: ${COMPOLA_ADMIN:-}
+      # How people reach Compola (SSO redirects, device sign-in links): the gateway's address, e.g. https://compola.example.com
+      COMPOLA_PUBLIC_URL: ${COMPOLA_PUBLIC_URL:-}
+    # Not published: only the gateway talks to it.
+    expose:
+      - "39218"
+    volumes:
+      - compola-data:/data
+    # WebKitGTK needs more shared memory than Docker's 64 MB default.
+    shm_size: 1gb
+
   gateway:
-    image: ghcr.io/deanopen/compola-gateway:${COMPOLA_GATEWAY_TAG:-latest}
+    image: ghcr.io/deanopen/compola-gateway:${COMPOLA_TAG:-latest}
     build:
       context: ..
       dockerfile: deploy/gateway/Dockerfile
     restart: unless-stopped
     environment:
       SITE_ADDRESS: ${SITE_ADDRESS:-:8080}
-      COMPOLA_UPSTREAM: ${COMPOLA_UPSTREAM:-http://host.docker.internal:39218}
+      COMPOLA_UPSTREAM: ${COMPOLA_UPSTREAM:-http://server:39218}
     ports:
       # One port for everything (admin console, web client, API, WebSocket, /healthz).
       - "${HTTP_PORT:-8080}:8080"
       # With SITE_ADDRESS set to a domain (automatic HTTPS), publish 443 instead of the line above:
       # - "443:443"
     extra_hosts:
+      # Gateway-only use with a host on this machine: COMPOLA_UPSTREAM=http://host.docker.internal:39218
       - "host.docker.internal:host-gateway"
     volumes:
       - caddy_data:/data
@@ -29,5 +57,6 @@ services:
       retries: 3
 
 volumes:
+  compola-data:
   caddy_data:
   caddy_config:

@@ -1,6 +1,3 @@
-{{- if not .Values.upstream.url }}
-{{- fail "upstream.url is required: the Compola Server host, e.g. --set upstream.url=http://192.168.1.20:39218" }}
-{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -43,7 +40,7 @@ spec:
             - name: SITE_ADDRESS
               value: ":8080"
             - name: COMPOLA_UPSTREAM
-              value: {{ .Values.upstream.url | quote }}
+              value: {{ include "compola-gateway.upstream" . | quote }}
           ports:
             - name: http
               containerPort: 8080

@@ -41,6 +41,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { backend, commands, usesTauri, usesWeb } from '../../engine/backend';
 import { updater, useUpdater, watchUpdater } from '../../engine/updater';
+import { ErrorBoundary } from '../../ui/ErrorBoundary';
 import { callAdapter, raceTimeout } from '../../engine/call';
 import { logOut } from '../../engine/lifecycle';
 import { obj } from '../../engine/models/json';
@@ -190,23 +191,25 @@ export function SettingsDialog({ tab: requested, onTab, onClose }: { tab: Settin
             </button>
           </header>
           <div className="st-pane-body" key={tab}>
-            {tab === 'general' && <GeneralSettings onTab={onTab} />}
-            {tab === 'appearance' && <AppearanceSettings />}
-            {tab === 'notifications' && <NotificationSettings />}
-            {tab === 'privacy' && <PrivacySettings />}
-            {tab === 'sticker' && <StickerSettings />}
-            {tab === 'account' && (
-              <>
-                <AccountsSettings />
-                <AccountSettings onClose={onClose} />
-              </>
-            )}
-            {tab === 'mcp' && <McpSettings />}
-            {tab === 'schedules' && <ScheduleSettings />}
-            {tab === 'addons' && <AddonSettings />}
-            {tab === 'search' && <SearchSettings />}
-            {tab === 'engine' && <EngineSettings />}
-            {tab === 'server' && <ServerSettings />}
+            <ErrorBoundary label={current.title}>
+              {tab === 'general' && <GeneralSettings onTab={onTab} />}
+              {tab === 'appearance' && <AppearanceSettings />}
+              {tab === 'notifications' && <NotificationSettings />}
+              {tab === 'privacy' && <PrivacySettings />}
+              {tab === 'sticker' && <StickerSettings />}
+              {tab === 'account' && (
+                <>
+                  <AccountsSettings />
+                  <AccountSettings onClose={onClose} />
+                </>
+              )}
+              {tab === 'mcp' && <McpSettings />}
+              {tab === 'schedules' && <ScheduleSettings />}
+              {tab === 'addons' && <AddonSettings />}
+              {tab === 'search' && <SearchSettings />}
+              {tab === 'engine' && <EngineSettings />}
+              {tab === 'server' && <ServerSettings />}
+            </ErrorBoundary>
           </div>
         </section>
       </div>

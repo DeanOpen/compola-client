@@ -218,5 +218,15 @@ export const isPinnedConversation = (s: EngineState, c: ConversationSummary) =>
 export const isMuted = (s: EngineState, id: string) => s.mutedIds.has(id);
 
 /** Conversations that may be counted / listed: none while the hidden state is unknown. */
-export const visibleConversations = (s: EngineState): ConversationSummary[] =>
-  s.conversationActions.hiddenKnown ? s.conversations.filter((c) => !isHidden(s, c.id)) : [];
+let visibleMemo: { conversations: EngineState['conversations']; actions: EngineState['conversationActions']; result: ConversationSummary[] } | null = null;
+const noConversations: ConversationSummary[] = [];
+
+/** The conversations not hidden. The same array until the list or the hidden-chat state changes, so it can be a
+ * store selector (`useEngine(visibleConversations)`) without re-rendering forever. */
+export const visibleConversations = (s: EngineState): ConversationSummary[] => {
+  if (!s.conversationActions.hiddenKnown) return noConversations;
+  if (visibleMemo && visibleMemo.conversations === s.conversations && visibleMemo.actions === s.conversationActions) return visibleMemo.result;
+  const result = s.conversations.filter((c) => !isHidden(s, c.id));
+  visibleMemo = { conversations: s.conversations, actions: s.conversationActions, result };
+  return result;
+};

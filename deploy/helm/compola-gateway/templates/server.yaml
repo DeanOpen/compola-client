@@ -1,0 +1,127 @@
+{{- if .Values.server.enabled }}
+{{- $public := .Values.server.publicUrl }}
+{{- if and (not $public) .Values.ingress.enabled .Values.ingress.hosts }}
+{{- $public = printf "https://%s" (index .Values.ingress.hosts 0).host }}
+{{- end }}
+{{- if and .Values.server.admin (not .Values.server.existingSecret) }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "compola-gateway.serverName" . }}
+  labels:
+    {{- include "compola-gateway.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  COMPOLA_ADMIN: {{ .Values.server.admin | quote }}
+---
+{{- end }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "compola-gateway.serverName" . }}
+  labels:
+    {{- include "compola-gateway.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: 39218
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "compola-gateway.serverSelectorLabels" . | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "compola-gateway.serverName" . }}
+  labels:
+    {{- include "compola-gateway.labels" . | nindent 4 }}
+spec:
+  # One Zalo session per container: never more than one replica.
+  replicas: 1
+  serviceName: {{ include "compola-gateway.serverName" . }}
+  selector:
+    matchLabels:
+      {{- include "compola-gateway.serverSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "compola-gateway.serverSelectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: server
+          image: "{{ .Values.server.image.repository }}:{{ .Values.server.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.server.image.pullPolicy }}
+          env:
+            {{- if or .Values.server.admin .Values.server.existingSecret }}
+            - name: COMPOLA_ADMIN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.server.existingSecret | default (include "compola-gateway.serverName" .) }}
+                  key: COMPOLA_ADMIN
+            {{- end }}
+            {{- if $public }}
+            - name: COMPOLA_PUBLIC_URL
+              value: {{ $public | quote }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 39218
+          startupProbe:
+            httpGet:
+              path: /info
+              port: http
+            periodSeconds: 5
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /info
+              port: http
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /info
+              port: http
+          resources:
+            {{- toYaml .Values.server.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: shm
+              mountPath: /dev/shm
+      volumes:
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: {{ .Values.server.shmSize }}
+      {{- with .Values.server.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.server.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.server.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        {{- with .Values.server.persistence.storageClass }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.server.persistence.size }}
+{{- end }}

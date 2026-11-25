@@ -1,4 +1,4 @@
-Compola gateway → {{ .Values.upstream.url }}
+Compola gateway → {{ include "compola-gateway.upstream" . }}{{ if and .Values.server.enabled (not .Values.upstream.url) }} (Compola Server on Linux, in this release){{ end }}
 
 {{- if .Values.ingress.enabled }}
 {{- range .Values.ingress.hosts }}
@@ -10,5 +10,6 @@ Compola gateway → {{ .Values.upstream.url }}
   then open http://localhost:8080/admin/
 {{- end }}
 
-Next: in the admin console, set "Cài đặt máy chủ › Địa chỉ công khai" to this gateway's public URL
-(SSO redirects and device sign-in links are built from it).
+Next: sign in to the admin console{{ if not (or .Values.server.admin .Values.server.existingSecret) }} (no first admin was set: install with --set server.admin=admin:<password>){{ end }},
+sign in to Zalo with the QR code under "Tài khoản Zalo", and check "Cài đặt máy chủ › Địa chỉ công khai" is this
+gateway's public URL (SSO redirects and device sign-in links are built from it).

@@ -34,3 +34,23 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}
 {{- end }}
+
+{{- define "compola-gateway.serverName" -}}
+{{- printf "%s-server" (include "compola-gateway.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{- define "compola-gateway.serverSelectorLabels" -}}
+app.kubernetes.io/name: {{ include "compola-gateway.name" . }}-server
+app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+
+{{/* Where the gateway sends /api, /ws, /media, /upload: the server in this release, or upstream.url. */}}
+{{- define "compola-gateway.upstream" -}}
+{{- if .Values.upstream.url }}
+{{- .Values.upstream.url }}
+{{- else if .Values.server.enabled }}
+{{- printf "http://%s:39218" (include "compola-gateway.serverName" .) }}
+{{- else }}
+{{- fail "Set server.enabled=true (Compola Server on Linux in this release) or upstream.url (a Compola desktop host)." }}
+{{- end }}
+{{- end }}

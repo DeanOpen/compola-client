@@ -1,6 +1,6 @@
 # Compola gateway (see deploy/README.md).
 #   SITE_ADDRESS      ":8080" or a domain (automatic HTTPS)
-#   COMPOLA_UPSTREAM  the Compola Server host, e.g. http://192.168.1.20:39218
+#   COMPOLA_UPSTREAM  Compola Server: the Linux server container (http://server:39218, the default) or a desktop host
 # Everything (admin console, web client, API, WebSocket, media, /healthz) is on ONE port: 8080 for plain HTTP, or
 # 443 with a domain (the certificate is obtained over 443 itself with TLS-ALPN, so port 80 is optional).
 {
